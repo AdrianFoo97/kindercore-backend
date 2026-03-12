@@ -1,0 +1,114 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  APPOINTMENT_BOOKED
+  FOLLOW_UP
+  ENROLLED
+  LOST
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(STAFF)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  appointmentsCreated Lead[] @relation("AppointmentCreatedBy")
+}
+
+model Lead {
+  id                         String     @id @default(uuid())
+  submittedAt                DateTime   @default(now())
+  childName                  String
+  parentPhone                String
+  childDob                   DateTime
+  enrolmentYear              Int
+  status                     LeadStatus @default(NEW)
+  notes                      String?   @db.Text
+  appointmentStart           DateTime?
+  appointmentEnd             DateTime?
+  googleEventId              String?
+  googleEventLink            String?   @db.Text
+  appointmentCreatedByUserId String?
+  appointmentIsPlaceholder   Boolean   @default(false)
+  lostReason                 String?   @db.Text
+  relationship               String?
+  programme                  String?
+  preferredAppointmentTime   String?
+  addressLocation            String?
+  needsTransport             Boolean?
+  howDidYouKnow              String?
+
+  appointmentCreatedBy User?    @relation("AppointmentCreatedBy", fields: [appointmentCreatedByUserId], references: [id])
+  student              Student?
+
+  @@index([submittedAt])
+  @@index([parentPhone])
+  @@index([status])
+}
+
+model GoogleConnection {
+  id           String   @id @default(uuid())
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  expiryDate   BigInt
+  scope        String   @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model Package {
+  id          String    @id @default(uuid())
+  year        Int
+  programme   String
+  age         Int
+  name        String
+  price       Float?
+  updatedAt   DateTime  @updatedAt
+  students    Student[]
+
+  @@unique([year, programme, age])
+}
+
+model Student {
+  id             String   @id @default(uuid())
+  leadId         String   @unique
+  lead           Lead     @relation(fields: [leadId], references: [id])
+  enrolmentYear  Int
+  enrolmentMonth Int
+  packageId      String
+  package        Package  @relation(fields: [packageId], references: [id])
+  enrolledAt          DateTime @default(now())
+  notes               String?  @db.Text
+  onboardingProgress    Json?
+  onboardingCompleted   Boolean  @default(false)
+  withdrawnAt           DateTime?
+  withdrawReason        String?
+  createdAt             DateTime @default(now())
+}
