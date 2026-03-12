@@ -21,6 +21,6 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ message: err.message ?? 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`[backend] Server running on http://localhost:${PORT}`);
 });
