@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/main.js",
+    "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
