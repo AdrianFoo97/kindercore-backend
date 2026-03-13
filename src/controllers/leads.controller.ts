@@ -16,7 +16,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
   const { childName, parentPhone, childDob, enrolmentYear, company,
           relationship, programme, preferredAppointmentTime, addressLocation,
-          needsTransport, howDidYouKnow } = parsed.data;
+          needsTransport, howDidYouKnow, submittedAt: submittedAtRaw } = parsed.data;
   if (company) {
     res.status(400).json({ message: 'Bad request' });
     return;
@@ -24,15 +24,25 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
   console.log('[Lead] New submission received:', JSON.stringify(parsed.data, null, 2));
 
-  const now = new Date();
   const id = randomUUID();
+  const submittedAt = submittedAtRaw ? new Date(submittedAtRaw) : new Date();
   await db.insert(leads).values({
     id, childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,
-    needsTransport, howDidYouKnow, submittedAt: now,
+    needsTransport, howDidYouKnow, submittedAt,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   res.status(201).json(lead);
+}
+
+export async function resetAllLeads(_req: Request, res: Response): Promise<void> {
+  await db.delete(leads);
+  res.json({ message: 'All leads deleted' });
+}
+
+export async function getLeadPhones(_req: Request, res: Response): Promise<void> {
+  const rows = await db.select({ id: leads.id, parentPhone: leads.parentPhone, childName: leads.childName, submittedAt: leads.submittedAt }).from(leads);
+  res.json(rows);
 }
 
 export async function getLeads(req: Request, res: Response): Promise<void> {
@@ -344,11 +354,12 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const totalLeads = currentLeads.length;
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
   const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST');
-  const noShowLeads = currentLeads.filter(l => l.status === 'LOST' && l.lostReason === "Didn't attend the enquiry").length;
-  const attendedAppointments = completedLeads.filter(l =>
-    l.appointmentStart !== null &&
-    !(l.status === 'LOST' && l.lostReason === "Didn't attend the enquiry")
+  // "Didn't attend" — covers both system-tracked ("Didn't attend the enquiry") and imported ("Didn't attend")
+  const noShowLeads = completedLeads.filter(l =>
+    l.status === 'LOST' && l.lostReason != null && l.lostReason.toLowerCase().includes("didn't attend")
   ).length;
+  // Attended = all completed leads minus no-shows (works for imported data without appointmentStart)
+  const attendedAppointments = completedLeads.length - noShowLeads;
   const appointmentRate = completedLeads.length > 0 ? attendedAppointments / completedLeads.length : 0;
 
   const currentMonthly = new Array(12).fill(0);
