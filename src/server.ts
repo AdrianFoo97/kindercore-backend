@@ -23,4 +23,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`[backend] Server running on http://localhost:${PORT}`);
+  const dbUrl = process.env.DATABASE_URL ?? '(not set)';
+  const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
+  console.log(`[backend] DATABASE_URL: ${masked}`);
 });
