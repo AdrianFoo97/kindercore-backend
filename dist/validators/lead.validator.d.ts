@@ -16,25 +16,25 @@ export declare const createLeadSchema: z.ZodObject<{
     parentPhone?: string;
     childDob?: string;
     enrolmentYear?: number;
-    company?: string;
     relationship?: string;
     programme?: string;
     preferredAppointmentTime?: string;
     addressLocation?: string;
     needsTransport?: boolean;
     howDidYouKnow?: string;
+    company?: string;
 }, {
     childName?: string;
     parentPhone?: string;
     childDob?: string;
     enrolmentYear?: number;
-    company?: string;
     relationship?: string;
     programme?: string;
     preferredAppointmentTime?: string;
     addressLocation?: string;
     needsTransport?: boolean;
     howDidYouKnow?: string;
+    company?: string;
 }>;
 export declare const updateLeadSchema: z.ZodObject<{
     childName: z.ZodOptional<z.ZodString>;
@@ -45,19 +45,19 @@ export declare const updateLeadSchema: z.ZodObject<{
     notes: z.ZodOptional<z.ZodString>;
     lostReason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, "strip", z.ZodTypeAny, {
-    status?: "NEW" | "CONTACTED" | "APPOINTMENT_BOOKED" | "FOLLOW_UP" | "ENROLLED" | "LOST";
     childName?: string;
     parentPhone?: string;
     childDob?: string;
     enrolmentYear?: number;
+    status?: "NEW" | "CONTACTED" | "APPOINTMENT_BOOKED" | "FOLLOW_UP" | "ENROLLED" | "LOST";
     notes?: string;
     lostReason?: string;
 }, {
-    status?: "NEW" | "CONTACTED" | "APPOINTMENT_BOOKED" | "FOLLOW_UP" | "ENROLLED" | "LOST";
     childName?: string;
     parentPhone?: string;
     childDob?: string;
     enrolmentYear?: number;
+    status?: "NEW" | "CONTACTED" | "APPOINTMENT_BOOKED" | "FOLLOW_UP" | "ENROLLED" | "LOST";
     notes?: string;
     lostReason?: string;
 }>;

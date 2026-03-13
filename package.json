@@ -2,7 +2,7 @@
   "name": "kindercore-backend",
   "version": "1.0.0",
   "private": true,
-"scripts": {
+  "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/startup.js",
@@ -12,14 +12,15 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^5.14.0",
-    "prisma": "^5.14.0",
+    "@prisma/client": "4.16.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^4.19.2",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.19.1",
+    "prisma": "4.16.2",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
