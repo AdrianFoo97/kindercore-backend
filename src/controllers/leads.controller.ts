@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
 import { and, asc, desc, eq, gte, inArray, lt, ne, or, sql } from 'drizzle-orm';
@@ -22,7 +23,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   }
 
   const now = new Date();
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   await db.insert(leads).values({
     id, childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,

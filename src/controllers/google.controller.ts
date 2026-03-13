@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
 import jwt from 'jsonwebtoken';
@@ -67,7 +68,7 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
   const now = new Date();
   await db.delete(googleConnections);
   await db.insert(googleConnections).values({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     accessToken: tokens.access_token!,
     refreshToken,
     expiryDate: BigInt(tokens.expiry_date ?? 0),

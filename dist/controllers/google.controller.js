@@ -7,6 +7,7 @@ exports.getStatus = getStatus;
 exports.connectToken = connectToken;
 exports.startAuth = startAuth;
 exports.handleCallback = handleCallback;
+const crypto_1 = require("crypto");
 const googleapis_1 = require("googleapis");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const client_js_1 = require("../db/client.js");
@@ -59,7 +60,7 @@ async function handleCallback(req, res) {
     const now = new Date();
     await client_js_1.db.delete(schema_js_1.googleConnections);
     await client_js_1.db.insert(schema_js_1.googleConnections).values({
-        id: crypto.randomUUID(),
+        id: (0, crypto_1.randomUUID)(),
         accessToken: tokens.access_token,
         refreshToken,
         expiryDate: BigInt(tokens.expiry_date ?? 0),
