@@ -13,7 +13,13 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 async function getOrInitSetting<T>(key: string, defaultValue: T): Promise<T> {
   const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, key)).limit(1);
-  if (row) return row.value as T;
+  if (row) {
+    const val = row.value;
+    if (typeof val === 'string') {
+      try { return JSON.parse(val) as T; } catch { return defaultValue; }
+    }
+    return val as T;
+  }
   await db.insert(systemSettings).values({
     id: randomUUID(),
     key,
