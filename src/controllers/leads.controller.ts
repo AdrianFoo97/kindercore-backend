@@ -22,6 +22,8 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  console.log('[Lead] New submission received:', JSON.stringify(parsed.data, null, 2));
+
   const now = new Date();
   const id = randomUUID();
   await db.insert(leads).values({
