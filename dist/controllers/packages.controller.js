@@ -1,33 +1,44 @@
-import { z } from 'zod';
-import { prisma } from '../db/client.js';
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getPackages = getPackages;
+exports.getPackageYears = getPackageYears;
+exports.getPackagesConfig = getPackagesConfig;
+exports.createPackage = createPackage;
+exports.deletePackage = deletePackage;
+exports.patchPackageName = patchPackageName;
+exports.upsertPackages = upsertPackages;
+exports.updateProgrammes = updateProgrammes;
+exports.updateAges = updateAges;
+const zod_1 = require("zod");
+const client_js_1 = require("../db/client.js");
 const DEFAULT_PROGRAMMES = ['Half Day', 'Full Day', 'Half Day + Enrichment'];
 const DEFAULT_AGES = [2, 3, 4, 5, 6];
 const CURRENT_YEAR = new Date().getFullYear();
 // ── Config helpers ────────────────────────────────────────────────────────────
 async function getOrInitSetting(key, defaultValue) {
-    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    const row = await client_js_1.prisma.systemSetting.findUnique({ where: { key } });
     if (row)
         return row.value;
-    await prisma.systemSetting.create({ data: { key, value: defaultValue } });
+    await client_js_1.prisma.systemSetting.create({ data: { key, value: defaultValue } });
     return defaultValue;
 }
 // ── Get packages (optionally filtered by year) ────────────────────────────────
-export async function getPackages(req, res) {
+async function getPackages(req, res) {
     const year = req.query.year ? Number(req.query.year) : undefined;
     const where = year !== undefined && !isNaN(year) ? { year } : {};
-    const rows = await prisma.package.findMany({ where, orderBy: [{ programme: 'asc' }, { age: 'asc' }] });
+    const rows = await client_js_1.prisma.package.findMany({ where, orderBy: [{ programme: 'asc' }, { age: 'asc' }] });
     res.json(rows);
 }
 // ── Get distinct years that have packages ─────────────────────────────────────
-export async function getPackageYears(_req, res) {
-    const rows = await prisma.package.findMany({ select: { year: true }, distinct: ['year'], orderBy: { year: 'desc' } });
+async function getPackageYears(_req, res) {
+    const rows = await client_js_1.prisma.package.findMany({ select: { year: true }, distinct: ['year'], orderBy: { year: 'desc' } });
     const years = rows.map((r) => r.year);
     if (!years.includes(CURRENT_YEAR))
         years.unshift(CURRENT_YEAR);
     res.json(years);
 }
 // ── Config ────────────────────────────────────────────────────────────────────
-export async function getPackagesConfig(_req, res) {
+async function getPackagesConfig(_req, res) {
     const [programmes, ages] = await Promise.all([
         getOrInitSetting('package_programmes', DEFAULT_PROGRAMMES),
         getOrInitSetting('package_ages', DEFAULT_AGES),
@@ -35,84 +46,84 @@ export async function getPackagesConfig(_req, res) {
     res.json({ programmes, ages });
 }
 // ── Create a package slot ─────────────────────────────────────────────────────
-const createSchema = z.object({
-    year: z.number().int().min(2000).max(2100),
-    programme: z.string().min(1),
-    age: z.number().int().min(0),
-    name: z.string().min(1),
-    price: z.number().min(0),
+const createSchema = zod_1.z.object({
+    year: zod_1.z.number().int().min(2000).max(2100),
+    programme: zod_1.z.string().min(1),
+    age: zod_1.z.number().int().min(0),
+    name: zod_1.z.string().min(1),
+    price: zod_1.z.number().min(0),
 });
-export async function createPackage(req, res) {
+async function createPackage(req, res) {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
     const { year, programme, age, name, price } = parsed.data;
-    const existing = await prisma.package.findUnique({ where: { year_programme_age: { year, programme, age } } });
+    const existing = await client_js_1.prisma.package.findUnique({ where: { year_programme_age: { year, programme, age } } });
     if (existing) {
         res.status(409).json({ message: `Package for ${year} ${programme} Age ${age} already exists` });
         return;
     }
-    const pkg = await prisma.package.create({ data: { year, programme, age, name, price } });
+    const pkg = await client_js_1.prisma.package.create({ data: { year, programme, age, name, price } });
     res.status(201).json(pkg);
 }
 // ── Delete a package slot ─────────────────────────────────────────────────────
-export async function deletePackage(req, res) {
+async function deletePackage(req, res) {
     const { id } = req.params;
-    const existing = await prisma.package.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.package.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    await prisma.package.delete({ where: { id } });
+    await client_js_1.prisma.package.delete({ where: { id } });
     res.status(204).send();
 }
 // ── Patch name ────────────────────────────────────────────────────────────────
-const patchNameSchema = z.object({ name: z.string().min(1) });
-export async function patchPackageName(req, res) {
+const patchNameSchema = zod_1.z.object({ name: zod_1.z.string().min(1) });
+async function patchPackageName(req, res) {
     const { id } = req.params;
     const parsed = patchNameSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await prisma.package.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.package.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    const updated = await prisma.package.update({ where: { id }, data: { name: parsed.data.name } });
+    const updated = await client_js_1.prisma.package.update({ where: { id }, data: { name: parsed.data.name } });
     res.json(updated);
 }
 // ── Bulk upsert prices ────────────────────────────────────────────────────────
-const upsertSchema = z.object({
-    year: z.number().int(),
-    programme: z.string().min(1),
-    age: z.number().int().min(0),
-    price: z.number().min(0).nullable(),
+const upsertSchema = zod_1.z.object({
+    year: zod_1.z.number().int(),
+    programme: zod_1.z.string().min(1),
+    age: zod_1.z.number().int().min(0),
+    price: zod_1.z.number().min(0).nullable(),
 });
-export async function upsertPackages(req, res) {
-    const parsed = z.array(upsertSchema).safeParse(req.body);
+async function upsertPackages(req, res) {
+    const parsed = zod_1.z.array(upsertSchema).safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    await Promise.all(parsed.data.map((item) => prisma.package.updateMany({
+    await Promise.all(parsed.data.map((item) => client_js_1.prisma.package.updateMany({
         where: { year: item.year, programme: item.programme, age: item.age },
         data: { price: item.price },
     })));
     const years = [...new Set(parsed.data.map((i) => i.year))];
-    const updated = await prisma.package.findMany({ where: { year: { in: years } }, orderBy: [{ programme: 'asc' }, { age: 'asc' }] });
+    const updated = await client_js_1.prisma.package.findMany({ where: { year: { in: years } }, orderBy: [{ programme: 'asc' }, { age: 'asc' }] });
     res.json(updated);
 }
 // ── Programmes config ─────────────────────────────────────────────────────────
-const updateProgrammesSchema = z.object({
-    renames: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
-    add: z.array(z.string()).default([]),
-    remove: z.array(z.string()).default([]),
+const updateProgrammesSchema = zod_1.z.object({
+    renames: zod_1.z.array(zod_1.z.object({ from: zod_1.z.string(), to: zod_1.z.string() })).default([]),
+    add: zod_1.z.array(zod_1.z.string()).default([]),
+    remove: zod_1.z.array(zod_1.z.string()).default([]),
 });
-export async function updateProgrammes(req, res) {
+async function updateProgrammes(req, res) {
     const parsed = updateProgrammesSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
@@ -126,18 +137,18 @@ export async function updateProgrammes(req, res) {
         if (!updated.includes(name))
             updated.push(name);
     }
-    await Promise.all(renames.map(({ from, to }) => prisma.package.updateMany({ where: { programme: from }, data: { programme: to } })));
+    await Promise.all(renames.map(({ from, to }) => client_js_1.prisma.package.updateMany({ where: { programme: from }, data: { programme: to } })));
     if (remove.length)
-        await prisma.package.deleteMany({ where: { programme: { in: remove } } });
-    await prisma.systemSetting.update({ where: { key: 'package_programmes' }, data: { value: updated } });
+        await client_js_1.prisma.package.deleteMany({ where: { programme: { in: remove } } });
+    await client_js_1.prisma.systemSetting.update({ where: { key: 'package_programmes' }, data: { value: updated } });
     res.json({ programmes: updated });
 }
 // ── Ages config ───────────────────────────────────────────────────────────────
-const updateAgesSchema = z.object({
-    add: z.array(z.number().int().min(0)).default([]),
-    remove: z.array(z.number().int().min(0)).default([]),
+const updateAgesSchema = zod_1.z.object({
+    add: zod_1.z.array(zod_1.z.number().int().min(0)).default([]),
+    remove: zod_1.z.array(zod_1.z.number().int().min(0)).default([]),
 });
-export async function updateAges(req, res) {
+async function updateAges(req, res) {
     const parsed = updateAgesSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
@@ -152,8 +163,8 @@ export async function updateAges(req, res) {
     }
     updated.sort((a, b) => a - b);
     if (remove.length)
-        await prisma.package.deleteMany({ where: { age: { in: remove } } });
-    await prisma.systemSetting.update({ where: { key: 'package_ages' }, data: { value: updated } });
+        await client_js_1.prisma.package.deleteMany({ where: { age: { in: remove } } });
+    await client_js_1.prisma.systemSetting.update({ where: { key: 'package_ages' }, data: { value: updated } });
     res.json({ ages: updated });
 }
 //# sourceMappingURL=packages.controller.js.map

@@ -1,27 +1,30 @@
-import { z } from 'zod';
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.updateLeadSchema = exports.createLeadSchema = void 0;
+const zod_1 = require("zod");
 const currentYear = new Date().getFullYear();
-export const createLeadSchema = z.object({
-    childName: z.string().min(1),
-    parentPhone: z.string().min(1),
-    childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date (YYYY-MM-DD)'),
-    enrolmentYear: z.number().int().min(currentYear).max(currentYear + 6),
-    company: z.string().max(0, 'Honeypot triggered').optional(),
-    relationship: z.string().min(1).optional(),
-    programme: z.string().min(1).optional(),
-    preferredAppointmentTime: z.string().min(1).optional(),
-    addressLocation: z.string().min(1).optional(),
-    needsTransport: z.boolean().optional(),
-    howDidYouKnow: z.string().min(1).optional(),
+exports.createLeadSchema = zod_1.z.object({
+    childName: zod_1.z.string().min(1),
+    parentPhone: zod_1.z.string().min(1),
+    childDob: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a valid date (YYYY-MM-DD)'),
+    enrolmentYear: zod_1.z.number().int().min(currentYear).max(currentYear + 6),
+    company: zod_1.z.string().max(0, 'Honeypot triggered').optional(),
+    relationship: zod_1.z.string().min(1).optional(),
+    programme: zod_1.z.string().min(1).optional(),
+    preferredAppointmentTime: zod_1.z.string().min(1).optional(),
+    addressLocation: zod_1.z.string().min(1).optional(),
+    needsTransport: zod_1.z.boolean().optional(),
+    howDidYouKnow: zod_1.z.string().min(1).optional(),
 });
-export const updateLeadSchema = z.object({
-    childName: z.string().min(1).optional(),
-    parentPhone: z.string().min(1).optional(),
-    childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-    enrolmentYear: z.number().int().min(2020).max(currentYear + 5).optional(),
-    status: z
+exports.updateLeadSchema = zod_1.z.object({
+    childName: zod_1.z.string().min(1).optional(),
+    parentPhone: zod_1.z.string().min(1).optional(),
+    childDob: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    enrolmentYear: zod_1.z.number().int().min(2020).max(currentYear + 5).optional(),
+    status: zod_1.z
         .enum(['NEW', 'CONTACTED', 'APPOINTMENT_BOOKED', 'FOLLOW_UP', 'ENROLLED', 'LOST'])
         .optional(),
-    notes: z.string().optional(),
-    lostReason: z.string().nullable().optional(),
+    notes: zod_1.z.string().optional(),
+    lostReason: zod_1.z.string().nullable().optional(),
 });
 //# sourceMappingURL=lead.validator.js.map

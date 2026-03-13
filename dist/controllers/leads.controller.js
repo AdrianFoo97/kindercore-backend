@@ -1,9 +1,20 @@
-import { google } from 'googleapis';
-import { Prisma } from '@prisma/client';
-import { prisma } from '../db/client.js';
-import { createLeadSchema, updateLeadSchema, } from '../validators/lead.validator.js';
-export async function createLead(req, res) {
-    const parsed = createLeadSchema.safeParse(req.body);
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.createLead = createLead;
+exports.getLeads = getLeads;
+exports.getLeadStats = getLeadStats;
+exports.updateLead = updateLead;
+exports.createAppointment = createAppointment;
+exports.getUpcomingAppointments = getUpcomingAppointments;
+exports.getAnalytics = getAnalytics;
+exports.getSalesAnalytics = getSalesAnalytics;
+exports.roundUpTo30Min = roundUpTo30Min;
+const googleapis_1 = require("googleapis");
+const client_1 = require("@prisma/client");
+const client_js_1 = require("../db/client.js");
+const lead_validator_js_1 = require("../validators/lead.validator.js");
+async function createLead(req, res) {
+    const parsed = lead_validator_js_1.createLeadSchema.safeParse(req.body);
     if (!parsed.success) {
         res
             .status(400)
@@ -15,7 +26,7 @@ export async function createLead(req, res) {
         res.status(400).json({ message: 'Bad request' });
         return;
     }
-    const lead = await prisma.lead.create({
+    const lead = await client_js_1.prisma.lead.create({
         data: {
             childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
             relationship, programme, preferredAppointmentTime, addressLocation,
@@ -24,7 +35,7 @@ export async function createLead(req, res) {
     });
     res.status(201).json(lead);
 }
-export async function getLeads(req, res) {
+async function getLeads(req, res) {
     const page = Math.max(1, parseInt(req.query.page ?? '1') || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize ?? '20') || 20));
     const skip = (page - 1) * pageSize;
@@ -34,7 +45,7 @@ export async function getLeads(req, res) {
     const order = sortOrder === 'asc' ? 'asc' : 'desc';
     const sortByStatus = field === 'status';
     // Auto-advance past appointments to FOLLOW_UP
-    await prisma.lead.updateMany({
+    await client_js_1.prisma.lead.updateMany({
         where: { status: 'APPOINTMENT_BOOKED', appointmentStart: { lt: new Date() } },
         data: { status: 'FOLLOW_UP' },
     });
@@ -42,21 +53,21 @@ export async function getLeads(req, res) {
         status === 'inactive' ? { status: { in: ['ENROLLED', 'LOST'] } } :
             status ? { status: status } :
                 {};
-    const total = await prisma.lead.count({ where });
+    const total = await client_js_1.prisma.lead.count({ where });
     // Status sort uses CASE WHEN for custom enum order; active filter also enforces status as primary sort
     const needsRawQuery = sortByStatus || status === 'active';
     let items;
     if (needsRawQuery) {
         const fieldSqlMap = {
-            submittedAt: Prisma.sql `\`submittedAt\``,
-            childName: Prisma.sql `\`childName\``,
-            childDob: Prisma.sql `\`childDob\``,
-            enrolmentYear: Prisma.sql `\`enrolmentYear\``,
+            submittedAt: client_1.Prisma.sql `\`submittedAt\``,
+            childName: client_1.Prisma.sql `\`childName\``,
+            childDob: client_1.Prisma.sql `\`childDob\``,
+            enrolmentYear: client_1.Prisma.sql `\`enrolmentYear\``,
         };
-        const dir = order === 'asc' ? Prisma.sql `ASC` : Prisma.sql `DESC`;
-        const revDir = order === 'asc' ? Prisma.sql `DESC` : Prisma.sql `ASC`;
+        const dir = order === 'asc' ? client_1.Prisma.sql `ASC` : client_1.Prisma.sql `DESC`;
+        const revDir = order === 'asc' ? client_1.Prisma.sql `DESC` : client_1.Prisma.sql `ASC`;
         // Status CASE expression (asc = NEW first, desc = FOLLOW_UP first)
-        const statusCase = Prisma.sql `CASE status
+        const statusCase = client_1.Prisma.sql `CASE status
       WHEN 'NEW' THEN 1
       WHEN 'CONTACTED' THEN 2
       WHEN 'APPOINTMENT_BOOKED' THEN 3
@@ -66,13 +77,13 @@ export async function getLeads(req, res) {
       ELSE 7
     END`;
         // Build WHERE clause
-        const whereClause = status === 'active' ? Prisma.sql `status NOT IN ('ENROLLED', 'LOST')` :
-            status === 'inactive' ? Prisma.sql `status IN ('ENROLLED', 'LOST')` :
-                status ? Prisma.sql `status = ${status}` :
-                    Prisma.sql `1=1`;
+        const whereClause = status === 'active' ? client_1.Prisma.sql `status NOT IN ('ENROLLED', 'LOST')` :
+            status === 'inactive' ? client_1.Prisma.sql `status IN ('ENROLLED', 'LOST')` :
+                status ? client_1.Prisma.sql `status = ${status}` :
+                    client_1.Prisma.sql `1=1`;
         if (sortByStatus) {
             // Sorting by status column: use custom order, secondary by submittedAt desc
-            items = await prisma.$queryRaw `
+            items = await client_js_1.prisma.$queryRaw `
         SELECT * FROM \`Lead\`
         WHERE ${whereClause}
         ORDER BY ${statusCase} ${dir}, \`submittedAt\` DESC
@@ -81,8 +92,8 @@ export async function getLeads(req, res) {
         }
         else {
             // Active filter with non-status sort: status as primary, chosen field as secondary
-            const secondaryField = fieldSqlMap[field] ?? Prisma.sql `\`submittedAt\``;
-            items = await prisma.$queryRaw `
+            const secondaryField = fieldSqlMap[field] ?? client_1.Prisma.sql `\`submittedAt\``;
+            items = await client_js_1.prisma.$queryRaw `
         SELECT * FROM \`Lead\`
         WHERE ${whereClause}
         ORDER BY ${statusCase} ASC, ${secondaryField} ${dir}
@@ -91,7 +102,7 @@ export async function getLeads(req, res) {
         }
     }
     else {
-        items = await prisma.lead.findMany({
+        items = await client_js_1.prisma.lead.findMany({
             skip,
             take: pageSize,
             where,
@@ -100,8 +111,8 @@ export async function getLeads(req, res) {
     }
     res.json({ items, total, page, pageSize });
 }
-export async function getLeadStats(req, res) {
-    const groups = await prisma.lead.groupBy({
+async function getLeadStats(req, res) {
+    const groups = await client_js_1.prisma.lead.groupBy({
         by: ['status'],
         _count: { id: true },
     });
@@ -117,9 +128,9 @@ export async function getLeadStats(req, res) {
         LOST: counts['LOST'] ?? 0,
     });
 }
-export async function updateLead(req, res) {
+async function updateLead(req, res) {
     const { id } = req.params;
-    const parsed = updateLeadSchema.safeParse(req.body);
+    const parsed = lead_validator_js_1.updateLeadSchema.safeParse(req.body);
     if (!parsed.success) {
         res
             .status(400)
@@ -128,7 +139,7 @@ export async function updateLead(req, res) {
     }
     const { childDob, ...rest } = parsed.data;
     try {
-        const lead = await prisma.lead.update({
+        const lead = await client_js_1.prisma.lead.update({
             where: { id },
             data: {
                 ...rest,
@@ -150,7 +161,7 @@ function roundUpTo30Min(date) {
     result.setMinutes(minutes + (30 - remainder), 0, 0);
     return result;
 }
-export async function createAppointment(req, res, next) {
+async function createAppointment(req, res, next) {
     try {
         await _createAppointment(req, res);
     }
@@ -182,12 +193,12 @@ function buildEventDescription(lead, whatsappMessage) {
 async function _createAppointment(req, res) {
     const { id } = req.params;
     const { appointmentStart: appointmentStartStr, whatsappMessage, isPlaceholder } = req.body;
-    const connection = await prisma.googleConnection.findFirst();
+    const connection = await client_js_1.prisma.googleConnection.findFirst();
     if (!connection) {
         res.status(409).json({ message: 'Google calendar not connected' });
         return;
     }
-    const lead = await prisma.lead.findUnique({ where: { id } });
+    const lead = await client_js_1.prisma.lead.findUnique({ where: { id } });
     if (!lead) {
         res.status(404).json({ message: 'Lead not found' });
         return;
@@ -195,12 +206,12 @@ async function _createAppointment(req, res) {
     const start = appointmentStartStr
         ? new Date(appointmentStartStr)
         : roundUpTo30Min(new Date(Date.now() + 2 * 60 * 60 * 1000));
-    const durationSetting = await prisma.systemSetting.findUnique({
+    const durationSetting = await client_js_1.prisma.systemSetting.findUnique({
         where: { key: 'appointment_duration_minutes' },
     });
     const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
     const end = new Date(start.getTime() + durationMs);
-    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI);
+    const oauth2Client = new googleapis_1.google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI);
     oauth2Client.setCredentials({
         access_token: connection.accessToken,
         refresh_token: connection.refreshToken,
@@ -208,7 +219,7 @@ async function _createAppointment(req, res) {
     });
     oauth2Client.on('tokens', async (tokens) => {
         if (tokens.access_token) {
-            await prisma.googleConnection.updateMany({
+            await client_js_1.prisma.googleConnection.updateMany({
                 data: {
                     accessToken: tokens.access_token,
                     ...(tokens.expiry_date != null
@@ -218,7 +229,7 @@ async function _createAppointment(req, res) {
             });
         }
     });
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendar = googleapis_1.google.calendar({ version: 'v3', auth: oauth2Client });
     // Delete existing calendar event if rescheduling
     if (lead.googleEventId) {
         try {
@@ -247,7 +258,7 @@ async function _createAppointment(req, res) {
             },
         },
     });
-    await prisma.lead.update({
+    await client_js_1.prisma.lead.update({
         where: { id },
         data: {
             googleEventId: event.data.id,
@@ -264,9 +275,9 @@ async function _createAppointment(req, res) {
         googleEventLink: event.data.htmlLink,
     });
 }
-export async function getUpcomingAppointments(req, res) {
+async function getUpcomingAppointments(req, res) {
     const now = new Date();
-    const items = await prisma.lead.findMany({
+    const items = await client_js_1.prisma.lead.findMany({
         where: { appointmentStart: { gte: now } },
         orderBy: { appointmentStart: 'asc' },
         select: {
@@ -281,7 +292,7 @@ export async function getUpcomingAppointments(req, res) {
     res.json(items);
 }
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-export async function getAnalytics(req, res) {
+async function getAnalytics(req, res) {
     const selectedYear = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
     const prevYear = selectedYear - 1;
     const dateRange = (y) => ({
@@ -289,11 +300,11 @@ export async function getAnalytics(req, res) {
     });
     // Fetch current-year leads (full fields) and previous-year leads (submittedAt only)
     const [currentLeads, prevLeads] = await Promise.all([
-        prisma.lead.findMany({
+        client_js_1.prisma.lead.findMany({
             where: dateRange(selectedYear),
             select: { submittedAt: true, childDob: true, appointmentStart: true, addressLocation: true, howDidYouKnow: true, status: true, lostReason: true },
         }),
-        prisma.lead.findMany({
+        client_js_1.prisma.lead.findMany({
             where: dateRange(prevYear),
             select: { submittedAt: true },
         }),
@@ -359,7 +370,7 @@ export async function getAnalytics(req, res) {
         channel: l.howDidYouKnow ?? null,
     }));
     // Available submission years for the dropdown
-    const yearRows = await prisma.$queryRaw `
+    const yearRows = await client_js_1.prisma.$queryRaw `
     SELECT DISTINCT YEAR(submittedAt) AS year FROM \`Lead\` ORDER BY year DESC
   `;
     const availableYears = yearRows.map(r => r.year);
@@ -372,7 +383,7 @@ export async function getAnalytics(req, res) {
         availableYears,
     });
 }
-export async function getSalesAnalytics(req, res) {
+async function getSalesAnalytics(req, res) {
     const selectedYear = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
     const prevYear = selectedYear - 1;
     // Sales funnel: ENROLLED (closed) + LOST where reason ≠ "Didn't attend the enquiry" (lost sales)
@@ -389,7 +400,7 @@ export async function getSalesAnalytics(req, res) {
         ],
     });
     const [leads, prevLeads] = await Promise.all([
-        prisma.lead.findMany({
+        client_js_1.prisma.lead.findMany({
             where: closedFilter(selectedYear),
             select: {
                 id: true, childName: true, notes: true, lostReason: true,
@@ -398,7 +409,7 @@ export async function getSalesAnalytics(req, res) {
             },
             orderBy: { submittedAt: 'asc' },
         }),
-        prisma.lead.findMany({
+        client_js_1.prisma.lead.findMany({
             where: closedFilter(prevYear),
             select: { submittedAt: true, status: true },
         }),
@@ -470,11 +481,10 @@ export async function getSalesAnalytics(req, res) {
         };
     });
     // Available years based on submittedAt
-    const allYears = await prisma.$queryRaw `
+    const allYears = await client_js_1.prisma.$queryRaw `
     SELECT DISTINCT YEAR(submittedAt) AS year FROM \`Lead\` ORDER BY year DESC
   `;
     const availableYears = allYears.map(r => r.year);
     res.json({ selectedYear, prevYear, totalLeads, enrolledLeads, lostLeads, closingRate, monthlyComparison, monthlyByAge, addressBreakdown, marketingChannelBreakdown, leadsTable, availableYears });
 }
-export { roundUpTo30Min };
 //# sourceMappingURL=leads.controller.js.map

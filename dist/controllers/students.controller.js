@@ -1,8 +1,18 @@
-import { z } from 'zod';
-import { prisma } from '../db/client.js';
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getStudents = getStudents;
+exports.createStudent = createStudent;
+exports.updateStudent = updateStudent;
+exports.completeOnboarding = completeOnboarding;
+exports.deleteStudent = deleteStudent;
+exports.withdrawStudent = withdrawStudent;
+exports.reactivateStudent = reactivateStudent;
+exports.updateOnboardingProgress = updateOnboardingProgress;
+const zod_1 = require("zod");
+const client_js_1 = require("../db/client.js");
 // ── List all students ─────────────────────────────────────────────────────────
-export async function getStudents(_req, res) {
-    const students = await prisma.student.findMany({
+async function getStudents(_req, res) {
+    const students = await client_js_1.prisma.student.findMany({
         include: {
             lead: { select: { childName: true, childDob: true, parentPhone: true } },
             package: { select: { name: true, programme: true, age: true, year: true } },
@@ -12,42 +22,42 @@ export async function getStudents(_req, res) {
     res.json(students);
 }
 // ── Create student (enrol a lead) ─────────────────────────────────────────────
-const createSchema = z.object({
-    leadId: z.string().min(1),
-    enrolmentYear: z.number().int().min(2000).max(2100),
-    enrolmentMonth: z.number().int().min(1).max(12),
-    packageId: z.string().min(1),
-    enrolledAt: z.string().datetime().optional(),
-    notes: z.string().optional(),
+const createSchema = zod_1.z.object({
+    leadId: zod_1.z.string().min(1),
+    enrolmentYear: zod_1.z.number().int().min(2000).max(2100),
+    enrolmentMonth: zod_1.z.number().int().min(1).max(12),
+    packageId: zod_1.z.string().min(1),
+    enrolledAt: zod_1.z.string().datetime().optional(),
+    notes: zod_1.z.string().optional(),
 });
-export async function createStudent(req, res) {
+async function createStudent(req, res) {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
     const { leadId, enrolmentYear, enrolmentMonth, packageId, enrolledAt, notes } = parsed.data;
-    const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+    const lead = await client_js_1.prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) {
         res.status(404).json({ message: 'Lead not found' });
         return;
     }
-    const pkg = await prisma.package.findUnique({ where: { id: packageId } });
+    const pkg = await client_js_1.prisma.package.findUnique({ where: { id: packageId } });
     if (!pkg) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    const existing = await prisma.student.findUnique({ where: { leadId } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { leadId } });
     if (existing) {
         res.status(409).json({ message: 'Student already exists for this lead' });
         return;
     }
     // Snapshot current onboarding tasks for this student
-    const settingRow = await prisma.systemSetting.findUnique({ where: { key: 'onboarding_tasks' } });
+    const settingRow = await client_js_1.prisma.systemSetting.findUnique({ where: { key: 'onboarding_tasks' } });
     const tasks = Array.isArray(settingRow?.value) ? settingRow.value : [];
     const onboardingProgress = tasks.map((task) => ({ task, done: false }));
-    const [student] = await prisma.$transaction([
-        prisma.student.create({
+    const [student] = await client_js_1.prisma.$transaction([
+        client_js_1.prisma.student.create({
             data: {
                 leadId,
                 enrolmentYear,
@@ -62,29 +72,29 @@ export async function createStudent(req, res) {
                 package: { select: { name: true, programme: true, age: true, year: true } },
             },
         }),
-        prisma.lead.update({ where: { id: leadId }, data: { status: 'ENROLLED' } }),
+        client_js_1.prisma.lead.update({ where: { id: leadId }, data: { status: 'ENROLLED' } }),
     ]);
     res.status(201).json(student);
 }
 // ── Update student ────────────────────────────────────────────────────────────
-const updateSchema = z.object({
-    enrolmentYear: z.number().int().min(2000).max(2100).optional(),
-    enrolmentMonth: z.number().int().min(1).max(12).optional(),
-    packageId: z.string().min(1).optional(),
-    enrolledAt: z.string().datetime().optional(),
-    notes: z.string().nullable().optional(),
-    childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').optional(),
-    childName: z.string().min(1).optional(),
-    parentPhone: z.string().min(1).optional(),
+const updateSchema = zod_1.z.object({
+    enrolmentYear: zod_1.z.number().int().min(2000).max(2100).optional(),
+    enrolmentMonth: zod_1.z.number().int().min(1).max(12).optional(),
+    packageId: zod_1.z.string().min(1).optional(),
+    enrolledAt: zod_1.z.string().datetime().optional(),
+    notes: zod_1.z.string().nullable().optional(),
+    childDob: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').optional(),
+    childName: zod_1.z.string().min(1).optional(),
+    parentPhone: zod_1.z.string().min(1).optional(),
 });
-export async function updateStudent(req, res) {
+async function updateStudent(req, res) {
     const { id } = req.params;
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await prisma.student.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
@@ -97,8 +107,8 @@ export async function updateStudent(req, res) {
         leadUpdate.childName = childName;
     if (parentPhone !== undefined)
         leadUpdate.parentPhone = parentPhone;
-    const [student] = await prisma.$transaction([
-        prisma.student.update({
+    const [student] = await client_js_1.prisma.$transaction([
+        client_js_1.prisma.student.update({
             where: { id },
             data: {
                 ...(enrolmentYear !== undefined ? { enrolmentYear } : {}),
@@ -113,15 +123,15 @@ export async function updateStudent(req, res) {
             },
         }),
         ...(Object.keys(leadUpdate).length > 0
-            ? [prisma.lead.update({ where: { id: existing.leadId }, data: leadUpdate })]
+            ? [client_js_1.prisma.lead.update({ where: { id: existing.leadId }, data: leadUpdate })]
             : []),
     ]);
     res.json(student);
 }
 // ── Complete onboarding ───────────────────────────────────────────────────────
-export async function completeOnboarding(req, res) {
+async function completeOnboarding(req, res) {
     const { id } = req.params;
-    const existing = await prisma.student.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
@@ -131,7 +141,7 @@ export async function completeOnboarding(req, res) {
         res.status(400).json({ message: 'All onboarding tasks must be completed first' });
         return;
     }
-    const student = await prisma.student.update({
+    const student = await client_js_1.prisma.student.update({
         where: { id },
         data: { onboardingCompleted: true },
         include: {
@@ -142,38 +152,38 @@ export async function completeOnboarding(req, res) {
     res.json(student);
 }
 // ── Delete student ────────────────────────────────────────────────────────────
-export async function deleteStudent(req, res) {
+async function deleteStudent(req, res) {
     const { id } = req.params;
-    const existing = await prisma.student.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
     }
-    await prisma.$transaction([
-        prisma.student.delete({ where: { id } }),
-        prisma.lead.update({ where: { id: existing.leadId }, data: { status: 'LOST' } }),
+    await client_js_1.prisma.$transaction([
+        client_js_1.prisma.student.delete({ where: { id } }),
+        client_js_1.prisma.lead.update({ where: { id: existing.leadId }, data: { status: 'LOST' } }),
     ]);
     res.status(204).end();
 }
 // ── Withdraw student ──────────────────────────────────────────────────────────
-const withdrawSchema = z.object({
-    withdrawnAt: z.string().datetime().optional(),
-    withdrawReason: z.string().optional(),
+const withdrawSchema = zod_1.z.object({
+    withdrawnAt: zod_1.z.string().datetime().optional(),
+    withdrawReason: zod_1.z.string().optional(),
 });
-export async function withdrawStudent(req, res) {
+async function withdrawStudent(req, res) {
     const { id } = req.params;
     const parsed = withdrawSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await prisma.student.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
     }
     const { withdrawnAt, withdrawReason } = parsed.data;
-    const student = await prisma.student.update({
+    const student = await client_js_1.prisma.student.update({
         where: { id },
         data: {
             withdrawnAt: withdrawnAt ? new Date(withdrawnAt) : new Date(),
@@ -187,9 +197,9 @@ export async function withdrawStudent(req, res) {
     res.json(student);
 }
 // ── Reactivate student (undo withdrawal) ──────────────────────────────────────
-export async function reactivateStudent(req, res) {
+async function reactivateStudent(req, res) {
     const { id } = req.params;
-    const existing = await prisma.student.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
@@ -198,7 +208,7 @@ export async function reactivateStudent(req, res) {
         res.status(400).json({ message: 'Student is not withdrawn' });
         return;
     }
-    const student = await prisma.student.update({
+    const student = await client_js_1.prisma.student.update({
         where: { id },
         data: { withdrawnAt: null, withdrawReason: null },
         include: {
@@ -209,25 +219,25 @@ export async function reactivateStudent(req, res) {
     res.json(student);
 }
 // ── Update onboarding progress ────────────────────────────────────────────────
-const onboardingSchema = z.object({
-    progress: z.array(z.object({
-        task: z.string(),
-        done: z.boolean(),
+const onboardingSchema = zod_1.z.object({
+    progress: zod_1.z.array(zod_1.z.object({
+        task: zod_1.z.string(),
+        done: zod_1.z.boolean(),
     })),
 });
-export async function updateOnboardingProgress(req, res) {
+async function updateOnboardingProgress(req, res) {
     const { id } = req.params;
     const parsed = onboardingSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await prisma.student.findUnique({ where: { id } });
+    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
     }
-    const student = await prisma.student.update({
+    const student = await client_js_1.prisma.student.update({
         where: { id },
         data: { onboardingProgress: parsed.data.progress },
         include: {
