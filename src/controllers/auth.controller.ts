@@ -1,20 +1,20 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../db/client.js';
+import { eq } from 'drizzle-orm';
+import { db } from '../db/client.js';
+import { users } from '../db/schema.js';
 import { loginSchema } from '../validators/auth.validator.js';
 
 export async function login(req: Request, res: Response): Promise<void> {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
-    res
-      .status(400)
-      .json({ message: 'Validation error', errors: parsed.error.errors });
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
 
   const { email, password } = parsed.data;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (!user) {
     res.status(401).json({ message: 'Invalid credentials' });
     return;

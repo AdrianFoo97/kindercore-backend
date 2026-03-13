@@ -10,28 +10,41 @@ exports.upsertPackages = upsertPackages;
 exports.updateProgrammes = updateProgrammes;
 exports.updateAges = updateAges;
 const zod_1 = require("zod");
+const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
+const schema_js_1 = require("../db/schema.js");
 const DEFAULT_PROGRAMMES = ['Half Day', 'Full Day', 'Half Day + Enrichment'];
 const DEFAULT_AGES = [2, 3, 4, 5, 6];
 const CURRENT_YEAR = new Date().getFullYear();
 // ── Config helpers ────────────────────────────────────────────────────────────
 async function getOrInitSetting(key, defaultValue) {
-    const row = await client_js_1.prisma.systemSetting.findUnique({ where: { key } });
+    const [row] = await client_js_1.db.select().from(schema_js_1.systemSettings).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, key)).limit(1);
     if (row)
         return row.value;
-    await client_js_1.prisma.systemSetting.create({ data: { key, value: defaultValue } });
+    await client_js_1.db.insert(schema_js_1.systemSettings).values({
+        id: crypto.randomUUID(),
+        key,
+        value: defaultValue,
+        updatedAt: new Date(),
+    });
     return defaultValue;
 }
 // ── Get packages (optionally filtered by year) ────────────────────────────────
 async function getPackages(req, res) {
     const year = req.query.year ? Number(req.query.year) : undefined;
-    const where = year !== undefined && !isNaN(year) ? { year } : {};
-    const rows = await client_js_1.prisma.package.findMany({ where, orderBy: [{ programme: 'asc' }, { age: 'asc' }] });
+    const rows = await client_js_1.db
+        .select()
+        .from(schema_js_1.packages)
+        .where(year !== undefined && !isNaN(year) ? (0, drizzle_orm_1.eq)(schema_js_1.packages.year, year) : undefined)
+        .orderBy((0, drizzle_orm_1.asc)(schema_js_1.packages.programme), (0, drizzle_orm_1.asc)(schema_js_1.packages.age));
     res.json(rows);
 }
 // ── Get distinct years that have packages ─────────────────────────────────────
 async function getPackageYears(_req, res) {
-    const rows = await client_js_1.prisma.package.findMany({ select: { year: true }, distinct: ['year'], orderBy: { year: 'desc' } });
+    const rows = await client_js_1.db
+        .selectDistinct({ year: schema_js_1.packages.year })
+        .from(schema_js_1.packages)
+        .orderBy((0, drizzle_orm_1.desc)(schema_js_1.packages.year));
     const years = rows.map((r) => r.year);
     if (!years.includes(CURRENT_YEAR))
         years.unshift(CURRENT_YEAR);
@@ -60,23 +73,30 @@ async function createPackage(req, res) {
         return;
     }
     const { year, programme, age, name, price } = parsed.data;
-    const existing = await client_js_1.prisma.package.findUnique({ where: { year_programme_age: { year, programme, age } } });
+    const [existing] = await client_js_1.db
+        .select()
+        .from(schema_js_1.packages)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_js_1.packages.year, year), (0, drizzle_orm_1.eq)(schema_js_1.packages.programme, programme), (0, drizzle_orm_1.eq)(schema_js_1.packages.age, age)))
+        .limit(1);
     if (existing) {
         res.status(409).json({ message: `Package for ${year} ${programme} Age ${age} already exists` });
         return;
     }
-    const pkg = await client_js_1.prisma.package.create({ data: { year, programme, age, name, price } });
+    const now = new Date();
+    const id = crypto.randomUUID();
+    await client_js_1.db.insert(schema_js_1.packages).values({ id, year, programme, age, name, price, updatedAt: now });
+    const [pkg] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id)).limit(1);
     res.status(201).json(pkg);
 }
 // ── Delete a package slot ─────────────────────────────────────────────────────
 async function deletePackage(req, res) {
     const { id } = req.params;
-    const existing = await client_js_1.prisma.package.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    await client_js_1.prisma.package.delete({ where: { id } });
+    await client_js_1.db.delete(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id));
     res.status(204).send();
 }
 // ── Patch name ────────────────────────────────────────────────────────────────
@@ -88,12 +108,13 @@ async function patchPackageName(req, res) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await client_js_1.prisma.package.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    const updated = await client_js_1.prisma.package.update({ where: { id }, data: { name: parsed.data.name } });
+    await client_js_1.db.update(schema_js_1.packages).set({ name: parsed.data.name, updatedAt: new Date() }).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id));
+    const [updated] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id)).limit(1);
     res.json(updated);
 }
 // ── Bulk upsert prices ────────────────────────────────────────────────────────
@@ -109,12 +130,17 @@ async function upsertPackages(req, res) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    await Promise.all(parsed.data.map((item) => client_js_1.prisma.package.updateMany({
-        where: { year: item.year, programme: item.programme, age: item.age },
-        data: { price: item.price },
-    })));
+    const now = new Date();
+    await Promise.all(parsed.data.map((item) => client_js_1.db
+        .update(schema_js_1.packages)
+        .set({ price: item.price, updatedAt: now })
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_js_1.packages.year, item.year), (0, drizzle_orm_1.eq)(schema_js_1.packages.programme, item.programme), (0, drizzle_orm_1.eq)(schema_js_1.packages.age, item.age)))));
     const years = [...new Set(parsed.data.map((i) => i.year))];
-    const updated = await client_js_1.prisma.package.findMany({ where: { year: { in: years } }, orderBy: [{ programme: 'asc' }, { age: 'asc' }] });
+    const updated = await client_js_1.db
+        .select()
+        .from(schema_js_1.packages)
+        .where((0, drizzle_orm_1.inArray)(schema_js_1.packages.year, years))
+        .orderBy((0, drizzle_orm_1.asc)(schema_js_1.packages.programme), (0, drizzle_orm_1.asc)(schema_js_1.packages.age));
     res.json(updated);
 }
 // ── Programmes config ─────────────────────────────────────────────────────────
@@ -137,10 +163,11 @@ async function updateProgrammes(req, res) {
         if (!updated.includes(name))
             updated.push(name);
     }
-    await Promise.all(renames.map(({ from, to }) => client_js_1.prisma.package.updateMany({ where: { programme: from }, data: { programme: to } })));
+    const now = new Date();
+    await Promise.all(renames.map(({ from, to }) => client_js_1.db.update(schema_js_1.packages).set({ programme: to, updatedAt: now }).where((0, drizzle_orm_1.eq)(schema_js_1.packages.programme, from))));
     if (remove.length)
-        await client_js_1.prisma.package.deleteMany({ where: { programme: { in: remove } } });
-    await client_js_1.prisma.systemSetting.update({ where: { key: 'package_programmes' }, data: { value: updated } });
+        await client_js_1.db.delete(schema_js_1.packages).where((0, drizzle_orm_1.inArray)(schema_js_1.packages.programme, remove));
+    await client_js_1.db.update(schema_js_1.systemSettings).set({ value: updated, updatedAt: now }).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'package_programmes'));
     res.json({ programmes: updated });
 }
 // ── Ages config ───────────────────────────────────────────────────────────────
@@ -162,9 +189,10 @@ async function updateAges(req, res) {
             updated.push(age);
     }
     updated.sort((a, b) => a - b);
+    const now = new Date();
     if (remove.length)
-        await client_js_1.prisma.package.deleteMany({ where: { age: { in: remove } } });
-    await client_js_1.prisma.systemSetting.update({ where: { key: 'package_ages' }, data: { value: updated } });
+        await client_js_1.db.delete(schema_js_1.packages).where((0, drizzle_orm_1.inArray)(schema_js_1.packages.age, remove));
+    await client_js_1.db.update(schema_js_1.systemSettings).set({ value: updated, updatedAt: now }).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'package_ages'));
     res.json({ ages: updated });
 }
 //# sourceMappingURL=packages.controller.js.map

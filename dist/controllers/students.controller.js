@@ -9,17 +9,69 @@ exports.withdrawStudent = withdrawStudent;
 exports.reactivateStudent = reactivateStudent;
 exports.updateOnboardingProgress = updateOnboardingProgress;
 const zod_1 = require("zod");
+const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
+const schema_js_1 = require("../db/schema.js");
+// ── Shared select + reshape ───────────────────────────────────────────────────
+const studentSelect = {
+    id: schema_js_1.students.id,
+    leadId: schema_js_1.students.leadId,
+    enrolmentYear: schema_js_1.students.enrolmentYear,
+    enrolmentMonth: schema_js_1.students.enrolmentMonth,
+    packageId: schema_js_1.students.packageId,
+    enrolledAt: schema_js_1.students.enrolledAt,
+    notes: schema_js_1.students.notes,
+    onboardingProgress: schema_js_1.students.onboardingProgress,
+    onboardingCompleted: schema_js_1.students.onboardingCompleted,
+    withdrawnAt: schema_js_1.students.withdrawnAt,
+    withdrawReason: schema_js_1.students.withdrawReason,
+    createdAt: schema_js_1.students.createdAt,
+    leadChildName: schema_js_1.leads.childName,
+    leadChildDob: schema_js_1.leads.childDob,
+    leadParentPhone: schema_js_1.leads.parentPhone,
+    packageName: schema_js_1.packages.name,
+    packageProgramme: schema_js_1.packages.programme,
+    packageAge: schema_js_1.packages.age,
+    packageYear: schema_js_1.packages.year,
+};
+function queryStudents() {
+    return client_js_1.db
+        .select(studentSelect)
+        .from(schema_js_1.students)
+        .leftJoin(schema_js_1.leads, (0, drizzle_orm_1.eq)(schema_js_1.students.leadId, schema_js_1.leads.id))
+        .leftJoin(schema_js_1.packages, (0, drizzle_orm_1.eq)(schema_js_1.students.packageId, schema_js_1.packages.id));
+}
+function reshape(row) {
+    return {
+        id: row.id,
+        leadId: row.leadId,
+        enrolmentYear: row.enrolmentYear,
+        enrolmentMonth: row.enrolmentMonth,
+        packageId: row.packageId,
+        enrolledAt: row.enrolledAt,
+        notes: row.notes,
+        onboardingProgress: row.onboardingProgress,
+        onboardingCompleted: row.onboardingCompleted,
+        withdrawnAt: row.withdrawnAt,
+        withdrawReason: row.withdrawReason,
+        createdAt: row.createdAt,
+        lead: {
+            childName: row.leadChildName,
+            childDob: row.leadChildDob,
+            parentPhone: row.leadParentPhone,
+        },
+        package: {
+            name: row.packageName,
+            programme: row.packageProgramme,
+            age: row.packageAge,
+            year: row.packageYear,
+        },
+    };
+}
 // ── List all students ─────────────────────────────────────────────────────────
 async function getStudents(_req, res) {
-    const students = await client_js_1.prisma.student.findMany({
-        include: {
-            lead: { select: { childName: true, childDob: true, parentPhone: true } },
-            package: { select: { name: true, programme: true, age: true, year: true } },
-        },
-        orderBy: { enrolledAt: 'desc' },
-    });
-    res.json(students);
+    const rows = await queryStudents().orderBy((0, drizzle_orm_1.desc)(schema_js_1.students.enrolledAt));
+    res.json(rows.map(reshape));
 }
 // ── Create student (enrol a lead) ─────────────────────────────────────────────
 const createSchema = zod_1.z.object({
@@ -37,44 +89,42 @@ async function createStudent(req, res) {
         return;
     }
     const { leadId, enrolmentYear, enrolmentMonth, packageId, enrolledAt, notes } = parsed.data;
-    const lead = await client_js_1.prisma.lead.findUnique({ where: { id: leadId } });
+    const [lead] = await client_js_1.db.select().from(schema_js_1.leads).where((0, drizzle_orm_1.eq)(schema_js_1.leads.id, leadId)).limit(1);
     if (!lead) {
         res.status(404).json({ message: 'Lead not found' });
         return;
     }
-    const pkg = await client_js_1.prisma.package.findUnique({ where: { id: packageId } });
+    const [pkg] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, packageId)).limit(1);
     if (!pkg) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    const existing = await client_js_1.prisma.student.findUnique({ where: { leadId } });
-    if (existing) {
+    const [existingStudent] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.leadId, leadId)).limit(1);
+    if (existingStudent) {
         res.status(409).json({ message: 'Student already exists for this lead' });
         return;
     }
-    // Snapshot current onboarding tasks for this student
-    const settingRow = await client_js_1.prisma.systemSetting.findUnique({ where: { key: 'onboarding_tasks' } });
+    const [settingRow] = await client_js_1.db.select().from(schema_js_1.systemSettings).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'onboarding_tasks')).limit(1);
     const tasks = Array.isArray(settingRow?.value) ? settingRow.value : [];
     const onboardingProgress = tasks.map((task) => ({ task, done: false }));
-    const [student] = await client_js_1.prisma.$transaction([
-        client_js_1.prisma.student.create({
-            data: {
-                leadId,
-                enrolmentYear,
-                enrolmentMonth,
-                packageId,
-                ...(enrolledAt ? { enrolledAt: new Date(enrolledAt) } : {}),
-                notes: notes ?? null,
-                onboardingProgress,
-            },
-            include: {
-                lead: { select: { childName: true, childDob: true, parentPhone: true } },
-                package: { select: { name: true, programme: true, age: true, year: true } },
-            },
-        }),
-        client_js_1.prisma.lead.update({ where: { id: leadId }, data: { status: 'ENROLLED' } }),
-    ]);
-    res.status(201).json(student);
+    const now = new Date();
+    const newId = crypto.randomUUID();
+    await client_js_1.db.transaction(async (tx) => {
+        await tx.insert(schema_js_1.students).values({
+            id: newId,
+            leadId,
+            enrolmentYear,
+            enrolmentMonth,
+            packageId,
+            enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
+            notes: notes ?? null,
+            onboardingProgress,
+            createdAt: now,
+        });
+        await tx.update(schema_js_1.leads).set({ status: 'ENROLLED' }).where((0, drizzle_orm_1.eq)(schema_js_1.leads.id, leadId));
+    });
+    const [row] = await queryStudents().where((0, drizzle_orm_1.eq)(schema_js_1.students.id, newId));
+    res.status(201).json(reshape(row));
 }
 // ── Update student ────────────────────────────────────────────────────────────
 const updateSchema = zod_1.z.object({
@@ -94,7 +144,7 @@ async function updateStudent(req, res) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
@@ -107,31 +157,25 @@ async function updateStudent(req, res) {
         leadUpdate.childName = childName;
     if (parentPhone !== undefined)
         leadUpdate.parentPhone = parentPhone;
-    const [student] = await client_js_1.prisma.$transaction([
-        client_js_1.prisma.student.update({
-            where: { id },
-            data: {
-                ...(enrolmentYear !== undefined ? { enrolmentYear } : {}),
-                ...(enrolmentMonth !== undefined ? { enrolmentMonth } : {}),
-                ...(packageId !== undefined ? { packageId } : {}),
-                ...(enrolledAt !== undefined ? { enrolledAt: new Date(enrolledAt) } : {}),
-                ...(notes !== undefined ? { notes } : {}),
-            },
-            include: {
-                lead: { select: { childName: true, childDob: true, parentPhone: true } },
-                package: { select: { name: true, programme: true, age: true, year: true } },
-            },
-        }),
-        ...(Object.keys(leadUpdate).length > 0
-            ? [client_js_1.prisma.lead.update({ where: { id: existing.leadId }, data: leadUpdate })]
-            : []),
-    ]);
-    res.json(student);
+    await client_js_1.db.transaction(async (tx) => {
+        await tx.update(schema_js_1.students).set({
+            ...(enrolmentYear !== undefined ? { enrolmentYear } : {}),
+            ...(enrolmentMonth !== undefined ? { enrolmentMonth } : {}),
+            ...(packageId !== undefined ? { packageId } : {}),
+            ...(enrolledAt !== undefined ? { enrolledAt: new Date(enrolledAt) } : {}),
+            ...(notes !== undefined ? { notes } : {}),
+        }).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+        if (Object.keys(leadUpdate).length > 0) {
+            await tx.update(schema_js_1.leads).set(leadUpdate).where((0, drizzle_orm_1.eq)(schema_js_1.leads.id, existing.leadId));
+        }
+    });
+    const [row] = await queryStudents().where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    res.json(reshape(row));
 }
 // ── Complete onboarding ───────────────────────────────────────────────────────
 async function completeOnboarding(req, res) {
     const { id } = req.params;
-    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
@@ -141,28 +185,22 @@ async function completeOnboarding(req, res) {
         res.status(400).json({ message: 'All onboarding tasks must be completed first' });
         return;
     }
-    const student = await client_js_1.prisma.student.update({
-        where: { id },
-        data: { onboardingCompleted: true },
-        include: {
-            lead: { select: { childName: true, childDob: true, parentPhone: true } },
-            package: { select: { name: true, programme: true, age: true, year: true } },
-        },
-    });
-    res.json(student);
+    await client_js_1.db.update(schema_js_1.students).set({ onboardingCompleted: true }).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    const [row] = await queryStudents().where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    res.json(reshape(row));
 }
 // ── Delete student ────────────────────────────────────────────────────────────
 async function deleteStudent(req, res) {
     const { id } = req.params;
-    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
     }
-    await client_js_1.prisma.$transaction([
-        client_js_1.prisma.student.delete({ where: { id } }),
-        client_js_1.prisma.lead.update({ where: { id: existing.leadId }, data: { status: 'LOST' } }),
-    ]);
+    await client_js_1.db.transaction(async (tx) => {
+        await tx.delete(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+        await tx.update(schema_js_1.leads).set({ status: 'LOST' }).where((0, drizzle_orm_1.eq)(schema_js_1.leads.id, existing.leadId));
+    });
     res.status(204).end();
 }
 // ── Withdraw student ──────────────────────────────────────────────────────────
@@ -177,29 +215,23 @@ async function withdrawStudent(req, res) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
     }
     const { withdrawnAt, withdrawReason } = parsed.data;
-    const student = await client_js_1.prisma.student.update({
-        where: { id },
-        data: {
-            withdrawnAt: withdrawnAt ? new Date(withdrawnAt) : new Date(),
-            withdrawReason: withdrawReason ?? null,
-        },
-        include: {
-            lead: { select: { childName: true, childDob: true, parentPhone: true } },
-            package: { select: { name: true, programme: true, age: true, year: true } },
-        },
-    });
-    res.json(student);
+    await client_js_1.db.update(schema_js_1.students).set({
+        withdrawnAt: withdrawnAt ? new Date(withdrawnAt) : new Date(),
+        withdrawReason: withdrawReason ?? null,
+    }).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    const [row] = await queryStudents().where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    res.json(reshape(row));
 }
 // ── Reactivate student (undo withdrawal) ──────────────────────────────────────
 async function reactivateStudent(req, res) {
     const { id } = req.params;
-    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
@@ -208,22 +240,13 @@ async function reactivateStudent(req, res) {
         res.status(400).json({ message: 'Student is not withdrawn' });
         return;
     }
-    const student = await client_js_1.prisma.student.update({
-        where: { id },
-        data: { withdrawnAt: null, withdrawReason: null },
-        include: {
-            lead: { select: { childName: true, childDob: true, parentPhone: true } },
-            package: { select: { name: true, programme: true, age: true, year: true } },
-        },
-    });
-    res.json(student);
+    await client_js_1.db.update(schema_js_1.students).set({ withdrawnAt: null, withdrawReason: null }).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    const [row] = await queryStudents().where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    res.json(reshape(row));
 }
 // ── Update onboarding progress ────────────────────────────────────────────────
 const onboardingSchema = zod_1.z.object({
-    progress: zod_1.z.array(zod_1.z.object({
-        task: zod_1.z.string(),
-        done: zod_1.z.boolean(),
-    })),
+    progress: zod_1.z.array(zod_1.z.object({ task: zod_1.z.string(), done: zod_1.z.boolean() })),
 });
 async function updateOnboardingProgress(req, res) {
     const { id } = req.params;
@@ -232,19 +255,13 @@ async function updateOnboardingProgress(req, res) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
-    const existing = await client_js_1.prisma.student.findUnique({ where: { id } });
+    const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);
     if (!existing) {
         res.status(404).json({ message: 'Student not found' });
         return;
     }
-    const student = await client_js_1.prisma.student.update({
-        where: { id },
-        data: { onboardingProgress: parsed.data.progress },
-        include: {
-            lead: { select: { childName: true, childDob: true, parentPhone: true } },
-            package: { select: { name: true, programme: true, age: true, year: true } },
-        },
-    });
-    res.json(student);
+    await client_js_1.db.update(schema_js_1.students).set({ onboardingProgress: parsed.data.progress }).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    const [row] = await queryStudents().where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id));
+    res.json(reshape(row));
 }
 //# sourceMappingURL=students.controller.js.map

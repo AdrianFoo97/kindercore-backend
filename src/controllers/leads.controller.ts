@@ -1,18 +1,15 @@
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
-import { Prisma } from '@prisma/client';
-import { prisma } from '../db/client.js';
-import {
-  createLeadSchema,
-  updateLeadSchema,
-} from '../validators/lead.validator.js';
+import { and, asc, desc, eq, gte, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import type { RowDataPacket } from 'mysql2';
+import { db, pool } from '../db/client.js';
+import { googleConnections, leads, systemSettings } from '../db/schema.js';
+import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 
 export async function createLead(req: Request, res: Response): Promise<void> {
   const parsed = createLeadSchema.safeParse(req.body);
   if (!parsed.success) {
-    res
-      .status(400)
-      .json({ message: 'Validation error', errors: parsed.error.errors });
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
 
@@ -24,22 +21,20 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const lead = await prisma.lead.create({
-    data: {
-      childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
-      relationship, programme, preferredAppointmentTime, addressLocation,
-      needsTransport, howDidYouKnow,
-    },
+  const now = new Date();
+  const id = crypto.randomUUID();
+  await db.insert(leads).values({
+    id, childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
+    relationship, programme, preferredAppointmentTime, addressLocation,
+    needsTransport, howDidYouKnow, submittedAt: now,
   });
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   res.status(201).json(lead);
 }
 
 export async function getLeads(req: Request, res: Response): Promise<void> {
   const page = Math.max(1, parseInt((req.query.page as string) ?? '1') || 1);
-  const pageSize = Math.min(
-    100,
-    Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20),
-  );
+  const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
   const skip = (page - 1) * pageSize;
 
   const { status, sortBy, sortOrder } = req.query as Record<string, string | undefined>;
@@ -50,35 +45,35 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   const sortByStatus = field === 'status';
 
   // Auto-advance past appointments to FOLLOW_UP
-  await prisma.lead.updateMany({
-    where: { status: 'APPOINTMENT_BOOKED', appointmentStart: { lt: new Date() } },
-    data: { status: 'FOLLOW_UP' },
-  });
+  await db.update(leads)
+    .set({ status: 'FOLLOW_UP' })
+    .where(and(eq(leads.status, 'APPOINTMENT_BOOKED'), sql`${leads.appointmentStart} < NOW()`));
 
-  const where =
-    status === 'active'   ? { status: { notIn: ['ENROLLED', 'LOST'] as any[] } } :
-    status === 'inactive' ? { status: { in:    ['ENROLLED', 'LOST'] as any[] } } :
-    status                ? { status: status as any } :
-    {};
+  // Build WHERE clause string for count + raw queries
+  let whereStr: string;
+  const whereParams: any[] = [];
+  if (status === 'active') {
+    whereStr = "status NOT IN ('ENROLLED', 'LOST')";
+  } else if (status === 'inactive') {
+    whereStr = "status IN ('ENROLLED', 'LOST')";
+  } else if (status) {
+    whereStr = 'status = ?';
+    whereParams.push(status);
+  } else {
+    whereStr = '1=1';
+  }
 
-  const total = await prisma.lead.count({ where });
+  const [[countRow]] = await pool.execute<RowDataPacket[]>(
+    `SELECT COUNT(*) as total FROM \`Lead\` WHERE ${whereStr}`,
+    whereParams,
+  ) as any;
+  const total = Number((countRow as any).total);
 
-  // Status sort uses CASE WHEN for custom enum order; active filter also enforces status as primary sort
   const needsRawQuery = sortByStatus || status === 'active';
-  let items: any[];
+  let items: unknown[];
 
   if (needsRawQuery) {
-    const fieldSqlMap: Record<string, Prisma.Sql> = {
-      submittedAt:   Prisma.sql`\`submittedAt\``,
-      childName:     Prisma.sql`\`childName\``,
-      childDob:      Prisma.sql`\`childDob\``,
-      enrolmentYear: Prisma.sql`\`enrolmentYear\``,
-    };
-    const dir = order === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-    const revDir = order === 'asc' ? Prisma.sql`DESC` : Prisma.sql`ASC`;
-
-    // Status CASE expression (asc = NEW first, desc = FOLLOW_UP first)
-    const statusCase = Prisma.sql`CASE status
+    const statusCase = `CASE status
       WHEN 'NEW' THEN 1
       WHEN 'CONTACTED' THEN 2
       WHEN 'APPOINTMENT_BOOKED' THEN 3
@@ -87,51 +82,57 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       WHEN 'LOST' THEN 6
       ELSE 7
     END`;
+    const fieldSqlMap: Record<string, string> = {
+      submittedAt: '`submittedAt`',
+      childName: '`childName`',
+      childDob: '`childDob`',
+      enrolmentYear: '`enrolmentYear`',
+    };
+    const dirStr = order === 'asc' ? 'ASC' : 'DESC';
+    const fieldStr = fieldSqlMap[field] ?? '`submittedAt`';
 
-    // Build WHERE clause
-    const whereClause =
-      status === 'active'   ? Prisma.sql`status NOT IN ('ENROLLED', 'LOST')` :
-      status === 'inactive' ? Prisma.sql`status IN ('ENROLLED', 'LOST')` :
-      status                ? Prisma.sql`status = ${status}` :
-      Prisma.sql`1=1`;
-
+    let orderByStr: string;
     if (sortByStatus) {
-      // Sorting by status column: use custom order, secondary by submittedAt desc
-      items = await prisma.$queryRaw`
-        SELECT * FROM \`Lead\`
-        WHERE ${whereClause}
-        ORDER BY ${statusCase} ${dir}, \`submittedAt\` DESC
-        LIMIT ${pageSize} OFFSET ${skip}
-      `;
+      orderByStr = `${statusCase} ${dirStr}, \`submittedAt\` DESC`;
     } else {
-      // Active filter with non-status sort: status as primary, chosen field as secondary
-      const secondaryField = fieldSqlMap[field] ?? Prisma.sql`\`submittedAt\``;
-      items = await prisma.$queryRaw`
-        SELECT * FROM \`Lead\`
-        WHERE ${whereClause}
-        ORDER BY ${statusCase} ASC, ${secondaryField} ${dir}
-        LIMIT ${pageSize} OFFSET ${skip}
-      `;
+      orderByStr = `${statusCase} ASC, ${fieldStr} ${dirStr}`;
     }
+
+    const query = `SELECT * FROM \`Lead\` WHERE ${whereStr} ORDER BY ${orderByStr} LIMIT ? OFFSET ?`;
+    const [rows] = await pool.execute<RowDataPacket[]>(query, [...whereParams, pageSize, skip]) as any;
+    items = rows as unknown[];
   } else {
-    items = await prisma.lead.findMany({
-      skip,
-      take: pageSize,
-      where,
-      orderBy: { [field]: order },
-    });
+    // Drizzle builder for simple cases
+    const drizzleWhere =
+      status === 'inactive' ? inArray(leads.status, ['ENROLLED', 'LOST']) :
+      status ? eq(leads.status, status as any) :
+      undefined;
+
+    const sortCol =
+      field === 'childName' ? leads.childName :
+      field === 'childDob' ? leads.childDob :
+      field === 'enrolmentYear' ? leads.enrolmentYear :
+      leads.submittedAt;
+
+    items = await db.select().from(leads)
+      .where(drizzleWhere)
+      .orderBy(order === 'asc' ? asc(sortCol) : desc(sortCol))
+      .limit(pageSize)
+      .offset(skip);
   }
 
   res.json({ items, total, page, pageSize });
 }
 
-export async function getLeadStats(req: Request, res: Response): Promise<void> {
-  const groups = await prisma.lead.groupBy({
-    by: ['status'],
-    _count: { id: true },
-  });
+export async function getLeadStats(_req: Request, res: Response): Promise<void> {
+  const groups = await db
+    .select({ status: leads.status, count: sql<number>`count(*)` })
+    .from(leads)
+    .groupBy(leads.status);
+
   const counts: Record<string, number> = {};
-  for (const g of groups) counts[g.status] = g._count.id;
+  for (const g of groups) counts[g.status] = Number(g.count);
+
   res.json({
     NEW: counts['NEW'] ?? 0,
     CONTACTED: counts['CONTACTED'] ?? 0,
@@ -146,25 +147,21 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
   const parsed = updateLeadSchema.safeParse(req.body);
   if (!parsed.success) {
-    res
-      .status(400)
-      .json({ message: 'Validation error', errors: parsed.error.errors });
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
 
+  const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
+
   const { childDob, ...rest } = parsed.data;
-  try {
-    const lead = await prisma.lead.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(childDob ? { childDob: new Date(childDob) } : {}),
-      },
-    });
-    res.json(lead);
-  } catch {
-    res.status(404).json({ message: 'Lead not found' });
-  }
+  await db.update(leads).set({
+    ...rest,
+    ...(childDob ? { childDob: new Date(childDob) } : {}),
+  } as any).where(eq(leads.id, id));
+
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  res.json(lead);
 }
 
 function roundUpTo30Min(date: Date): Date {
@@ -212,20 +209,19 @@ function buildEventDescription(
   return lines.join('\n');
 }
 
-async function _createAppointment(
-  req: Request,
-  res: Response,
-): Promise<void> {
+async function _createAppointment(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
-  const { appointmentStart: appointmentStartStr, whatsappMessage, isPlaceholder } = req.body as { appointmentStart?: string; whatsappMessage?: string; isPlaceholder?: boolean };
+  const { appointmentStart: appointmentStartStr, whatsappMessage, isPlaceholder } = req.body as {
+    appointmentStart?: string; whatsappMessage?: string; isPlaceholder?: boolean;
+  };
 
-  const connection = await prisma.googleConnection.findFirst();
+  const [connection] = await db.select().from(googleConnections).limit(1);
   if (!connection) {
     res.status(409).json({ message: 'Google calendar not connected' });
     return;
   }
 
-  const lead = await prisma.lead.findUnique({ where: { id } });
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   if (!lead) {
     res.status(404).json({ message: 'Lead not found' });
     return;
@@ -235,9 +231,11 @@ async function _createAppointment(
     ? new Date(appointmentStartStr)
     : roundUpTo30Min(new Date(Date.now() + 2 * 60 * 60 * 1000));
 
-  const durationSetting = await prisma.systemSetting.findUnique({
-    where: { key: 'appointment_duration_minutes' },
-  });
+  const [durationSetting] = await db
+    .select()
+    .from(systemSettings)
+    .where(eq(systemSettings.key, 'appointment_duration_minutes'))
+    .limit(1);
   const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
   const end = new Date(start.getTime() + durationMs);
 
@@ -254,20 +252,16 @@ async function _createAppointment(
 
   oauth2Client.on('tokens', async (tokens) => {
     if (tokens.access_token) {
-      await prisma.googleConnection.updateMany({
-        data: {
-          accessToken: tokens.access_token,
-          ...(tokens.expiry_date != null
-            ? { expiryDate: BigInt(tokens.expiry_date) }
-            : {}),
-        },
+      await db.update(googleConnections).set({
+        accessToken: tokens.access_token,
+        updatedAt: new Date(),
+        ...(tokens.expiry_date != null ? { expiryDate: BigInt(tokens.expiry_date) } : {}),
       });
     }
   });
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-  // Delete existing calendar event if rescheduling
   if (lead.googleEventId) {
     try {
       await calendar.events.delete({
@@ -285,50 +279,38 @@ async function _createAppointment(
       summary: `${isPlaceholder ? '【PH】' : ''}School Visit - ${lead.childName}`,
       description: buildEventDescription(lead, whatsappMessage),
       location: process.env.KINDER_ADDRESS ?? '',
-      start: {
-        dateTime: start.toISOString(),
-        timeZone: 'Asia/Kuala_Lumpur',
-      },
-      end: {
-        dateTime: end.toISOString(),
-        timeZone: 'Asia/Kuala_Lumpur',
-      },
+      start: { dateTime: start.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
+      end: { dateTime: end.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
     },
   });
 
-  await prisma.lead.update({
-    where: { id },
-    data: {
-      googleEventId: event.data.id,
-      googleEventLink: event.data.htmlLink,
-      appointmentStart: start,
-      appointmentEnd: end,
-      appointmentCreatedByUserId: req.user!.id,
-      appointmentIsPlaceholder: !!isPlaceholder,
-      status: isPlaceholder ? 'CONTACTED' : 'APPOINTMENT_BOOKED',
-    },
-  });
-
-  res.json({
+  await db.update(leads).set({
     googleEventId: event.data.id,
     googleEventLink: event.data.htmlLink,
-  });
+    appointmentStart: start,
+    appointmentEnd: end,
+    appointmentCreatedByUserId: req.user!.id,
+    appointmentIsPlaceholder: !!isPlaceholder,
+    status: isPlaceholder ? 'CONTACTED' : 'APPOINTMENT_BOOKED',
+  }).where(eq(leads.id, id));
+
+  res.json({ googleEventId: event.data.id, googleEventLink: event.data.htmlLink });
 }
 
-export async function getUpcomingAppointments(req: Request, res: Response): Promise<void> {
+export async function getUpcomingAppointments(_req: Request, res: Response): Promise<void> {
   const now = new Date();
-  const items = await prisma.lead.findMany({
-    where: { appointmentStart: { gte: now } },
-    orderBy: { appointmentStart: 'asc' },
-    select: {
-      id: true,
-      childName: true,
-      parentPhone: true,
-      appointmentStart: true,
-      appointmentEnd: true,
-      appointmentIsPlaceholder: true,
-    },
-  });
+  const items = await db
+    .select({
+      id: leads.id,
+      childName: leads.childName,
+      parentPhone: leads.parentPhone,
+      appointmentStart: leads.appointmentStart,
+      appointmentEnd: leads.appointmentEnd,
+      appointmentIsPlaceholder: leads.appointmentIsPlaceholder,
+    })
+    .from(leads)
+    .where(gte(leads.appointmentStart, now))
+    .orderBy(asc(leads.appointmentStart));
   res.json(items);
 }
 
@@ -338,34 +320,34 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const selectedYear = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
   const prevYear = selectedYear - 1;
 
-  const dateRange = (y: number): Prisma.LeadWhereInput => ({
-    submittedAt: { gte: new Date(y, 0, 1), lt: new Date(y + 1, 0, 1) },
-  });
+  const dateRange = (y: number) => and(
+    gte(leads.submittedAt, new Date(y, 0, 1)),
+    lt(leads.submittedAt, new Date(y + 1, 0, 1)),
+  );
 
-  // Fetch current-year leads (full fields) and previous-year leads (submittedAt only)
   const [currentLeads, prevLeads] = await Promise.all([
-    prisma.lead.findMany({
-      where: dateRange(selectedYear),
-      select: { submittedAt: true, childDob: true, appointmentStart: true, addressLocation: true, howDidYouKnow: true, status: true, lostReason: true },
-    }),
-    prisma.lead.findMany({
-      where: dateRange(prevYear),
-      select: { submittedAt: true },
-    }),
+    db.select({
+      submittedAt: leads.submittedAt,
+      childDob: leads.childDob,
+      appointmentStart: leads.appointmentStart,
+      addressLocation: leads.addressLocation,
+      howDidYouKnow: leads.howDidYouKnow,
+      status: leads.status,
+      lostReason: leads.lostReason,
+    }).from(leads).where(dateRange(selectedYear)),
+    db.select({ submittedAt: leads.submittedAt }).from(leads).where(dateRange(prevYear)),
   ]);
 
   const totalLeads = currentLeads.length;
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
   const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST');
   const noShowLeads = currentLeads.filter(l => l.status === 'LOST' && l.lostReason === "Didn't attend the enquiry").length;
-  // Attended = completed lead with appointment AND not "Didn't attend the enquiry"
   const attendedAppointments = completedLeads.filter(l =>
     l.appointmentStart !== null &&
     !(l.status === 'LOST' && l.lostReason === "Didn't attend the enquiry")
   ).length;
   const appointmentRate = completedLeads.length > 0 ? attendedAppointments / completedLeads.length : 0;
 
-  // Year-over-year monthly comparison (Jan–Dec, 12 entries)
   const currentMonthly = new Array(12).fill(0);
   for (const l of currentLeads) currentMonthly[l.submittedAt.getMonth()]++;
   const prevMonthly = new Array(12).fill(0);
@@ -374,7 +356,6 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     month: label, current: currentMonthly[i], previous: prevMonthly[i],
   }));
 
-  // Monthly enquiries broken down by child age
   const monthMap = new Map<string, Record<string, number>>();
   for (const lead of currentLeads) {
     const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
@@ -392,7 +373,6 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
       return { month: label, ...ages, total: Object.values(ages).reduce((s, v) => s + v, 0) };
     });
 
-  // Address breakdown
   const addressMap = new Map<string, number>();
   for (const lead of currentLeads) {
     if (lead.addressLocation) addressMap.set(lead.addressLocation, (addressMap.get(lead.addressLocation) ?? 0) + 1);
@@ -401,7 +381,6 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     .map(([location, count]) => ({ location, count }))
     .sort((a, b) => b.count - a.count);
 
-  // Marketing channel breakdown
   const channelMap = new Map<string, number>();
   for (const lead of currentLeads) {
     if (lead.howDidYouKnow) channelMap.set(lead.howDidYouKnow, (channelMap.get(lead.howDidYouKnow) ?? 0) + 1);
@@ -410,26 +389,24 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     .map(([channel, count]) => ({ channel, count }))
     .sort((a, b) => b.count - a.count);
 
-  // Per-lead detail for frontend month filtering
   const leadsDetail = currentLeads.map(l => ({
     monthIdx: l.submittedAt.getMonth(),
     address: l.addressLocation ?? null,
     channel: l.howDidYouKnow ?? null,
   }));
 
-  // Available submission years for the dropdown
-  const yearRows = await prisma.$queryRaw<{ year: number }[]>`
-    SELECT DISTINCT YEAR(submittedAt) AS year FROM \`Lead\` ORDER BY year DESC
-  `;
-  const availableYears = yearRows.map(r => r.year);
+  const [yearRows] = await pool.execute<RowDataPacket[]>(
+    'SELECT DISTINCT YEAR(submittedAt) AS year FROM `Lead` ORDER BY year DESC',
+  ) as any;
+  const availableYears = (yearRows as any[]).map((r: any) => Number(r.year));
 
   res.json({
     selectedYear, prevYear,
-    totalLeads, totalAppointments, completedLeads: completedLeads.length, attendedAppointments, noShowLeads, appointmentRate,
+    totalLeads, totalAppointments, completedLeads: completedLeads.length,
+    attendedAppointments, noShowLeads, appointmentRate,
     monthlyComparison, monthlyByAge,
     addressBreakdown, marketingChannelBreakdown,
-    leadsDetail,
-    availableYears,
+    leadsDetail, availableYears,
   });
 }
 
@@ -437,45 +414,32 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const selectedYear = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
   const prevYear = selectedYear - 1;
 
-  // Sales funnel: ENROLLED (closed) + LOST where reason ≠ "Didn't attend the enquiry" (lost sales)
-  // Filtered by the year leads were submitted (submittedAt), not enrolment year
-  // Leads lost with "Didn't attend the enquiry" are excluded from the funnel entirely
-  const closedFilter = (year: number): Prisma.LeadWhereInput => ({
-    submittedAt: {
-      gte: new Date(`${year}-01-01T00:00:00.000Z`),
-      lt: new Date(`${year + 1}-01-01T00:00:00.000Z`),
-    },
-    OR: [
-      { status: 'ENROLLED' },
-      { status: 'LOST', NOT: { lostReason: "Didn't attend the enquiry" } },
-    ],
-  });
+  const closedWhere = (year: number) => and(
+    gte(leads.submittedAt, new Date(`${year}-01-01T00:00:00.000Z`)),
+    lt(leads.submittedAt, new Date(`${year + 1}-01-01T00:00:00.000Z`)),
+    or(
+      eq(leads.status, 'ENROLLED'),
+      and(eq(leads.status, 'LOST'), ne(leads.lostReason as any, "Didn't attend the enquiry")),
+    ),
+  );
 
-  const [leads, prevLeads] = await Promise.all([
-    prisma.lead.findMany({
-      where: closedFilter(selectedYear),
-      select: {
-        id: true, childName: true, notes: true, lostReason: true,
-        addressLocation: true, howDidYouKnow: true,
-        childDob: true, submittedAt: true, status: true, enrolmentYear: true,
-      },
-      orderBy: { submittedAt: 'asc' },
-    }),
-    prisma.lead.findMany({
-      where: closedFilter(prevYear),
-      select: { submittedAt: true, status: true },
-    }),
+  const [closedLeads, prevLeads] = await Promise.all([
+    db.select({
+      id: leads.id, childName: leads.childName, notes: leads.notes, lostReason: leads.lostReason,
+      addressLocation: leads.addressLocation, howDidYouKnow: leads.howDidYouKnow,
+      childDob: leads.childDob, submittedAt: leads.submittedAt, status: leads.status, enrolmentYear: leads.enrolmentYear,
+    }).from(leads).where(closedWhere(selectedYear)).orderBy(asc(leads.submittedAt)),
+    db.select({ submittedAt: leads.submittedAt, status: leads.status }).from(leads).where(closedWhere(prevYear)),
   ]);
 
-  const totalLeads = leads.length;
-  const enrolledLeads = leads.filter(l => l.status === 'ENROLLED').length;
-  const lostLeads = leads.filter(l => l.status === 'LOST').length;
+  const totalLeads = closedLeads.length;
+  const enrolledLeads = closedLeads.filter(l => l.status === 'ENROLLED').length;
+  const lostLeads = closedLeads.filter(l => l.status === 'LOST').length;
   const closingRate = totalLeads > 0 ? enrolledLeads / totalLeads : 0;
 
-  // Year-over-year monthly comparison — stacked enrolled + lost, previous year as line
   const enrolledMonthly = new Array(12).fill(0);
   const lostMonthly = new Array(12).fill(0);
-  for (const l of leads) {
+  for (const l of closedLeads) {
     const m = l.submittedAt.getMonth();
     if (l.status === 'ENROLLED') enrolledMonthly[m]++;
     else if (l.status === 'LOST') lostMonthly[m]++;
@@ -488,9 +452,8 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
     month: label, enrolled: enrolledMonthly[i], lost: lostMonthly[i], previous: prevMonthly[i],
   }));
 
-  // Monthly breakdown by age (all leads for this enrolment year, grouped by submission month)
   const monthMap = new Map<string, Record<string, number>>();
-  for (const lead of leads) {
+  for (const lead of closedLeads) {
     const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
     const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
     const age = Math.floor(ageMs / (365.25 * 24 * 3600 * 1000));
@@ -506,18 +469,16 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
       return { month: label, ...ages, total: Object.values(ages).reduce((s, v) => s + v, 0) };
     });
 
-  // Address & channel breakdowns
   const addressMap = new Map<string, number>();
   const channelMap = new Map<string, number>();
-  for (const lead of leads) {
+  for (const lead of closedLeads) {
     if (lead.addressLocation) addressMap.set(lead.addressLocation, (addressMap.get(lead.addressLocation) ?? 0) + 1);
-    if (lead.howDidYouKnow)   channelMap.set(lead.howDidYouKnow,   (channelMap.get(lead.howDidYouKnow)   ?? 0) + 1);
+    if (lead.howDidYouKnow) channelMap.set(lead.howDidYouKnow, (channelMap.get(lead.howDidYouKnow) ?? 0) + 1);
   }
   const addressBreakdown = Array.from(addressMap.entries()).map(([location, count]) => ({ location, count })).sort((a, b) => b.count - a.count);
   const marketingChannelBreakdown = Array.from(channelMap.entries()).map(([channel, count]) => ({ channel, count })).sort((a, b) => b.count - a.count);
 
-  // Leads table (includes calculated age)
-  const leadsTable = leads.map(lead => {
+  const leadsTable = closedLeads.map(lead => {
     const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
     return {
       id: lead.id,
@@ -532,13 +493,16 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
     };
   });
 
-  // Available years based on submittedAt
-  const allYears = await prisma.$queryRaw<{ year: number }[]>`
-    SELECT DISTINCT YEAR(submittedAt) AS year FROM \`Lead\` ORDER BY year DESC
-  `;
-  const availableYears = allYears.map(r => r.year);
+  const [yearRows] = await pool.execute<RowDataPacket[]>(
+    'SELECT DISTINCT YEAR(submittedAt) AS year FROM `Lead` ORDER BY year DESC',
+  ) as any;
+  const availableYears = (yearRows as any[]).map((r: any) => Number(r.year));
 
-  res.json({ selectedYear, prevYear, totalLeads, enrolledLeads, lostLeads, closingRate, monthlyComparison, monthlyByAge, addressBreakdown, marketingChannelBreakdown, leadsTable, availableYears });
+  res.json({
+    selectedYear, prevYear, totalLeads, enrolledLeads, lostLeads, closingRate,
+    monthlyComparison, monthlyByAge, addressBreakdown, marketingChannelBreakdown,
+    leadsTable, availableYears,
+  });
 }
 
 export { roundUpTo30Min };

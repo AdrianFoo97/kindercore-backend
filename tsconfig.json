@@ -16,6 +16,7 @@
   "exclude": [
     "src/db/import-leads.ts",
     "src/db/prisma/import-leads.ts",
+    "src/db/prisma/seed.ts",
     "src/db/create-enrolled-students.ts"
   ]
 }

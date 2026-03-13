@@ -1,13 +1,15 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { prisma } from '../db/client.js';
+import { asc, eq } from 'drizzle-orm';
+import { db } from '../db/client.js';
+import { systemSettings } from '../db/schema.js';
 
 const updateSettingSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]),
 });
 
 export async function getSettings(_req: Request, res: Response): Promise<void> {
-  const rows = await prisma.systemSetting.findMany({ orderBy: { key: 'asc' } });
+  const rows = await db.select().from(systemSettings).orderBy(asc(systemSettings.key));
   const result: Record<string, unknown> = {};
   for (const row of rows) {
     result[row.key] = row.value;
@@ -24,11 +26,14 @@ export async function updateSetting(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const updated = await prisma.systemSetting.upsert({
-    where: { key },
-    update: { value: parsed.data.value },
-    create: { key, value: parsed.data.value },
-  });
+  const now = new Date();
+  const val = parsed.data.value as any;
 
-  res.json({ key: updated.key, value: updated.value });
+  // INSERT ... ON DUPLICATE KEY UPDATE (key has a UNIQUE constraint in DB)
+  await db
+    .insert(systemSettings)
+    .values({ id: crypto.randomUUID(), key, value: val, updatedAt: now })
+    .onDuplicateKeyUpdate({ set: { value: val, updatedAt: now } });
+
+  res.json({ key, value: parsed.data.value });
 }
