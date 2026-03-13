@@ -196,6 +196,11 @@ export async function completeOnboarding(req: Request, res: Response): Promise<v
 
 // ── Delete student ────────────────────────────────────────────────────────────
 
+export async function resetAllStudents(_req: Request, res: Response): Promise<void> {
+  await db.delete(students);
+  res.json({ message: 'All students deleted' });
+}
+
 export async function deleteStudent(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
 
