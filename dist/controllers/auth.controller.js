@@ -6,18 +6,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.login = login;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
+const schema_js_1 = require("../db/schema.js");
 const auth_validator_js_1 = require("../validators/auth.validator.js");
 async function login(req, res) {
     const parsed = auth_validator_js_1.loginSchema.safeParse(req.body);
     if (!parsed.success) {
-        res
-            .status(400)
-            .json({ message: 'Validation error', errors: parsed.error.errors });
+        res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
     }
     const { email, password } = parsed.data;
-    const user = await client_js_1.prisma.user.findUnique({ where: { email } });
+    const [user] = await client_js_1.db.select().from(schema_js_1.users).where((0, drizzle_orm_1.eq)(schema_js_1.users.email, email)).limit(1);
     if (!user) {
         res.status(401).json({ message: 'Invalid credentials' });
         return;

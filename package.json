@@ -6,27 +6,21 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/startup.js",
-    "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "4.16.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.30.0",
     "express": "^4.19.2",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.19.1",
-    "prisma": "4.16.2",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"
-  },
-  "prisma": {
-    "schema": "src/db/prisma/schema.prisma",
-    "seed": "tsx src/db/prisma/seed.ts"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

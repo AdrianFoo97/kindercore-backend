@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../db/client.js';
+import { db } from '../db/client.js';
+import { googleConnections } from '../db/schema.js';
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -12,14 +13,11 @@ function getOAuth2Client() {
 }
 
 export async function getStatus(_req: Request, res: Response): Promise<void> {
-  const connection = await prisma.googleConnection.findFirst();
+  const [connection] = await db.select().from(googleConnections).limit(1);
   res.json({ connected: !!connection });
 }
 
-export async function connectToken(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export async function connectToken(req: Request, res: Response): Promise<void> {
   const state = jwt.sign(
     { userId: req.user!.id },
     process.env.JWT_SECRET!,
@@ -50,10 +48,7 @@ export function startAuth(req: Request, res: Response): void {
   res.redirect(authUrl);
 }
 
-export async function handleCallback(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export async function handleCallback(req: Request, res: Response): Promise<void> {
   const { code, state } = req.query as { code: string; state: string };
 
   try {
@@ -66,18 +61,19 @@ export async function handleCallback(
   const oauth2Client = getOAuth2Client();
   const { tokens } = await oauth2Client.getToken(code);
 
-  const existing = await prisma.googleConnection.findFirst();
-  const refreshToken =
-    tokens.refresh_token ?? existing?.refreshToken ?? '';
+  const [existing] = await db.select().from(googleConnections).limit(1);
+  const refreshToken = tokens.refresh_token ?? existing?.refreshToken ?? '';
 
-  await prisma.googleConnection.deleteMany();
-  await prisma.googleConnection.create({
-    data: {
-      accessToken: tokens.access_token!,
-      refreshToken,
-      expiryDate: BigInt(tokens.expiry_date ?? 0),
-      scope: tokens.scope ?? 'https://www.googleapis.com/auth/calendar.events',
-    },
+  const now = new Date();
+  await db.delete(googleConnections);
+  await db.insert(googleConnections).values({
+    id: crypto.randomUUID(),
+    accessToken: tokens.access_token!,
+    refreshToken,
+    expiryDate: BigInt(tokens.expiry_date ?? 0),
+    scope: tokens.scope ?? 'https://www.googleapis.com/auth/calendar.events',
+    createdAt: now,
+    updatedAt: now,
   });
 
   res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:5173'}/login?google=connected`);
