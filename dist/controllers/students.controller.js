@@ -8,6 +8,7 @@ exports.deleteStudent = deleteStudent;
 exports.withdrawStudent = withdrawStudent;
 exports.reactivateStudent = reactivateStudent;
 exports.updateOnboardingProgress = updateOnboardingProgress;
+const crypto_1 = require("crypto");
 const zod_1 = require("zod");
 const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
@@ -108,7 +109,7 @@ async function createStudent(req, res) {
     const tasks = Array.isArray(settingRow?.value) ? settingRow.value : [];
     const onboardingProgress = tasks.map((task) => ({ task, done: false }));
     const now = new Date();
-    const newId = crypto.randomUUID();
+    const newId = (0, crypto_1.randomUUID)();
     await client_js_1.db.transaction(async (tx) => {
         await tx.insert(schema_js_1.students).values({
             id: newId,

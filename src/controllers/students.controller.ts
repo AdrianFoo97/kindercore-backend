@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { and, desc, eq } from 'drizzle-orm';
@@ -104,7 +105,7 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
 
   const now = new Date();
-  const newId = crypto.randomUUID();
+  const newId = randomUUID();
 
   await db.transaction(async (tx) => {
     await tx.insert(students).values({

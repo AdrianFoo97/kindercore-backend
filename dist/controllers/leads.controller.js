@@ -9,6 +9,7 @@ exports.getUpcomingAppointments = getUpcomingAppointments;
 exports.getAnalytics = getAnalytics;
 exports.getSalesAnalytics = getSalesAnalytics;
 exports.roundUpTo30Min = roundUpTo30Min;
+const crypto_1 = require("crypto");
 const googleapis_1 = require("googleapis");
 const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
@@ -26,7 +27,7 @@ async function createLead(req, res) {
         return;
     }
     const now = new Date();
-    const id = crypto.randomUUID();
+    const id = (0, crypto_1.randomUUID)();
     await client_js_1.db.insert(schema_js_1.leads).values({
         id, childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
         relationship, programme, preferredAppointmentTime, addressLocation,

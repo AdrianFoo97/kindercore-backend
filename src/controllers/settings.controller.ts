@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { asc, eq } from 'drizzle-orm';
@@ -32,7 +33,7 @@ export async function updateSetting(req: Request, res: Response): Promise<void> 
   // INSERT ... ON DUPLICATE KEY UPDATE (key has a UNIQUE constraint in DB)
   await db
     .insert(systemSettings)
-    .values({ id: crypto.randomUUID(), key, value: val, updatedAt: now })
+    .values({ id: randomUUID(), key, value: val, updatedAt: now })
     .onDuplicateKeyUpdate({ set: { value: val, updatedAt: now } });
 
   res.json({ key, value: parsed.data.value });

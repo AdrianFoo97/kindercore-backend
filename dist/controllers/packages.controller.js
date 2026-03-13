@@ -9,6 +9,7 @@ exports.patchPackageName = patchPackageName;
 exports.upsertPackages = upsertPackages;
 exports.updateProgrammes = updateProgrammes;
 exports.updateAges = updateAges;
+const crypto_1 = require("crypto");
 const zod_1 = require("zod");
 const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
@@ -22,7 +23,7 @@ async function getOrInitSetting(key, defaultValue) {
     if (row)
         return row.value;
     await client_js_1.db.insert(schema_js_1.systemSettings).values({
-        id: crypto.randomUUID(),
+        id: (0, crypto_1.randomUUID)(),
         key,
         value: defaultValue,
         updatedAt: new Date(),
@@ -83,7 +84,7 @@ async function createPackage(req, res) {
         return;
     }
     const now = new Date();
-    const id = crypto.randomUUID();
+    const id = (0, crypto_1.randomUUID)();
     await client_js_1.db.insert(schema_js_1.packages).values({ id, year, programme, age, name, price, updatedAt: now });
     const [pkg] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id)).limit(1);
     res.status(201).json(pkg);

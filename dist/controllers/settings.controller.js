@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSettings = getSettings;
 exports.updateSetting = updateSetting;
+const crypto_1 = require("crypto");
 const zod_1 = require("zod");
 const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
@@ -29,7 +30,7 @@ async function updateSetting(req, res) {
     // INSERT ... ON DUPLICATE KEY UPDATE (key has a UNIQUE constraint in DB)
     await client_js_1.db
         .insert(schema_js_1.systemSettings)
-        .values({ id: crypto.randomUUID(), key, value: val, updatedAt: now })
+        .values({ id: (0, crypto_1.randomUUID)(), key, value: val, updatedAt: now })
         .onDuplicateKeyUpdate({ set: { value: val, updatedAt: now } });
     res.json({ key, value: parsed.data.value });
 }

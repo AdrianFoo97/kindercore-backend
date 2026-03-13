@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
@@ -14,7 +15,7 @@ async function getOrInitSetting<T>(key: string, defaultValue: T): Promise<T> {
   const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, key)).limit(1);
   if (row) return row.value as T;
   await db.insert(systemSettings).values({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     key,
     value: defaultValue as any,
     updatedAt: new Date(),
@@ -85,7 +86,7 @@ export async function createPackage(req: Request, res: Response): Promise<void> 
   }
 
   const now = new Date();
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   await db.insert(packages).values({ id, year, programme, age, name, price, updatedAt: now });
   const [pkg] = await db.select().from(packages).where(eq(packages.id, id)).limit(1);
   res.status(201).json(pkg);
