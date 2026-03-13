@@ -1,12 +1,19 @@
-import jwt from 'jsonwebtoken';
-export function adminMiddleware(req, res, next) {
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.adminMiddleware = adminMiddleware;
+exports.authMiddleware = authMiddleware;
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+function adminMiddleware(req, res, next) {
     if (req.user?.role !== 'ADMIN') {
         res.status(403).json({ message: 'Forbidden: Admin only' });
         return;
     }
     next();
 }
-export function authMiddleware(req, res, next) {
+function authMiddleware(req, res, next) {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) {
         res.status(401).json({ message: 'Unauthorized' });
@@ -14,7 +21,7 @@ export function authMiddleware(req, res, next) {
     }
     const token = header.slice(7);
     try {
-        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const payload = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
         req.user = payload;
         next();
     }

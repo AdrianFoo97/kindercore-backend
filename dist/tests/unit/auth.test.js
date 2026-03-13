@@ -1,15 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import bcrypt from 'bcryptjs';
-describe('Auth - password hashing', () => {
-    it('verifies correct password against hash', async () => {
-        const hash = await bcrypt.hash('Admin123!', 10);
-        const valid = await bcrypt.compare('Admin123!', hash);
-        expect(valid).toBe(true);
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const vitest_1 = require("vitest");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+(0, vitest_1.describe)('Auth - password hashing', () => {
+    (0, vitest_1.it)('verifies correct password against hash', async () => {
+        const hash = await bcryptjs_1.default.hash('Admin123!', 10);
+        const valid = await bcryptjs_1.default.compare('Admin123!', hash);
+        (0, vitest_1.expect)(valid).toBe(true);
     });
-    it('rejects wrong password against hash', async () => {
-        const hash = await bcrypt.hash('Admin123!', 10);
-        const valid = await bcrypt.compare('wrongpassword', hash);
-        expect(valid).toBe(false);
+    (0, vitest_1.it)('rejects wrong password against hash', async () => {
+        const hash = await bcryptjs_1.default.hash('Admin123!', 10);
+        const valid = await bcryptjs_1.default.compare('wrongpassword', hash);
+        (0, vitest_1.expect)(valid).toBe(false);
     });
 });
 //# sourceMappingURL=auth.test.js.map

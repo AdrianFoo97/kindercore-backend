@@ -1,11 +1,16 @@
-import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import XLSX from 'xlsx';
-import path from 'path';
-import { fileURLToPath } from 'url';
-const prisma = new PrismaClient();
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+require("dotenv/config");
+const client_1 = require("@prisma/client");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const xlsx_1 = __importDefault(require("xlsx"));
+const path_1 = __importDefault(require("path"));
+const url_1 = require("url");
+const prisma = new client_1.PrismaClient();
+const __dirname = path_1.default.dirname((0, url_1.fileURLToPath)(import.meta.url));
 // Convert Excel serial date to JS Date
 function excelDateToJs(serial) {
     return new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
@@ -52,8 +57,8 @@ async function main() {
     await prisma.user.deleteMany();
     // Re-seed users
     console.log('Seeding users...');
-    const adminHash = await bcrypt.hash('Admin123!', 10);
-    const staffHash = await bcrypt.hash('Staff123!', 10);
+    const adminHash = await bcryptjs_1.default.hash('Admin123!', 10);
+    const staffHash = await bcryptjs_1.default.hash('Staff123!', 10);
     await prisma.user.createMany({
         data: [
             { email: 'admin@kinderCore.local', name: 'Admin', passwordHash: adminHash, role: 'ADMIN' },
@@ -73,9 +78,9 @@ async function main() {
     });
     // Load Excel
     console.log('Reading Leads.xlsx...');
-    const wb = XLSX.readFile(path.resolve(__dirname, '../../../../../data/Leads.xlsx'));
+    const wb = xlsx_1.default.readFile(path_1.default.resolve(__dirname, '../../../../../data/Leads.xlsx'));
     const ws = wb.Sheets['Responses'];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    const rows = xlsx_1.default.utils.sheet_to_json(ws, { header: 1 });
     let imported = 0;
     let skipped = 0;
     for (let i = 1; i < rows.length; i++) {
