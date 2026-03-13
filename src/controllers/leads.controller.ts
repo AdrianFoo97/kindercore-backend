@@ -64,7 +64,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
     whereStr = '1=1';
   }
 
-  const [[countRow]] = await pool.execute<RowDataPacket[]>(
+  const [[countRow]] = await pool.query<RowDataPacket[]>(
     `SELECT COUNT(*) as total FROM \`Lead\` WHERE ${whereStr}`,
     whereParams,
   ) as any;
@@ -99,8 +99,8 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       orderByStr = `${statusCase} ASC, ${fieldStr} ${dirStr}`;
     }
 
-    const query = `SELECT * FROM \`Lead\` WHERE ${whereStr} ORDER BY ${orderByStr} LIMIT ? OFFSET ?`;
-    const [rows] = await pool.execute<RowDataPacket[]>(query, [...whereParams, pageSize, skip]) as any;
+    const query = `SELECT * FROM \`Lead\` WHERE ${whereStr} ORDER BY ${orderByStr} LIMIT ${pageSize} OFFSET ${skip}`;
+    const [rows] = await pool.query<RowDataPacket[]>(query, whereParams) as any;
     items = rows as unknown[];
   } else {
     // Drizzle builder for simple cases
@@ -396,7 +396,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     channel: l.howDidYouKnow ?? null,
   }));
 
-  const [yearRows] = await pool.execute<RowDataPacket[]>(
+  const [yearRows] = await pool.query<RowDataPacket[]>(
     'SELECT DISTINCT YEAR(submittedAt) AS year FROM `Lead` ORDER BY year DESC',
   ) as any;
   const availableYears = (yearRows as any[]).map((r: any) => Number(r.year));
@@ -494,7 +494,7 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
     };
   });
 
-  const [yearRows] = await pool.execute<RowDataPacket[]>(
+  const [yearRows] = await pool.query<RowDataPacket[]>(
     'SELECT DISTINCT YEAR(submittedAt) AS year FROM `Lead` ORDER BY year DESC',
   ) as any;
   const availableYears = (yearRows as any[]).map((r: any) => Number(r.year));
