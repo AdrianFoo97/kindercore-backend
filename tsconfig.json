@@ -12,11 +12,5 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src"],
-  "exclude": [
-    "src/db/import-leads.ts",
-    "src/db/prisma/import-leads.ts",
-    "src/db/prisma/seed.ts",
-    "src/db/create-enrolled-students.ts"
-  ]
+  "include": ["src"]
 }
