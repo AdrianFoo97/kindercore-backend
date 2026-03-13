@@ -13,7 +13,8 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
   const rows = await db.select().from(systemSettings).orderBy(asc(systemSettings.key));
   const result: Record<string, unknown> = {};
   for (const row of rows) {
-    result[row.key] = row.value;
+    const val = row.value;
+    result[row.key] = typeof val === 'string' ? (() => { try { return JSON.parse(val); } catch { return val; } })() : val;
   }
   res.json(result);
 }
