@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "npm install && tsc",
     "start": "node dist/startup.js",
     "test": "vitest run",
     "test:watch": "vitest",
