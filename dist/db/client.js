@@ -44,6 +44,7 @@ exports.pool = promise_1.default.createPool({
     uri: process.env.DATABASE_URL,
     waitForConnections: true,
     connectionLimit: 5,
+    timezone: '+00:00',
 });
 exports.db = (0, mysql2_1.drizzle)(exports.pool, { schema, mode: 'default' });
 //# sourceMappingURL=client.js.map

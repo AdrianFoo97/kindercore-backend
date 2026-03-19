@@ -11,6 +11,7 @@ export declare const createLeadSchema: z.ZodObject<{
     addressLocation: z.ZodOptional<z.ZodString>;
     needsTransport: z.ZodOptional<z.ZodBoolean>;
     howDidYouKnow: z.ZodOptional<z.ZodString>;
+    ctaSource: z.ZodOptional<z.ZodString>;
     submittedAt: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     submittedAt?: string;
@@ -24,6 +25,7 @@ export declare const createLeadSchema: z.ZodObject<{
     addressLocation?: string;
     needsTransport?: boolean;
     howDidYouKnow?: string;
+    ctaSource?: string;
     company?: string;
 }, {
     submittedAt?: string;
@@ -37,6 +39,7 @@ export declare const createLeadSchema: z.ZodObject<{
     addressLocation?: string;
     needsTransport?: boolean;
     howDidYouKnow?: string;
+    ctaSource?: string;
     company?: string;
 }>;
 export declare const updateLeadSchema: z.ZodObject<{

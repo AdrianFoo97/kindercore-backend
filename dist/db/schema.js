@@ -36,6 +36,7 @@ exports.leads = (0, mysql_core_1.mysqlTable)('Lead', {
     addressLocation: (0, mysql_core_1.varchar)('addressLocation', { length: 191 }),
     needsTransport: (0, mysql_core_1.boolean)('needsTransport'),
     howDidYouKnow: (0, mysql_core_1.varchar)('howDidYouKnow', { length: 191 }),
+    ctaSource: (0, mysql_core_1.varchar)('ctaSource', { length: 50 }),
     deletedAt: (0, mysql_core_1.datetime)('deletedAt', { mode: 'date', fsp: 3 }),
 });
 exports.googleConnections = (0, mysql_core_1.mysqlTable)('GoogleConnection', {
@@ -70,6 +71,7 @@ exports.students = (0, mysql_core_1.mysqlTable)('Student', {
     enrolmentMonth: (0, mysql_core_1.int)('enrolmentMonth').notNull(),
     packageId: (0, mysql_core_1.varchar)('packageId', { length: 36 }).notNull(),
     enrolledAt: (0, mysql_core_1.datetime)('enrolledAt', { mode: 'date', fsp: 3 }).notNull(),
+    startDate: (0, mysql_core_1.datetime)('startDate', { mode: 'date', fsp: 3 }),
     notes: (0, mysql_core_1.text)('notes'),
     onboardingProgress: (0, mysql_core_1.json)('onboardingProgress'),
     onboardingCompleted: (0, mysql_core_1.boolean)('onboardingCompleted').notNull().default(false),

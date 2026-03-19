@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+export declare function getLeadById(req: Request, res: Response): Promise<void>;
 export declare function createLead(req: Request, res: Response): Promise<void>;
 export declare function resetAllLeads(_req: Request, res: Response): Promise<void>;
 export declare function seedDummyLeads(_req: Request, res: Response): Promise<void>;

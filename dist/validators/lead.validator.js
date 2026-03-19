@@ -15,6 +15,7 @@ exports.createLeadSchema = zod_1.z.object({
     addressLocation: zod_1.z.string().min(1).optional(),
     needsTransport: zod_1.z.boolean().optional(),
     howDidYouKnow: zod_1.z.string().min(1).optional(),
+    ctaSource: zod_1.z.string().optional(),
     submittedAt: zod_1.z.string().optional(),
 });
 exports.updateLeadSchema = zod_1.z.object({

@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.patchPackageName = void 0;
 exports.getPackages = getPackages;
 exports.getPackageYears = getPackageYears;
 exports.getPackagesConfig = getPackagesConfig;
 exports.createPackage = createPackage;
 exports.deletePackage = deletePackage;
-exports.patchPackageName = patchPackageName;
+exports.patchPackage = patchPackage;
 exports.upsertPackages = upsertPackages;
 exports.updateProgrammes = updateProgrammes;
 exports.updateAges = updateAges;
@@ -110,11 +111,14 @@ async function deletePackage(req, res) {
     await client_js_1.db.delete(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id));
     res.status(204).send();
 }
-// ── Patch name ────────────────────────────────────────────────────────────────
-const patchNameSchema = zod_1.z.object({ name: zod_1.z.string().min(1) });
-async function patchPackageName(req, res) {
+// ── Patch package ─────────────────────────────────────────────────────────────
+const patchPackageSchema = zod_1.z.object({
+    name: zod_1.z.string().min(1).optional(),
+    price: zod_1.z.number().min(0).optional(),
+}).refine(d => d.name !== undefined || d.price !== undefined, { message: 'Provide name or price' });
+async function patchPackage(req, res) {
     const { id } = req.params;
-    const parsed = patchNameSchema.safeParse(req.body);
+    const parsed = patchPackageSchema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
         return;
@@ -124,10 +128,17 @@ async function patchPackageName(req, res) {
         res.status(404).json({ message: 'Package not found' });
         return;
     }
-    await client_js_1.db.update(schema_js_1.packages).set({ name: parsed.data.name, updatedAt: new Date() }).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id));
+    const updates = { updatedAt: new Date() };
+    if (parsed.data.name !== undefined)
+        updates.name = parsed.data.name;
+    if (parsed.data.price !== undefined)
+        updates.price = parsed.data.price;
+    await client_js_1.db.update(schema_js_1.packages).set(updates).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id));
     const [updated] = await client_js_1.db.select().from(schema_js_1.packages).where((0, drizzle_orm_1.eq)(schema_js_1.packages.id, id)).limit(1);
     res.json(updated);
 }
+/** @deprecated kept for backwards compat — use patchPackage instead */
+exports.patchPackageName = patchPackage;
 // ── Bulk upsert prices ────────────────────────────────────────────────────────
 const upsertSchema = zod_1.z.object({
     year: zod_1.z.number().int(),

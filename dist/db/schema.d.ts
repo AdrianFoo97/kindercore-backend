@@ -357,6 +357,18 @@ export declare const leads: import("drizzle-orm/mysql-core").MySqlTableWithColum
             enumValues: [string, ...string[]];
             baseColumn: never;
         }, object>;
+        ctaSource: import("drizzle-orm/mysql-core").MySqlColumn<{
+            name: "ctaSource";
+            tableName: "Lead";
+            dataType: "string";
+            columnType: "MySqlVarChar";
+            data: string;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, object>;
         deletedAt: import("drizzle-orm/mysql-core").MySqlColumn<{
             name: "deletedAt";
             tableName: "Lead";
@@ -693,6 +705,18 @@ export declare const students: import("drizzle-orm/mysql-core").MySqlTableWithCo
             data: Date;
             driverParam: string | number;
             notNull: true;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, object>;
+        startDate: import("drizzle-orm/mysql-core").MySqlColumn<{
+            name: "startDate";
+            tableName: "Student";
+            dataType: "date";
+            columnType: "MySqlDateTime";
+            data: Date;
+            driverParam: string | number;
+            notNull: false;
             hasDefault: false;
             enumValues: undefined;
             baseColumn: never;

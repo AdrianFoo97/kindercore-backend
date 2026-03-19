@@ -12,10 +12,11 @@ exports.leadsRouter.get('/', auth_middleware_js_1.authMiddleware, (0, asyncHandl
 exports.leadsRouter.get('/stats', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.getLeadStats));
 exports.leadsRouter.get('/analytics', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.getAnalytics));
 exports.leadsRouter.get('/sales-analytics', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.getSalesAnalytics));
-exports.leadsRouter.delete('/reset', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.resetAllLeads));
-exports.leadsRouter.post('/seed-dummy', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.seedDummyLeads));
+exports.leadsRouter.delete('/reset', auth_middleware_js_1.authMiddleware, auth_middleware_js_1.adminMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.resetAllLeads));
+exports.leadsRouter.post('/seed-dummy', auth_middleware_js_1.authMiddleware, auth_middleware_js_1.adminMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.seedDummyLeads));
 exports.leadsRouter.get('/upcoming', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.getUpcomingAppointments));
 exports.leadsRouter.get('/trash', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.getTrashedLeads));
+exports.leadsRouter.get('/:id', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.getLeadById));
 exports.leadsRouter.patch('/:id', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.updateLead));
 exports.leadsRouter.delete('/:id', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.deleteLead));
 exports.leadsRouter.post('/:id/restore', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(leads_controller_js_1.restoreLead));

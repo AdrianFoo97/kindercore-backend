@@ -6,10 +6,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getStatus = getStatus;
 exports.connectToken = connectToken;
 exports.startAuth = startAuth;
+exports.listCalendars = listCalendars;
+exports.setCalendar = setCalendar;
 exports.handleCallback = handleCallback;
 const crypto_1 = require("crypto");
 const googleapis_1 = require("googleapis");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const drizzle_orm_1 = require("drizzle-orm");
 const client_js_1 = require("../db/client.js");
 const schema_js_1 = require("../db/schema.js");
 function getOAuth2Client() {
@@ -28,7 +31,8 @@ async function getStatus(_req, res) {
             refresh_token: connection.refreshToken,
             expiry_date: Number(connection.expiryDate),
         });
-        const calendarId = process.env.SHARED_CALENDAR_ID ?? 'primary';
+        const [calSetting] = await client_js_1.db.select().from(schema_js_1.systemSettings).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'shared_calendar_id')).limit(1);
+        const calendarId = calSetting?.value ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
         const [userInfoResult, calendarResult] = await Promise.allSettled([
             googleapis_1.google.oauth2({ version: 'v2', auth: oauth2Client }).userinfo.get(),
             googleapis_1.google.calendar({ version: 'v3', auth: oauth2Client }).calendars.get({ calendarId }),
@@ -38,7 +42,8 @@ async function getStatus(_req, res) {
         res.json({ connected: true, email, calendarName, calendarId });
     }
     catch {
-        res.json({ connected: true, email: null, calendarName: null, calendarId: process.env.SHARED_CALENDAR_ID ?? null });
+        const [calSetting] = await client_js_1.db.select().from(schema_js_1.systemSettings).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'shared_calendar_id')).limit(1);
+        res.json({ connected: true, email: null, calendarName: null, calendarId: calSetting?.value ?? process.env.SHARED_CALENDAR_ID ?? null });
     }
 }
 async function connectToken(req, res) {
@@ -65,6 +70,46 @@ function startAuth(req, res) {
         state,
     });
     res.redirect(authUrl);
+}
+async function listCalendars(_req, res) {
+    const [connection] = await client_js_1.db.select().from(schema_js_1.googleConnections).limit(1);
+    if (!connection) {
+        res.status(409).json({ message: 'Google Calendar not connected' });
+        return;
+    }
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials({
+        access_token: connection.accessToken,
+        refresh_token: connection.refreshToken,
+        expiry_date: Number(connection.expiryDate),
+    });
+    try {
+        const { data } = await googleapis_1.google.calendar({ version: 'v3', auth: oauth2Client }).calendarList.list({ maxResults: 100 });
+        const calendars = (data.items ?? []).map(c => ({ id: c.id, name: c.summary, primary: c.primary ?? false }));
+        res.json(calendars);
+    }
+    catch (err) {
+        const msg = err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error';
+        const status = err?.response?.status ?? 500;
+        console.error('[Google] listCalendars failed:', JSON.stringify(err?.response?.data ?? err?.message));
+        res.status(status).json({ message: msg });
+    }
+}
+async function setCalendar(req, res) {
+    const { calendarId } = req.body;
+    if (!calendarId) {
+        res.status(400).json({ message: 'calendarId required' });
+        return;
+    }
+    const [existing] = await client_js_1.db.select().from(schema_js_1.systemSettings).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'shared_calendar_id')).limit(1);
+    const now = new Date();
+    if (existing) {
+        await client_js_1.db.update(schema_js_1.systemSettings).set({ value: calendarId, updatedAt: now }).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, 'shared_calendar_id'));
+    }
+    else {
+        await client_js_1.db.insert(schema_js_1.systemSettings).values({ id: (0, crypto_1.randomUUID)(), key: 'shared_calendar_id', value: calendarId, updatedAt: now });
+    }
+    res.json({ calendarId });
 }
 async function handleCallback(req, res) {
     const { code, state } = req.query;
