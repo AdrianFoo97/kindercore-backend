@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "npm install && tsc",
+    "build": "tsc",
     "start": "node dist/startup.js",
+    "postinstall": "npx tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
