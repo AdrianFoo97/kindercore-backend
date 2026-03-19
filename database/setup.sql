@@ -78,6 +78,7 @@ CREATE TABLE `Student` (
     `enrolmentMonth` INTEGER NOT NULL,
     `packageId` VARCHAR(191) NOT NULL,
     `enrolledAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `startDate` DATETIME(3) NULL,
     `notes` TEXT NULL,
     `onboardingProgress` JSON NULL,
     `onboardingCompleted` BOOLEAN NOT NULL DEFAULT false,

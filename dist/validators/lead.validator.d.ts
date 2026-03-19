@@ -11,7 +11,9 @@ export declare const createLeadSchema: z.ZodObject<{
     addressLocation: z.ZodOptional<z.ZodString>;
     needsTransport: z.ZodOptional<z.ZodBoolean>;
     howDidYouKnow: z.ZodOptional<z.ZodString>;
+    submittedAt: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    submittedAt?: string;
     childName?: string;
     parentPhone?: string;
     childDob?: string;
@@ -24,6 +26,7 @@ export declare const createLeadSchema: z.ZodObject<{
     howDidYouKnow?: string;
     company?: string;
 }, {
+    submittedAt?: string;
     childName?: string;
     parentPhone?: string;
     childDob?: string;
@@ -44,6 +47,12 @@ export declare const updateLeadSchema: z.ZodObject<{
     status: z.ZodOptional<z.ZodEnum<["NEW", "CONTACTED", "APPOINTMENT_BOOKED", "FOLLOW_UP", "ENROLLED", "LOST"]>>;
     notes: z.ZodOptional<z.ZodString>;
     lostReason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    relationship: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    programme: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    preferredAppointmentTime: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    addressLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    needsTransport: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    howDidYouKnow: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, "strip", z.ZodTypeAny, {
     childName?: string;
     parentPhone?: string;
@@ -52,6 +61,12 @@ export declare const updateLeadSchema: z.ZodObject<{
     status?: "NEW" | "CONTACTED" | "APPOINTMENT_BOOKED" | "FOLLOW_UP" | "ENROLLED" | "LOST";
     notes?: string;
     lostReason?: string;
+    relationship?: string;
+    programme?: string;
+    preferredAppointmentTime?: string;
+    addressLocation?: string;
+    needsTransport?: boolean;
+    howDidYouKnow?: string;
 }, {
     childName?: string;
     parentPhone?: string;
@@ -60,5 +75,11 @@ export declare const updateLeadSchema: z.ZodObject<{
     status?: "NEW" | "CONTACTED" | "APPOINTMENT_BOOKED" | "FOLLOW_UP" | "ENROLLED" | "LOST";
     notes?: string;
     lostReason?: string;
+    relationship?: string;
+    programme?: string;
+    preferredAppointmentTime?: string;
+    addressLocation?: string;
+    needsTransport?: boolean;
+    howDidYouKnow?: string;
 }>;
 //# sourceMappingURL=lead.validator.d.ts.map

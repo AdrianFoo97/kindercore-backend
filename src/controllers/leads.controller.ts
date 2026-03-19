@@ -4,8 +4,27 @@ import { google } from 'googleapis';
 import { and, asc, desc, eq, gte, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import type { RowDataPacket } from 'mysql2';
 import { db, pool } from '../db/client.js';
-import { googleConnections, leads, systemSettings } from '../db/schema.js';
+import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
+
+/** Normalize a name: split camelCase, title-case each word */
+function normalizeName(name: string): string {
+  // Insert space before uppercase letters that follow a lowercase letter (e.g. AdamLevine → Adam Levine)
+  const spaced = name.replace(/([a-z])([A-Z])/g, '$1 $2');
+  // Title-case each word
+  return spaced
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export async function getLeadById(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!lead) { res.status(404).json({ message: 'Lead not found' }); return; }
+  res.json(lead);
+}
 
 export async function createLead(req: Request, res: Response): Promise<void> {
   const parsed = createLeadSchema.safeParse(req.body);
@@ -16,7 +35,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
   const { childName, parentPhone, childDob, enrolmentYear, company,
           relationship, programme, preferredAppointmentTime, addressLocation,
-          needsTransport, howDidYouKnow, submittedAt: submittedAtRaw } = parsed.data;
+          needsTransport, howDidYouKnow, ctaSource, submittedAt: submittedAtRaw } = parsed.data;
   if (company) {
     res.status(400).json({ message: 'Bad request' });
     return;
@@ -27,17 +46,108 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   const id = randomUUID();
   const submittedAt = submittedAtRaw ? new Date(submittedAtRaw) : new Date();
   await db.insert(leads).values({
-    id, childName, parentPhone, childDob: new Date(childDob), enrolmentYear,
+    id, childName: normalizeName(childName), parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,
-    needsTransport, howDidYouKnow, submittedAt,
+    needsTransport, howDidYouKnow, ctaSource, submittedAt,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   res.status(201).json(lead);
 }
 
 export async function resetAllLeads(_req: Request, res: Response): Promise<void> {
+  await db.delete(students);
   await db.delete(leads);
   res.json({ message: 'All leads deleted' });
+}
+
+export async function seedDummyLeads(_req: Request, res: Response): Promise<void> {
+  type LeadStatus = 'NEW' | 'CONTACTED' | 'APPOINTMENT_BOOKED' | 'FOLLOW_UP' | 'ENROLLED' | 'LOST';
+  type DummyLead = {
+    id: string; childName: string; parentPhone: string; childDob: Date; enrolmentYear: number;
+    status: LeadStatus; submittedAt: Date; statusChangedAt?: Date; howDidYouKnow?: string; programme?: string;
+    appointmentStart?: Date; appointmentEnd?: Date; appointmentIsPlaceholder?: boolean;
+    notes?: string; lostReason?: string; relationship?: string;
+  };
+
+  const now = new Date();
+  const ago = (days: number) => new Date(now.getTime() - days * 86400000);
+  const ahead = (days: number) => new Date(now.getTime() + days * 86400000);
+  const dob = (y: number, m: number, d: number) => new Date(y, m - 1, d);
+  const h1 = 60 * 60000;
+
+  const rows: DummyLead[] = [
+    // Pipeline leads
+    { id: randomUUID(), childName: 'Aiden Lim',    parentPhone: '0123456001', childDob: dob(2021, 3, 15), enrolmentYear: 2026, status: 'NEW',                submittedAt: ago(0),   howDidYouKnow: 'Facebook',        programme: 'Playgroup',    relationship: 'Mother' },
+    { id: randomUUID(), childName: 'Sophia Tan',   parentPhone: '0123456002', childDob: dob(2020, 7, 22), enrolmentYear: 2026, status: 'NEW',                submittedAt: ago(2),   howDidYouKnow: 'Instagram',       programme: 'Nursery',      relationship: 'Father' },
+    { id: randomUUID(), childName: 'Ethan Wong',   parentPhone: '0123456003', childDob: dob(2020, 11, 8), enrolmentYear: 2026, status: 'NEW',                submittedAt: ago(5),   howDidYouKnow: 'Friend Referral', programme: 'Nursery',      relationship: 'Mother' },
+    { id: randomUUID(), childName: 'Mia Ng',       parentPhone: '0123456004', childDob: dob(2021, 5, 30), enrolmentYear: 2026, status: 'CONTACTED',          submittedAt: ago(4),   statusChangedAt: ago(3),  howDidYouKnow: 'Google',          programme: 'Playgroup',    relationship: 'Father',    appointmentStart: ahead(3), appointmentEnd: new Date(ahead(3).getTime() + h1), appointmentIsPlaceholder: true },
+    { id: randomUUID(), childName: 'Lucas Chua',   parentPhone: '0123456005', childDob: dob(2020, 9, 14), enrolmentYear: 2026, status: 'CONTACTED',          submittedAt: ago(6),   statusChangedAt: ago(5),  howDidYouKnow: 'Facebook',        programme: 'Nursery',      relationship: 'Mother',    appointmentStart: ahead(1), appointmentEnd: new Date(ahead(1).getTime() + h1), appointmentIsPlaceholder: true },
+    { id: randomUUID(), childName: 'Ella Ooi',     parentPhone: '0123456006', childDob: dob(2021, 1, 18), enrolmentYear: 2026, status: 'CONTACTED',          submittedAt: ago(8),   statusChangedAt: ago(6),  howDidYouKnow: 'Instagram',       programme: 'Playgroup',    relationship: 'Guardian',  appointmentStart: ahead(7), appointmentEnd: new Date(ahead(7).getTime() + h1), appointmentIsPlaceholder: true },
+    { id: randomUUID(), childName: 'Noah Yap',     parentPhone: '0123456007', childDob: dob(2020, 4, 25), enrolmentYear: 2026, status: 'APPOINTMENT_BOOKED', submittedAt: ago(10),  statusChangedAt: ago(7),  howDidYouKnow: 'Friend Referral', programme: 'Kindergarten', relationship: 'Father',    appointmentStart: ahead(1), appointmentEnd: new Date(ahead(1).getTime() + h1), appointmentIsPlaceholder: false },
+    { id: randomUUID(), childName: 'Chloe Lee',    parentPhone: '0123456008', childDob: dob(2020, 6, 12), enrolmentYear: 2026, status: 'FOLLOW_UP',          submittedAt: ago(14),  statusChangedAt: ago(4),  howDidYouKnow: 'Google',          programme: 'Kindergarten', relationship: 'Mother',    appointmentStart: ago(3),  appointmentEnd: new Date(ago(3).getTime() + h1), appointmentIsPlaceholder: false, notes: 'Parents want to visit again before deciding' },
+    // Enrolled leads (active students — currently attending)
+    { id: randomUUID(), childName: 'Oliver Loh',   parentPhone: '0123456009', childDob: dob(2020, 2, 5),  enrolmentYear: 2025, status: 'ENROLLED', submittedAt: ago(400), statusChangedAt: ago(370), howDidYouKnow: 'Google',          programme: 'Kindergarten', relationship: 'Mother' },
+    { id: randomUUID(), childName: 'Isabella Chan', parentPhone: '0123456011', childDob: dob(2021, 4, 10), enrolmentYear: 2025, status: 'ENROLLED', submittedAt: ago(380), statusChangedAt: ago(350), howDidYouKnow: 'Facebook',        programme: 'Nursery',      relationship: 'Father' },
+    { id: randomUUID(), childName: 'Ryan Lim',     parentPhone: '0123456012', childDob: dob(2022, 6, 20), enrolmentYear: 2025, status: 'ENROLLED', submittedAt: ago(365), statusChangedAt: ago(340), howDidYouKnow: 'Instagram',       programme: 'Playgroup',    relationship: 'Mother' },
+    { id: randomUUID(), childName: 'Natalie Goh',  parentPhone: '0123456013', childDob: dob(2020, 9, 3),  enrolmentYear: 2025, status: 'ENROLLED', submittedAt: ago(420), statusChangedAt: ago(400), howDidYouKnow: 'Friend Referral', programme: 'Kindergarten', relationship: 'Father' },
+    { id: randomUUID(), childName: 'Marcus Teo',   parentPhone: '0123456014', childDob: dob(2021, 11, 25), enrolmentYear: 2026, status: 'ENROLLED', submittedAt: ago(60),  statusChangedAt: ago(45),  howDidYouKnow: 'Google',          programme: 'Nursery',      relationship: 'Mother' },
+    // Enrolled lead — upcoming enrollment (shows as "Enrolled" not "Active" on Students page)
+    { id: randomUUID(), childName: 'Zoe Ng',       parentPhone: '0123456015', childDob: dob(2022, 1, 8),  enrolmentYear: 2026, status: 'ENROLLED', submittedAt: ago(20),  statusChangedAt: ago(10),  howDidYouKnow: 'Instagram',       programme: 'Playgroup',    relationship: 'Guardian' },
+    // Lost
+    { id: randomUUID(), childName: 'Emma Koh',     parentPhone: '0123456010', childDob: dob(2021, 8, 19), enrolmentYear: 2026, status: 'LOST',     submittedAt: ago(30),  statusChangedAt: ago(25), howDidYouKnow: 'Facebook',        programme: 'Nursery',      relationship: 'Mother', lostReason: 'Enrolled at another kindergarten' },
+  ];
+
+  await db.insert(leads).values(rows);
+
+  // Create student records for all ENROLLED leads
+  const enrolledRows = rows.filter(r => r.status === 'ENROLLED');
+  let allPackages = await db.select().from(packages);
+
+  // If no packages exist, seed dummy packages so students can be created
+  if (allPackages.length === 0) {
+    const dummyPackages = [
+      { id: randomUUID(), year: now.getFullYear(), programme: 'Playgroup',    age: 4, name: 'Playgroup Basic',    price: 500, updatedAt: now },
+      { id: randomUUID(), year: now.getFullYear(), programme: 'Nursery',      age: 5, name: 'Nursery Basic',      price: 600, updatedAt: now },
+      { id: randomUUID(), year: now.getFullYear(), programme: 'Kindergarten', age: 6, name: 'Kindergarten Basic', price: 700, updatedAt: now },
+    ];
+    await db.insert(packages).values(dummyPackages);
+    allPackages = await db.select().from(packages);
+  }
+
+  // Map packages by programme (pick first match per programme)
+  const pkgByProgramme = new Map<string, typeof allPackages[number]>();
+  for (const pkg of allPackages) {
+    if (!pkgByProgramme.has(pkg.programme)) pkgByProgramme.set(pkg.programme, pkg);
+  }
+  const fallbackPkg = allPackages[0] ?? null;
+
+  const studentRows = enrolledRows
+    .map(lead => {
+      const pkg = pkgByProgramme.get(lead.programme ?? '') ?? fallbackPkg;
+      if (!pkg) return null;
+      return {
+        id: randomUUID(),
+        leadId: lead.id,
+        enrolmentYear: lead.enrolmentYear,
+        enrolmentMonth: 1,
+        packageId: pkg.id,
+        enrolledAt: lead.statusChangedAt ?? lead.submittedAt,
+        createdAt: lead.statusChangedAt ?? lead.submittedAt,
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+
+  if (studentRows.length > 0) {
+    await db.insert(students).values(studentRows);
+  }
+
+  res.json({
+    message: `${rows.length} dummy leads created, ${studentRows.length} student records created.`,
+    count: rows.length,
+    students: studentRows.length,
+    skippedStudents: enrolledRows.length - studentRows.length,
+    ...(enrolledRows.length > studentRows.length ? { note: 'Some students skipped — no matching packages found. Add packages first.' } : {}),
+  });
 }
 
 export async function getLeadPhones(_req: Request, res: Response): Promise<void> {
@@ -50,30 +160,33 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
   const skip = (page - 1) * pageSize;
 
-  const { status, sortBy, sortOrder } = req.query as Record<string, string | undefined>;
+  const { status, sortBy, sortOrder, search } = req.query as Record<string, string | undefined>;
+  const searchTerm = (search ?? '').trim();
 
   const validSortFields = ['submittedAt', 'childName', 'childDob', 'enrolmentYear', 'status'];
   const field = validSortFields.includes(sortBy ?? '') ? sortBy! : 'submittedAt';
   const order: 'asc' | 'desc' = sortOrder === 'asc' ? 'asc' : 'desc';
   const sortByStatus = field === 'status';
 
-  // Auto-advance past appointments to FOLLOW_UP
-  await db.update(leads)
-    .set({ status: 'FOLLOW_UP' })
-    .where(and(eq(leads.status, 'APPOINTMENT_BOOKED'), sql`${leads.appointmentStart} < NOW()`));
-
   // Build WHERE clause string for count + raw queries
   let whereStr: string;
   const whereParams: any[] = [];
   if (status === 'active') {
-    whereStr = "status NOT IN ('ENROLLED', 'LOST')";
+    whereStr = "deletedAt IS NULL AND status NOT IN ('ENROLLED', 'LOST')";
   } else if (status === 'inactive') {
-    whereStr = "status IN ('ENROLLED', 'LOST')";
+    whereStr = "deletedAt IS NULL AND status IN ('ENROLLED', 'LOST')";
   } else if (status) {
-    whereStr = 'status = ?';
+    whereStr = 'deletedAt IS NULL AND status = ?';
     whereParams.push(status);
   } else {
-    whereStr = '1=1';
+    whereStr = 'deletedAt IS NULL';
+  }
+
+  // Search by name or phone
+  if (searchTerm) {
+    whereStr += ' AND (`childName` LIKE ? OR `parentPhone` LIKE ?)';
+    const like = `%${searchTerm}%`;
+    whereParams.push(like, like);
   }
 
   const [[countRow]] = await pool.query<RowDataPacket[]>(
@@ -116,10 +229,13 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
     items = rows as unknown[];
   } else {
     // Drizzle builder for simple cases
-    const drizzleWhere =
-      status === 'inactive' ? inArray(leads.status, ['ENROLLED', 'LOST']) :
-      status ? eq(leads.status, status as any) :
-      undefined;
+    const notDeleted = sql`${leads.deletedAt} IS NULL`;
+    const searchFilter = searchTerm ? sql`(${leads.childName} LIKE ${`%${searchTerm}%`} OR ${leads.parentPhone} LIKE ${`%${searchTerm}%`})` : undefined;
+    const baseWhere =
+      status === 'inactive' ? and(notDeleted, inArray(leads.status, ['ENROLLED', 'LOST'])) :
+      status ? and(notDeleted, eq(leads.status, status as any)) :
+      notDeleted;
+    const drizzleWhere = searchFilter ? and(baseWhere, searchFilter) : baseWhere;
 
     const sortCol =
       field === 'childName' ? leads.childName :
@@ -141,10 +257,15 @@ export async function getLeadStats(_req: Request, res: Response): Promise<void> 
   const groups = await db
     .select({ status: leads.status, count: sql<number>`count(*)` })
     .from(leads)
+    .where(sql`deletedAt IS NULL`)
     .groupBy(leads.status);
 
   const counts: Record<string, number> = {};
   for (const g of groups) counts[g.status] = Number(g.count);
+
+  const [[trashRow]] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) as total FROM `Lead` WHERE deletedAt IS NOT NULL",
+  ) as any;
 
   res.json({
     NEW: counts['NEW'] ?? 0,
@@ -153,7 +274,42 @@ export async function getLeadStats(_req: Request, res: Response): Promise<void> 
     FOLLOW_UP: counts['FOLLOW_UP'] ?? 0,
     ENROLLED: counts['ENROLLED'] ?? 0,
     LOST: counts['LOST'] ?? 0,
+    TRASH: Number((trashRow as any).total),
   });
+}
+
+export async function deleteLead(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
+  await db.update(students).set({ withdrawnAt: new Date(), withdrawReason: 'Lead deleted' }).where(eq(students.leadId, id));
+  await db.update(leads).set({ deletedAt: new Date() }).where(eq(leads.id, id));
+  res.status(204).end();
+}
+
+export async function getTrashedLeads(_req: Request, res: Response): Promise<void> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT * FROM `Lead` WHERE deletedAt IS NOT NULL ORDER BY deletedAt DESC",
+  ) as any;
+  res.json(rows as unknown[]);
+}
+
+export async function restoreLead(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
+  await db.update(leads).set({ deletedAt: null }).where(eq(leads.id, id));
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  res.json(lead);
+}
+
+export async function permanentDeleteLead(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
+  await db.delete(students).where(eq(students.leadId, id));
+  await db.delete(leads).where(eq(leads.id, id));
+  res.status(204).end();
 }
 
 export async function updateLead(req: Request, res: Response): Promise<void> {
@@ -167,11 +323,22 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
 
-  const { childDob, ...rest } = parsed.data;
+  const { childDob, childName, ...rest } = parsed.data;
+  const statusChanged = rest.status && rest.status !== existing.status;
+  const clearLostReason = rest.status && rest.status !== 'LOST';
+  const unenrolling = statusChanged && existing.status === 'ENROLLED' && rest.status !== 'ENROLLED';
+
   await db.update(leads).set({
     ...rest,
+    ...(childName ? { childName: normalizeName(childName) } : {}),
     ...(childDob ? { childDob: new Date(childDob) } : {}),
+    ...(statusChanged ? { statusChangedAt: new Date() } : {}),
+    ...(clearLostReason ? { lostReason: null } : {}),
   } as any).where(eq(leads.id, id));
+
+  if (unenrolling) {
+    await db.delete(students).where(eq(students.leadId, id));
+  }
 
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   res.json(lead);
@@ -186,16 +353,8 @@ function roundUpTo30Min(date: Date): Date {
   return result;
 }
 
-export async function createAppointment(
-  req: Request,
-  res: Response,
-  next: import('express').NextFunction,
-): Promise<void> {
-  try {
-    await _createAppointment(req, res);
-  } catch (err) {
-    next(err);
-  }
+export async function createAppointment(req: Request, res: Response): Promise<void> {
+  await _createAppointment(req, res);
 }
 
 function normalizePhone(phone: string): string {
@@ -244,11 +403,11 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     ? new Date(appointmentStartStr)
     : roundUpTo30Min(new Date(Date.now() + 2 * 60 * 60 * 1000));
 
-  const [durationSetting] = await db
-    .select()
-    .from(systemSettings)
-    .where(eq(systemSettings.key, 'appointment_duration_minutes'))
-    .limit(1);
+  const [durationSetting, calendarSetting] = await Promise.all([
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'appointment_duration_minutes')).limit(1).then(r => r[0]),
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
+  ]);
+  const calendarId = (calendarSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
   const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
   const end = new Date(start.getTime() + durationMs);
 
@@ -278,7 +437,7 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
   if (lead.googleEventId) {
     try {
       await calendar.events.delete({
-        calendarId: process.env.SHARED_CALENDAR_ID!,
+        calendarId,
         eventId: lead.googleEventId,
       });
     } catch {
@@ -286,16 +445,23 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     }
   }
 
-  const event = await calendar.events.insert({
-    calendarId: process.env.SHARED_CALENDAR_ID!,
-    requestBody: {
-      summary: `${isPlaceholder ? '【PH】' : ''}School Visit - ${lead.childName}`,
-      description: buildEventDescription(lead, whatsappMessage),
-      location: process.env.KINDER_ADDRESS ?? '',
-      start: { dateTime: start.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
-      end: { dateTime: end.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
-    },
-  });
+  let event;
+  try {
+    event = await calendar.events.insert({
+      calendarId,
+      requestBody: {
+        summary: `${isPlaceholder ? '【PH】' : ''}School Visit - ${lead.childName}`,
+        description: buildEventDescription(lead, whatsappMessage),
+        location: process.env.KINDER_ADDRESS ?? '',
+        start: { dateTime: start.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
+        end: { dateTime: end.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
+      },
+    });
+  } catch (err: any) {
+    console.error('[Google Calendar] Failed to create event:', err?.response?.data ?? err?.message);
+    res.status(502).json({ message: `Google Calendar error: ${err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error'}` });
+    return;
+  }
 
   await db.update(leads).set({
     googleEventId: event.data.id,
@@ -305,6 +471,77 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     appointmentCreatedByUserId: req.user!.id,
     appointmentIsPlaceholder: !!isPlaceholder,
     status: isPlaceholder ? 'CONTACTED' : 'APPOINTMENT_BOOKED',
+    statusChangedAt: new Date(),
+  }).where(eq(leads.id, id));
+
+  res.json({ googleEventId: event.data.id, googleEventLink: event.data.htmlLink });
+}
+
+export async function confirmAppointment(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!lead) { res.status(404).json({ message: 'Lead not found' }); return; }
+  if (!lead.appointmentStart) { res.status(400).json({ message: 'No appointment to confirm' }); return; }
+
+  const [connection] = await db.select().from(googleConnections).limit(1);
+  if (!connection) { res.status(409).json({ message: 'Google calendar not connected' }); return; }
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
+    process.env.GOOGLE_REDIRECT_URI!,
+  );
+  oauth2Client.setCredentials({
+    access_token: connection.accessToken,
+    refresh_token: connection.refreshToken,
+    expiry_date: Number(connection.expiryDate),
+  });
+  oauth2Client.on('tokens', async (tokens) => {
+    if (tokens.access_token) {
+      await db.update(googleConnections).set({
+        accessToken: tokens.access_token,
+        updatedAt: new Date(),
+        ...(tokens.expiry_date != null ? { expiryDate: BigInt(tokens.expiry_date) } : {}),
+      });
+    }
+  });
+
+  const [calendarSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
+  const calendarId = (calendarSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
+
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+  if (lead.googleEventId) {
+    try {
+      await calendar.events.delete({ calendarId, eventId: lead.googleEventId });
+    } catch { /* ignore if already deleted */ }
+  }
+
+  let event;
+  try {
+    event = await calendar.events.insert({
+      calendarId,
+      requestBody: {
+        summary: `School Visit - ${lead.childName}`,
+        description: buildEventDescription(lead, undefined),
+        location: process.env.KINDER_ADDRESS ?? '',
+        start: { dateTime: lead.appointmentStart.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
+        end: { dateTime: (lead.appointmentEnd ?? new Date(lead.appointmentStart.getTime() + 30 * 60000)).toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
+      },
+    });
+  } catch (err: any) {
+    console.error('[Google Calendar] confirmAppointment failed:', err?.response?.data ?? err?.message);
+    res.status(502).json({ message: `Google Calendar error: ${err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error'}` });
+    return;
+  }
+
+  await db.update(leads).set({
+    googleEventId: event.data.id,
+    googleEventLink: event.data.htmlLink,
+    appointmentIsPlaceholder: false,
+    status: 'APPOINTMENT_BOOKED',
+    statusChangedAt: new Date(),
   }).where(eq(leads.id, id));
 
   res.json({ googleEventId: event.data.id, googleEventLink: event.data.htmlLink });
@@ -322,7 +559,11 @@ export async function getUpcomingAppointments(_req: Request, res: Response): Pro
       appointmentIsPlaceholder: leads.appointmentIsPlaceholder,
     })
     .from(leads)
-    .where(gte(leads.appointmentStart, now))
+    .where(and(
+      gte(leads.appointmentStart, now),
+      sql`status NOT IN ('FOLLOW_UP', 'ENROLLED', 'LOST')`,
+      sql`deletedAt IS NULL`,
+    ))
     .orderBy(asc(leads.appointmentStart));
   res.json(items);
 }

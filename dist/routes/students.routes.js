@@ -13,5 +13,6 @@ exports.studentsRouter.patch('/:id/onboarding', auth_middleware_js_1.authMiddlew
 exports.studentsRouter.patch('/:id/complete-onboarding', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(students_controller_js_1.completeOnboarding));
 exports.studentsRouter.patch('/:id/withdraw', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(students_controller_js_1.withdrawStudent));
 exports.studentsRouter.patch('/:id/reactivate', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(students_controller_js_1.reactivateStudent));
+exports.studentsRouter.delete('/reset', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(students_controller_js_1.resetAllStudents));
 exports.studentsRouter.delete('/:id', auth_middleware_js_1.authMiddleware, (0, asyncHandler_js_1.asyncHandler)(students_controller_js_1.deleteStudent));
 //# sourceMappingURL=students.routes.js.map

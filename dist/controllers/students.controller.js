@@ -4,6 +4,7 @@ exports.getStudents = getStudents;
 exports.createStudent = createStudent;
 exports.updateStudent = updateStudent;
 exports.completeOnboarding = completeOnboarding;
+exports.resetAllStudents = resetAllStudents;
 exports.deleteStudent = deleteStudent;
 exports.withdrawStudent = withdrawStudent;
 exports.reactivateStudent = reactivateStudent;
@@ -30,6 +31,7 @@ const studentSelect = {
     leadChildName: schema_js_1.leads.childName,
     leadChildDob: schema_js_1.leads.childDob,
     leadParentPhone: schema_js_1.leads.parentPhone,
+    leadSubmittedAt: schema_js_1.leads.submittedAt,
     packageName: schema_js_1.packages.name,
     packageProgramme: schema_js_1.packages.programme,
     packageAge: schema_js_1.packages.age,
@@ -60,6 +62,7 @@ function reshape(row) {
             childName: row.leadChildName,
             childDob: row.leadChildDob,
             parentPhone: row.leadParentPhone,
+            submittedAt: row.leadSubmittedAt,
         },
         package: {
             name: row.packageName,
@@ -191,6 +194,10 @@ async function completeOnboarding(req, res) {
     res.json(reshape(row));
 }
 // ── Delete student ────────────────────────────────────────────────────────────
+async function resetAllStudents(_req, res) {
+    await client_js_1.db.delete(schema_js_1.students);
+    res.json({ message: 'All students deleted' });
+}
 async function deleteStudent(req, res) {
     const { id } = req.params;
     const [existing] = await client_js_1.db.select().from(schema_js_1.students).where((0, drizzle_orm_1.eq)(schema_js_1.students.id, id)).limit(1);

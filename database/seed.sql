@@ -1,6 +1,6 @@
 -- ── Users ────────────────────────────────────────────────────────
 INSERT INTO `User` (`id`, `email`, `name`, `passwordHash`, `role`, `createdAt`, `updatedAt`) VALUES
-  (UUID(), 'admin@kinderCore.local', 'Admin', '$2b$10$uszdSztnMT1.7fsxuDr5G.cOCR5PB1.DfMQ.hSGVeTYf2lwI4ysCO', 'ADMIN', NOW(), NOW()),
+  (UUID(), 'admin@kindercore.com', 'Admin', '$2b$10$g1kDWI1eYrS2nmK1PRT7EOhylrGJ.cvEo2HNXQU1MhMQGIZT543lG', 'ADMIN', NOW(), NOW()),
   (UUID(), 'staff@kinderCore.local', 'Staff', '$2b$10$AcjygauFsSurMWmPX//DsOGh/9nyI6w01tD6la/uj.zGsxMcue5x6', 'STAFF', NOW(), NOW());
 
 -- ── System Settings ───────────────────────────────────────────────
@@ -10,7 +10,7 @@ INSERT INTO `SystemSetting` (`id`, `key`, `value`, `description`, `updatedAt`) V
   (UUID(), 'appointment_lead_time_hours', '2', 'Hours ahead to schedule appointment from now.', NOW()),
   (UUID(), 'kinder_address', '"Bukit Indah, Johor Bahru"', 'Kindergarten address used in Google Calendar events.', NOW()),
   (UUID(), 'lost_reasons', '["Transportation","Operating Hours","Distance","Enrolled other school","Fee too expensive","Special Need","Class Full","Didn\'t reply","Under Age","Didn\'t attend the enquiry"]', 'Dropdown options for marking a lead as Lost.', NOW()),
-  (UUID(), 'onboarding_tasks', '["Create parents group (format: Year_ClassName_ChildrenName)","Send welcome message (shortcut: newparentswelcome)","Send registration link (shortcut: newparentsregistration)","Enroll student to app (New enrollment => raw lead => enrolled)","Send Checklist for Completed Registration (shortcut: newparentsregdone)","Assign student to a class and add tag","Send App Invitation Link","Ask Parents to Set Up the Ten Toes App (shortcut: newparentsapp)","Send Checklist for Completed App Setup (shortcut: newparentsappdone)","Send invoice to new parents","Ask Parents to Join the Facebook Group (shortcut: newparentsfb)","Add Parents to the Facebook Group"]', 'Checklist of tasks to complete when onboarding a new student.', NOW());
+  (UUID(), 'onboarding_tasks', '["Create parents group (format: Year_ClassName_ChildrenName)","Send welcome message (shortcut: newparentswelcome)","Send registration link (shortcut: newparentsregistration)","Enroll student to app (New enrollment => raw lead => enrolled)","Send Checklist for Completed Registration (shortcut: newparentsregdone)","Assign student to a class and add tag","Send App Invitation Link","Ask Parents to Set Up the Ten Toes App (shortcut: newparentsapp)","Send Checklist for Completed App Setup (shortcut: newparentsappdone)","Send invoice to new parents","Ask Parents to Join the Facebook Group (shortcut: newparentsfb)","Add Parents to the Facebook Group","Send Checklist for Completed Facebook Group Joining (shortcut: newparentsfbdone)","Order book, bag, uniform for new students","Send Reminder for Bag & Uniform Collection (shortcut: newparentsbag)","Send Checklist for Completed Bag & Uniform Collection"]', 'Checklist of tasks to complete when onboarding a new student.', NOW());
 
 -- ── Packages ──────────────────────────────────────────────────────
 INSERT INTO `Package` (`id`, `year`, `programme`, `age`, `name`, `price`, `updatedAt`) VALUES

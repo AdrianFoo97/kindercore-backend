@@ -261,6 +261,18 @@ export declare const leads: import("drizzle-orm/mysql-core").MySqlTableWithColum
             enumValues: undefined;
             baseColumn: never;
         }, object>;
+        statusChangedAt: import("drizzle-orm/mysql-core").MySqlColumn<{
+            name: "statusChangedAt";
+            tableName: "Lead";
+            dataType: "date";
+            columnType: "MySqlDateTime";
+            data: Date;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+        }, object>;
         lostReason: import("drizzle-orm/mysql-core").MySqlColumn<{
             name: "lostReason";
             tableName: "Lead";
@@ -343,6 +355,18 @@ export declare const leads: import("drizzle-orm/mysql-core").MySqlTableWithColum
             notNull: false;
             hasDefault: false;
             enumValues: [string, ...string[]];
+            baseColumn: never;
+        }, object>;
+        deletedAt: import("drizzle-orm/mysql-core").MySqlColumn<{
+            name: "deletedAt";
+            tableName: "Lead";
+            dataType: "date";
+            columnType: "MySqlDateTime";
+            data: Date;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: false;
+            enumValues: undefined;
             baseColumn: never;
         }, object>;
     };

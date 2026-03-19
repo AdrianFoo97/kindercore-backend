@@ -108,23 +108,32 @@ export async function deletePackage(req: Request, res: Response): Promise<void> 
   res.status(204).send();
 }
 
-// ── Patch name ────────────────────────────────────────────────────────────────
+// ── Patch package ─────────────────────────────────────────────────────────────
 
-const patchNameSchema = z.object({ name: z.string().min(1) });
+const patchPackageSchema = z.object({
+  name: z.string().min(1).optional(),
+  price: z.number().min(0).optional(),
+}).refine(d => d.name !== undefined || d.price !== undefined, { message: 'Provide name or price' });
 
-export async function patchPackageName(req: Request, res: Response): Promise<void> {
+export async function patchPackage(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
-  const parsed = patchNameSchema.safeParse(req.body);
+  const parsed = patchPackageSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
   const [existing] = await db.select().from(packages).where(eq(packages.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Package not found' }); return; }
-  await db.update(packages).set({ name: parsed.data.name, updatedAt: new Date() }).where(eq(packages.id, id));
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (parsed.data.name !== undefined) updates.name = parsed.data.name;
+  if (parsed.data.price !== undefined) updates.price = parsed.data.price;
+  await db.update(packages).set(updates).where(eq(packages.id, id));
   const [updated] = await db.select().from(packages).where(eq(packages.id, id)).limit(1);
   res.json(updated);
 }
+
+/** @deprecated kept for backwards compat — use patchPackage instead */
+export const patchPackageName = patchPackage;
 
 // ── Bulk upsert prices ────────────────────────────────────────────────────────
 

@@ -28,6 +28,7 @@ exports.leads = (0, mysql_core_1.mysqlTable)('Lead', {
     googleEventLink: (0, mysql_core_1.text)('googleEventLink'),
     appointmentCreatedByUserId: (0, mysql_core_1.varchar)('appointmentCreatedByUserId', { length: 36 }),
     appointmentIsPlaceholder: (0, mysql_core_1.boolean)('appointmentIsPlaceholder').notNull().default(false),
+    statusChangedAt: (0, mysql_core_1.datetime)('statusChangedAt', { mode: 'date', fsp: 3 }),
     lostReason: (0, mysql_core_1.text)('lostReason'),
     relationship: (0, mysql_core_1.varchar)('relationship', { length: 191 }),
     programme: (0, mysql_core_1.varchar)('programme', { length: 191 }),
@@ -35,6 +36,7 @@ exports.leads = (0, mysql_core_1.mysqlTable)('Lead', {
     addressLocation: (0, mysql_core_1.varchar)('addressLocation', { length: 191 }),
     needsTransport: (0, mysql_core_1.boolean)('needsTransport'),
     howDidYouKnow: (0, mysql_core_1.varchar)('howDidYouKnow', { length: 191 }),
+    deletedAt: (0, mysql_core_1.datetime)('deletedAt', { mode: 'date', fsp: 3 }),
 });
 exports.googleConnections = (0, mysql_core_1.mysqlTable)('GoogleConnection', {
     id: (0, mysql_core_1.varchar)('id', { length: 36 }).primaryKey(),
