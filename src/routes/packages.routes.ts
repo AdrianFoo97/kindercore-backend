@@ -5,6 +5,7 @@ import {
   getPackagesConfig,
   createPackage,
   deletePackage,
+  patchPackage,
   patchPackageName,
   upsertPackages,
   updateProgrammes,
@@ -23,4 +24,5 @@ packagesRouter.get('/config', authMiddleware, asyncHandler(getPackagesConfig));
 packagesRouter.put('/programmes', authMiddleware, adminMiddleware, asyncHandler(updateProgrammes));
 packagesRouter.put('/ages', authMiddleware, adminMiddleware, asyncHandler(updateAges));
 packagesRouter.delete('/:id', authMiddleware, adminMiddleware, asyncHandler(deletePackage));
+packagesRouter.patch('/:id', authMiddleware, adminMiddleware, asyncHandler(patchPackage));
 packagesRouter.patch('/:id/name', authMiddleware, adminMiddleware, asyncHandler(patchPackageName));

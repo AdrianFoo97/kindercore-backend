@@ -2,8 +2,9 @@ import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
 import jwt from 'jsonwebtoken';
+import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { googleConnections } from '../db/schema.js';
+import { googleConnections, systemSettings } from '../db/schema.js';
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -15,7 +16,31 @@ function getOAuth2Client() {
 
 export async function getStatus(_req: Request, res: Response): Promise<void> {
   const [connection] = await db.select().from(googleConnections).limit(1);
-  res.json({ connected: !!connection });
+  if (!connection) { res.json({ connected: false, email: null, calendarName: null, calendarId: null }); return; }
+
+  try {
+    const oauth2Client = getOAuth2Client();
+    oauth2Client.setCredentials({
+      access_token: connection.accessToken,
+      refresh_token: connection.refreshToken,
+      expiry_date: Number(connection.expiryDate),
+    });
+
+    const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
+    const calendarId = (calSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
+    const [userInfoResult, calendarResult] = await Promise.allSettled([
+      google.oauth2({ version: 'v2', auth: oauth2Client }).userinfo.get(),
+      google.calendar({ version: 'v3', auth: oauth2Client }).calendars.get({ calendarId }),
+    ]);
+
+    const email = userInfoResult.status === 'fulfilled' ? (userInfoResult.value.data.email ?? null) : null;
+    const calendarName = calendarResult.status === 'fulfilled' ? (calendarResult.value.data.summary ?? null) : null;
+
+    res.json({ connected: true, email, calendarName, calendarId });
+  } catch {
+    const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
+    res.json({ connected: true, email: null, calendarName: null, calendarId: (calSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? null });
+  }
 }
 
 export async function connectToken(req: Request, res: Response): Promise<void> {
@@ -43,10 +68,47 @@ export function startAuth(req: Request, res: Response): void {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: ['https://www.googleapis.com/auth/calendar.events'],
+    scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email'],
     state,
   });
   res.redirect(authUrl);
+}
+
+export async function listCalendars(_req: Request, res: Response): Promise<void> {
+  const [connection] = await db.select().from(googleConnections).limit(1);
+  if (!connection) { res.status(409).json({ message: 'Google Calendar not connected' }); return; }
+
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({
+    access_token: connection.accessToken,
+    refresh_token: connection.refreshToken,
+    expiry_date: Number(connection.expiryDate),
+  });
+
+  try {
+    const { data } = await google.calendar({ version: 'v3', auth: oauth2Client }).calendarList.list({ maxResults: 100 });
+    const calendars = (data.items ?? []).map(c => ({ id: c.id, name: c.summary, primary: c.primary ?? false }));
+    res.json(calendars);
+  } catch (err: any) {
+    const msg = err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error';
+    const status = err?.response?.status ?? 500;
+    console.error('[Google] listCalendars failed:', JSON.stringify(err?.response?.data ?? err?.message));
+    res.status(status).json({ message: msg });
+  }
+}
+
+export async function setCalendar(req: Request, res: Response): Promise<void> {
+  const { calendarId } = req.body as { calendarId: string };
+  if (!calendarId) { res.status(400).json({ message: 'calendarId required' }); return; }
+
+  const [existing] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
+  const now = new Date();
+  if (existing) {
+    await db.update(systemSettings).set({ value: calendarId, updatedAt: now }).where(eq(systemSettings.key, 'shared_calendar_id'));
+  } else {
+    await db.insert(systemSettings).values({ id: randomUUID(), key: 'shared_calendar_id', value: calendarId, updatedAt: now });
+  }
+  res.json({ calendarId });
 }
 
 export async function handleCallback(req: Request, res: Response): Promise<void> {
@@ -77,5 +139,5 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
     updatedAt: now,
   });
 
-  res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:5173'}/login?google=connected`);
+  res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:5173'}/settings/calendar?google=connected`);
 }

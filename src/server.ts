@@ -1,24 +1,88 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { router } from './routes/index.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
+const isProd = process.env.NODE_ENV === 'production';
 
+// ── Security headers ──
+app.use(helmet());
+
+// ── CORS ──
 app.use(
   cors({
     origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
     credentials: true,
   }),
 );
-app.use(express.json());
+
+// ── Body size limit ──
+app.use(express.json({ limit: '1mb' }));
+
+// ── Rate limiting ──
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 login attempts per 15 min per IP
+  message: { message: 'Too many login attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', authLimiter);
+
+const leadCreateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 30, // 30 enquiries per hour per IP
+  message: { message: 'Too many submissions. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/leads', (req, _res, next) => {
+  if (req.method === 'POST' && req.path === '/') return leadCreateLimiter(req, _res, next);
+  next();
+});
+
+// ── Request logging ──
+app.use((req, res, next) => {
+  const start = Date.now();
+  const { method, originalUrl } = req;
+
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    const status = res.statusCode;
+    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
+    const prefix = level === 'error' ? '[ERROR]' : level === 'warn' ? '[WARN]' : '[REQ]';
+    console.log(`${prefix} ${method} ${originalUrl} ${status} ${ms}ms`);
+  });
+
+  next();
+});
+
+// ── Routes ──
 app.use('/api', router);
 
-// Global error handler — keeps the server alive on unhandled route errors
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[error]', err.message);
-  res.status(500).json({ message: err.message ?? 'Internal server error' });
+// ── Global error handler ──
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const timestamp = new Date().toISOString();
+  const { method, originalUrl, ip } = req;
+
+  // Detect database connection errors
+  const isDbError = /ECONNREFUSED|ETIMEDOUT|ER_ACCESS_DENIED|PROTOCOL_CONNECTION_LOST|ER_BAD_DB_ERROR|ENOTFOUND|connect ECONN/i.test(err.message);
+
+  if (isDbError) {
+    console.error(`[ERROR] ${timestamp} DB_UNAVAILABLE | ${method} ${originalUrl} | IP: ${ip} | ${err.message}`);
+    res.status(503).json({ message: 'Service temporarily unavailable. Please try again shortly.', code: 'DB_UNAVAILABLE' });
+    return;
+  }
+
+  // Log full stack for 500 errors
+  console.error(`[ERROR] ${timestamp} INTERNAL_ERROR | ${method} ${originalUrl} | IP: ${ip}`);
+  console.error(err.stack ?? err.message);
+
+  res.status(500).json({ message: isProd ? 'Something went wrong. Please try again.' : err.message, code: 'INTERNAL_ERROR' });
 });
 
 app.listen(Number(PORT), '0.0.0.0', () => {

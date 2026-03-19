@@ -38,6 +38,7 @@ export const leads = mysqlTable('Lead', {
   googleEventLink: text('googleEventLink'),
   appointmentCreatedByUserId: varchar('appointmentCreatedByUserId', { length: 36 }),
   appointmentIsPlaceholder: boolean('appointmentIsPlaceholder').notNull().default(false),
+  statusChangedAt: datetime('statusChangedAt', { mode: 'date', fsp: 3 }),
   lostReason: text('lostReason'),
   relationship: varchar('relationship', { length: 191 }),
   programme: varchar('programme', { length: 191 }),
@@ -45,6 +46,8 @@ export const leads = mysqlTable('Lead', {
   addressLocation: varchar('addressLocation', { length: 191 }),
   needsTransport: boolean('needsTransport'),
   howDidYouKnow: varchar('howDidYouKnow', { length: 191 }),
+  ctaSource: varchar('ctaSource', { length: 50 }),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
 });
 
 export const googleConnections = mysqlTable('GoogleConnection', {
@@ -82,6 +85,7 @@ export const students = mysqlTable('Student', {
   enrolmentMonth: int('enrolmentMonth').notNull(),
   packageId: varchar('packageId', { length: 36 }).notNull(),
   enrolledAt: datetime('enrolledAt', { mode: 'date', fsp: 3 }).notNull(),
+  startDate: datetime('startDate', { mode: 'date', fsp: 3 }),
   notes: text('notes'),
   onboardingProgress: json('onboardingProgress'),
   onboardingCompleted: boolean('onboardingCompleted').notNull().default(false),

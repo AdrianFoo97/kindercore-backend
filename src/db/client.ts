@@ -6,6 +6,7 @@ export const pool = mysql.createPool({
   uri: process.env.DATABASE_URL!,
   waitForConnections: true,
   connectionLimit: 5,
+  timezone: '+00:00',
 });
 
 export const db = drizzle(pool, { schema, mode: 'default' });

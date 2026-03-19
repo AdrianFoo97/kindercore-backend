@@ -14,7 +14,13 @@ async function getSettings(_req, res) {
     const rows = await client_js_1.db.select().from(schema_js_1.systemSettings).orderBy((0, drizzle_orm_1.asc)(schema_js_1.systemSettings.key));
     const result = {};
     for (const row of rows) {
-        result[row.key] = row.value;
+        const val = row.value;
+        result[row.key] = typeof val === 'string' ? (() => { try {
+            return JSON.parse(val);
+        }
+        catch {
+            return val;
+        } })() : val;
     }
     res.json(result);
 }

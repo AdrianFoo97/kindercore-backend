@@ -20,8 +20,18 @@ const CURRENT_YEAR = new Date().getFullYear();
 // ── Config helpers ────────────────────────────────────────────────────────────
 async function getOrInitSetting(key, defaultValue) {
     const [row] = await client_js_1.db.select().from(schema_js_1.systemSettings).where((0, drizzle_orm_1.eq)(schema_js_1.systemSettings.key, key)).limit(1);
-    if (row)
-        return row.value;
+    if (row) {
+        const val = row.value;
+        if (typeof val === 'string') {
+            try {
+                return JSON.parse(val);
+            }
+            catch {
+                return defaultValue;
+            }
+        }
+        return val;
+    }
     await client_js_1.db.insert(schema_js_1.systemSettings).values({
         id: (0, crypto_1.randomUUID)(),
         key,
