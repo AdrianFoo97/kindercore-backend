@@ -6,7 +6,6 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/startup.js",
-    "postinstall": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
