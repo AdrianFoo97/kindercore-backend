@@ -5,6 +5,7 @@ import { googleRouter } from './google.routes.js';
 import { settingsRouter } from './settings.routes.js';
 import { packagesRouter } from './packages.routes.js';
 import { studentsRouter } from './students.routes.js';
+import { plannerRouter } from './planner.routes.js';
 
 export const router = Router();
 
@@ -18,3 +19,4 @@ router.use('/google', googleRouter);
 router.use('/settings', settingsRouter);
 router.use('/packages', packagesRouter);
 router.use('/students', studentsRouter);
+router.use('/planner', plannerRouter);
