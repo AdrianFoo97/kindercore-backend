@@ -28,7 +28,7 @@ export const leads = mysqlTable('Lead', {
   parentPhone: varchar('parentPhone', { length: 191 }).notNull(),
   childDob: datetime('childDob', { mode: 'date', fsp: 3 }).notNull(),
   enrolmentYear: int('enrolmentYear').notNull(),
-  status: mysqlEnum('status', ['NEW', 'CONTACTED', 'APPOINTMENT_BOOKED', 'FOLLOW_UP', 'ENROLLED', 'LOST'])
+  status: mysqlEnum('status', ['NEW', 'CONTACTED', 'APPOINTMENT_BOOKED', 'FOLLOW_UP', 'ENROLLED', 'LOST', 'REJECTED'])
     .notNull()
     .default('NEW'),
   notes: text('notes'),
@@ -38,6 +38,7 @@ export const leads = mysqlTable('Lead', {
   googleEventLink: text('googleEventLink'),
   appointmentCreatedByUserId: varchar('appointmentCreatedByUserId', { length: 36 }),
   appointmentIsPlaceholder: boolean('appointmentIsPlaceholder').notNull().default(false),
+  attended: boolean('attended').notNull().default(false),
   statusChangedAt: datetime('statusChangedAt', { mode: 'date', fsp: 3 }),
   lostReason: text('lostReason'),
   relationship: varchar('relationship', { length: 191 }),

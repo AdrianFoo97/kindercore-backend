@@ -41,7 +41,8 @@ const leadCreateLimiter = rateLimit({
   legacyHeaders: false,
 });
 app.use('/api/leads', (req, _res, next) => {
-  if (req.method === 'POST' && req.path === '/') return leadCreateLimiter(req, _res, next);
+  // Only rate-limit unauthenticated POST (public enquiry form); skip for logged-in users (imports)
+  if (req.method === 'POST' && req.path === '/' && !req.headers.authorization) return leadCreateLimiter(req, _res, next);
   next();
 });
 

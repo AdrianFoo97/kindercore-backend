@@ -24,7 +24,7 @@ export const updateLeadSchema = z.object({
   childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   enrolmentYear: z.number().int().min(2020).max(currentYear + 5).optional(),
   status: z
-    .enum(['NEW', 'CONTACTED', 'APPOINTMENT_BOOKED', 'FOLLOW_UP', 'ENROLLED', 'LOST'])
+    .enum(['NEW', 'CONTACTED', 'APPOINTMENT_BOOKED', 'FOLLOW_UP', 'ENROLLED', 'LOST', 'REJECTED'])
     .optional(),
   notes: z.string().optional(),
   lostReason: z.string().nullable().optional(),
@@ -34,4 +34,7 @@ export const updateLeadSchema = z.object({
   addressLocation: z.string().min(1).nullable().optional(),
   needsTransport: z.boolean().nullable().optional(),
   howDidYouKnow: z.string().min(1).nullable().optional(),
+  appointmentStart: z.string().nullable().optional(),
+  appointmentEnd: z.string().nullable().optional(),
+  attended: z.boolean().optional(),
 });

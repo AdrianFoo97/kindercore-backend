@@ -61,7 +61,7 @@ export async function resetAllLeads(_req: Request, res: Response): Promise<void>
 }
 
 export async function seedDummyLeads(_req: Request, res: Response): Promise<void> {
-  type LeadStatus = 'NEW' | 'CONTACTED' | 'APPOINTMENT_BOOKED' | 'FOLLOW_UP' | 'ENROLLED' | 'LOST';
+  type LeadStatus = 'NEW' | 'CONTACTED' | 'APPOINTMENT_BOOKED' | 'FOLLOW_UP' | 'ENROLLED' | 'LOST' | 'REJECTED';
   type DummyLead = {
     id: string; childName: string; parentPhone: string; childDob: Date; enrolmentYear: number;
     status: LeadStatus; submittedAt: Date; statusChangedAt?: Date; howDidYouKnow?: string; programme?: string;
@@ -160,8 +160,9 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
   const skip = (page - 1) * pageSize;
 
-  const { status, sortBy, sortOrder, search } = req.query as Record<string, string | undefined>;
+  const { status, sortBy, sortOrder, search, year } = req.query as Record<string, string | undefined>;
   const searchTerm = (search ?? '').trim();
+  const yearFilter = year ? parseInt(year) : undefined;
 
   const validSortFields = ['submittedAt', 'childName', 'childDob', 'enrolmentYear', 'status'];
   const field = validSortFields.includes(sortBy ?? '') ? sortBy! : 'submittedAt';
@@ -172,14 +173,20 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   let whereStr: string;
   const whereParams: any[] = [];
   if (status === 'active') {
-    whereStr = "deletedAt IS NULL AND status NOT IN ('ENROLLED', 'LOST')";
+    whereStr = "deletedAt IS NULL AND status NOT IN ('ENROLLED', 'LOST', 'REJECTED')";
   } else if (status === 'inactive') {
-    whereStr = "deletedAt IS NULL AND status IN ('ENROLLED', 'LOST')";
+    whereStr = "deletedAt IS NULL AND status IN ('ENROLLED', 'LOST', 'REJECTED')";
   } else if (status) {
     whereStr = 'deletedAt IS NULL AND status = ?';
     whereParams.push(status);
   } else {
     whereStr = 'deletedAt IS NULL';
+  }
+
+  // Year filter (by submittedAt year)
+  if (yearFilter) {
+    whereStr += ' AND YEAR(`submittedAt`) = ?';
+    whereParams.push(yearFilter);
   }
 
   // Search by name or phone
@@ -232,7 +239,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
     const notDeleted = sql`${leads.deletedAt} IS NULL`;
     const searchFilter = searchTerm ? sql`(${leads.childName} LIKE ${`%${searchTerm}%`} OR ${leads.parentPhone} LIKE ${`%${searchTerm}%`})` : undefined;
     const baseWhere =
-      status === 'inactive' ? and(notDeleted, inArray(leads.status, ['ENROLLED', 'LOST'])) :
+      status === 'inactive' ? and(notDeleted, inArray(leads.status, ['ENROLLED', 'LOST', 'REJECTED'])) :
       status ? and(notDeleted, eq(leads.status, status as any)) :
       notDeleted;
     const drizzleWhere = searchFilter ? and(baseWhere, searchFilter) : baseWhere;
@@ -274,6 +281,7 @@ export async function getLeadStats(_req: Request, res: Response): Promise<void> 
     FOLLOW_UP: counts['FOLLOW_UP'] ?? 0,
     ENROLLED: counts['ENROLLED'] ?? 0,
     LOST: counts['LOST'] ?? 0,
+    REJECTED: counts['REJECTED'] ?? 0,
     TRASH: Number((trashRow as any).total),
   });
 }
@@ -323,7 +331,7 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
 
-  const { childDob, childName, ...rest } = parsed.data;
+  const { childDob, childName, appointmentStart, appointmentEnd, ...rest } = parsed.data;
   const statusChanged = rest.status && rest.status !== existing.status;
   const clearLostReason = rest.status && rest.status !== 'LOST';
   const unenrolling = statusChanged && existing.status === 'ENROLLED' && rest.status !== 'ENROLLED';
@@ -332,6 +340,8 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
     ...rest,
     ...(childName ? { childName: normalizeName(childName) } : {}),
     ...(childDob ? { childDob: new Date(childDob) } : {}),
+    ...(appointmentStart ? { appointmentStart: new Date(appointmentStart) } : {}),
+    ...(appointmentEnd ? { appointmentEnd: new Date(appointmentEnd) } : {}),
     ...(statusChanged ? { statusChangedAt: new Date() } : {}),
     ...(clearLostReason ? { lostReason: null } : {}),
   } as any).where(eq(leads.id, id));
@@ -561,7 +571,7 @@ export async function getUpcomingAppointments(_req: Request, res: Response): Pro
     .from(leads)
     .where(and(
       gte(leads.appointmentStart, now),
-      sql`status NOT IN ('FOLLOW_UP', 'ENROLLED', 'LOST')`,
+      sql`status NOT IN ('FOLLOW_UP', 'ENROLLED', 'LOST', 'REJECTED')`,
       sql`deletedAt IS NULL`,
     ))
     .orderBy(asc(leads.appointmentStart));
@@ -588,20 +598,27 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
       howDidYouKnow: leads.howDidYouKnow,
       status: leads.status,
       lostReason: leads.lostReason,
+      attended: leads.attended,
     }).from(leads).where(dateRange(selectedYear)),
     db.select({ submittedAt: leads.submittedAt }).from(leads).where(dateRange(prevYear)),
   ]);
 
   const totalLeads = currentLeads.length;
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
-  const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST');
-  // "Didn't attend" — covers both system-tracked ("Didn't attend the enquiry") and imported ("Didn't attend")
-  const noShowLeads = completedLeads.filter(l =>
-    l.status === 'LOST' && l.lostReason != null && l.lostReason.toLowerCase().includes("didn't attend")
+  const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST' || l.status === 'REJECTED');
+  // Attended — use the attended flag directly
+  const attendedAppointments = currentLeads.filter(l => l.attended).length;
+  // Didn't attend — had appointment but didn't attend
+  const noShowLeads = currentLeads.filter(l =>
+    l.appointmentStart !== null && !l.attended
   ).length;
-  // Attended = all completed leads minus no-shows (works for imported data without appointmentStart)
-  const attendedAppointments = completedLeads.length - noShowLeads;
-  const appointmentRate = completedLeads.length > 0 ? attendedAppointments / completedLeads.length : 0;
+  const totalWithAppointment = attendedAppointments + noShowLeads;
+  const appointmentRate = totalWithAppointment > 0 ? attendedAppointments / totalWithAppointment : 0;
+  // Pending = not attended, not didn't-attend, not enrolled, not lost, not rejected
+  const pendingLeads = currentLeads.filter(l =>
+    !l.attended && l.appointmentStart === null && l.status !== 'ENROLLED' && l.status !== 'LOST' && l.status !== 'REJECTED'
+  ).length;
+  const rejectedLeads = currentLeads.filter(l => l.status === 'REJECTED').length;
 
   const currentMonthly = new Array(12).fill(0);
   for (const l of currentLeads) currentMonthly[l.submittedAt.getMonth()]++;
@@ -658,7 +675,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   res.json({
     selectedYear, prevYear,
     totalLeads, totalAppointments, completedLeads: completedLeads.length,
-    attendedAppointments, noShowLeads, appointmentRate,
+    attendedAppointments, noShowLeads, appointmentRate, pendingLeads, rejectedLeads,
     monthlyComparison, monthlyByAge,
     addressBreakdown, marketingChannelBreakdown,
     leadsDetail, availableYears,
