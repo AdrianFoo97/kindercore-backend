@@ -94,3 +94,72 @@ export const students = mysqlTable('Student', {
   withdrawReason: varchar('withdrawReason', { length: 191 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
+
+export const teachers = mysqlTable('Teacher', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  color: varchar('color', { length: 7 }).notNull(),
+  isActive: boolean('isActive').notNull().default(true),
+  allowedSubjectIds: json('allowedSubjectIds'),
+  allowedClassroomIds: json('allowedClassroomIds'),
+  workStartMinute: int('workStartMinute'),
+  workEndMinute: int('workEndMinute'),
+  workDays: json('workDays'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const classrooms = mysqlTable('Classroom', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  capacity: int('capacity'),
+  startMinute: int('startMinute'),
+  endMinute: int('endMinute'),
+  daysOfWeek: json('daysOfWeek'),
+  isActive: boolean('isActive').notNull().default(true),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const subjects = mysqlTable('Subject', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  color: varchar('color', { length: 7 }).notNull(),
+  lessonsPerWeek: int('lessonsPerWeek'),
+  defaultDuration: int('defaultDuration').default(60),
+  classLessons: json('classLessons'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const plannerTasks = mysqlTable('PlannerTask', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  category: mysqlEnum('category', ['TEACHING', 'ADMIN', 'DUTY', 'BREAK', 'OTHER']).notNull(),
+  color: varchar('color', { length: 7 }).notNull(),
+  defaultDuration: int('defaultDuration').notNull().default(30),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const scheduleBlocks = mysqlTable('ScheduleBlock', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  weekDate: datetime('weekDate', { mode: 'date', fsp: 3 }).notNull(),
+  dayOfWeek: int('dayOfWeek').notNull(),
+  startMinute: int('startMinute').notNull(),
+  durationMinutes: int('durationMinutes').notNull().default(30),
+  teacherId: varchar('teacherId', { length: 36 }),
+  subjectId: varchar('subjectId', { length: 36 }),
+  taskId: varchar('taskId', { length: 36 }),
+  classroomId: varchar('classroomId', { length: 36 }),
+  assignedTeacherIds: json('assignedTeacherIds'),
+  notes: text('notes'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const savedTimetables = mysqlTable('SavedTimetable', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  blocks: json('blocks').notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
