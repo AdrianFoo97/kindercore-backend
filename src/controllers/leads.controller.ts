@@ -432,7 +432,7 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
     db.select().from(systemSettings).where(eq(systemSettings.key, 'kinder_address')).limit(1).then(r => r[0]),
   ]);
-  const calendarId = (calendarSetting?.value as string | undefined) ?? 'primary';
+  const calendarId = String(calendarSetting?.value ?? 'primary').replace(/^"|"$/g, '');
   const kinderAddress = (addressSetting?.value as string | undefined) ?? '';
   const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
   const end = new Date(start.getTime() + durationMs);
@@ -537,7 +537,7 @@ export async function confirmAppointment(req: Request, res: Response): Promise<v
     db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
     db.select().from(systemSettings).where(eq(systemSettings.key, 'kinder_address')).limit(1).then(r => r[0]),
   ]);
-  const calendarId = (calendarSetting?.value as string | undefined) ?? 'primary';
+  const calendarId = String(calendarSetting?.value ?? 'primary').replace(/^"|"$/g, '');
   const kinderAddress = (addressSetting2?.value as string | undefined) ?? '';
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });

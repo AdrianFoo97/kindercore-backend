@@ -27,7 +27,7 @@ export async function getStatus(_req: Request, res: Response): Promise<void> {
     });
 
     const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-    const calendarId = (calSetting?.value as string | undefined) ?? 'primary';
+    const calendarId = String(calSetting?.value ?? 'primary').replace(/^"|"$/g, '');
     const [userInfoResult, calendarResult] = await Promise.allSettled([
       google.oauth2({ version: 'v2', auth: oauth2Client }).userinfo.get(),
       google.calendar({ version: 'v3', auth: oauth2Client }).calendars.get({ calendarId }),
@@ -39,7 +39,7 @@ export async function getStatus(_req: Request, res: Response): Promise<void> {
     res.json({ connected: true, email, calendarName, calendarId });
   } catch {
     const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-    res.json({ connected: true, email: null, calendarName: null, calendarId: (calSetting?.value as string | undefined) ?? null });
+    res.json({ connected: true, email: null, calendarName: null, calendarId: calSetting ? String(calSetting.value).replace(/^"|"$/g, '') : null });
   }
 }
 
