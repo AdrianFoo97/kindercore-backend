@@ -16,7 +16,10 @@ export const users = mysqlTable('User', {
   email: varchar('email', { length: 191 }).notNull(),
   name: varchar('name', { length: 191 }).notNull(),
   passwordHash: varchar('passwordHash', { length: 191 }).notNull(),
-  role: mysqlEnum('role', ['ADMIN', 'STAFF']).notNull().default('STAFF'),
+  role: mysqlEnum('role', ['SUPERADMIN', 'ADMIN', 'STAFF']).notNull().default('STAFF'),
+  inviteToken: varchar('inviteToken', { length: 191 }),
+  inviteExpiresAt: datetime('inviteExpiresAt', { mode: 'date', fsp: 3 }),
+  activated: boolean('activated').notNull().default(false),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
