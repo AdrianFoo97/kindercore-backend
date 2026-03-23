@@ -27,7 +27,7 @@ export async function getStatus(_req: Request, res: Response): Promise<void> {
     });
 
     const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-    const calendarId = (calSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
+    const calendarId = (calSetting?.value as string | undefined) ?? 'primary';
     const [userInfoResult, calendarResult] = await Promise.allSettled([
       google.oauth2({ version: 'v2', auth: oauth2Client }).userinfo.get(),
       google.calendar({ version: 'v3', auth: oauth2Client }).calendars.get({ calendarId }),
@@ -39,7 +39,7 @@ export async function getStatus(_req: Request, res: Response): Promise<void> {
     res.json({ connected: true, email, calendarName, calendarId });
   } catch {
     const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-    res.json({ connected: true, email: null, calendarName: null, calendarId: (calSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? null });
+    res.json({ connected: true, email: null, calendarName: null, calendarId: (calSetting?.value as string | undefined) ?? null });
   }
 }
 
@@ -138,6 +138,20 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
     createdAt: now,
     updatedAt: now,
   });
+
+  // Auto-select calendar containing "principal" if no calendar is set yet
+  const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
+  if (!calSetting) {
+    try {
+      oauth2Client.setCredentials(tokens);
+      const { data } = await google.calendar({ version: 'v3', auth: oauth2Client }).calendarList.list({ maxResults: 100 });
+      const principalCal = (data.items ?? []).find(c => c.summary?.toLowerCase().includes('principal'));
+      const selectedId = principalCal?.id ?? (data.items ?? []).find(c => c.primary)?.id ?? 'primary';
+      await db.insert(systemSettings).values({ id: randomUUID(), key: 'shared_calendar_id', value: selectedId, updatedAt: new Date() });
+    } catch (err) {
+      console.error('[Google] Auto-select calendar failed:', err);
+    }
+  }
 
   res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:5173'}/settings/calendar?google=connected`);
 }

@@ -427,11 +427,13 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     ? new Date(appointmentStartStr)
     : roundUpTo30Min(new Date(Date.now() + 2 * 60 * 60 * 1000));
 
-  const [durationSetting, calendarSetting] = await Promise.all([
+  const [durationSetting, calendarSetting, addressSetting] = await Promise.all([
     db.select().from(systemSettings).where(eq(systemSettings.key, 'appointment_duration_minutes')).limit(1).then(r => r[0]),
     db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'kinder_address')).limit(1).then(r => r[0]),
   ]);
-  const calendarId = (calendarSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
+  const calendarId = (calendarSetting?.value as string | undefined) ?? 'primary';
+  const kinderAddress = (addressSetting?.value as string | undefined) ?? '';
   const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
   const end = new Date(start.getTime() + durationMs);
 
@@ -476,7 +478,7 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
       requestBody: {
         summary: `${isPlaceholder ? '【PH】' : ''}School Visit - ${lead.childName}`,
         description: buildEventDescription(lead, whatsappMessage),
-        location: process.env.KINDER_ADDRESS ?? '',
+        location: kinderAddress,
         start: { dateTime: start.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
         end: { dateTime: end.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
       },
@@ -531,8 +533,12 @@ export async function confirmAppointment(req: Request, res: Response): Promise<v
     }
   });
 
-  const [calendarSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-  const calendarId = (calendarSetting?.value as string | undefined) ?? process.env.SHARED_CALENDAR_ID ?? 'primary';
+  const [calendarSetting, addressSetting2] = await Promise.all([
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'kinder_address')).limit(1).then(r => r[0]),
+  ]);
+  const calendarId = (calendarSetting?.value as string | undefined) ?? 'primary';
+  const kinderAddress = (addressSetting2?.value as string | undefined) ?? '';
 
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
@@ -549,7 +555,7 @@ export async function confirmAppointment(req: Request, res: Response): Promise<v
       requestBody: {
         summary: `School Visit - ${lead.childName}`,
         description: buildEventDescription(lead, undefined),
-        location: process.env.KINDER_ADDRESS ?? '',
+        location: kinderAddress,
         start: { dateTime: lead.appointmentStart.toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
         end: { dateTime: (lead.appointmentEnd ?? new Date(lead.appointmentStart.getTime() + 30 * 60000)).toISOString(), timeZone: 'Asia/Kuala_Lumpur' },
       },
