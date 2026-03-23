@@ -5,32 +5,35 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "postinstall": "npm run build",
     "start": "node dist/startup.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
-    "drizzle-orm": "^0.30.0",
-    "express": "^4.19.2",
-    "googleapis": "^171.4.0",
-    "jsonwebtoken": "^9.0.3",
-    "mysql2": "^3.19.1",
-    "xlsx": "^0.18.5",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.14.2",
-    "tsx": "^4.15.6",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.30.0",
+    "express": "^4.19.2",
+    "express-rate-limit": "^8.3.1",
+    "googleapis": "^171.4.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.19.1",
+    "nodemailer": "^8.0.3",
     "typescript": "^5.4.5",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^7.0.11",
+    "tsx": "^4.15.6",
     "vitest": "^1.6.0"
   }
 }
