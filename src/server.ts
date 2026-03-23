@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { router } from './routes/index.js';
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT ?? 4000;
 const isProd = process.env.NODE_ENV === 'production';
 
