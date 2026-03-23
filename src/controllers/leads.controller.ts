@@ -242,7 +242,8 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       status === 'inactive' ? and(notDeleted, inArray(leads.status, ['ENROLLED', 'LOST', 'REJECTED'])) :
       status ? and(notDeleted, eq(leads.status, status as any)) :
       notDeleted;
-    const drizzleWhere = searchFilter ? and(baseWhere, searchFilter) : baseWhere;
+    const yearFilterDrizzle = yearFilter ? sql`YEAR(${leads.submittedAt}) = ${yearFilter}` : undefined;
+    const drizzleWhere = and(baseWhere, searchFilter, yearFilterDrizzle);
 
     const sortCol =
       field === 'childName' ? leads.childName :
@@ -260,15 +261,28 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   res.json({ items, total, page, pageSize });
 }
 
-export async function getLeadStats(_req: Request, res: Response): Promise<void> {
-  const groups = await db
+export async function getLeadStats(req: Request, res: Response): Promise<void> {
+  const year = req.query.year ? Number(req.query.year) : undefined;
+
+  // Active stages: no year filter (always show all)
+  const activeGroups = await db
     .select({ status: leads.status, count: sql<number>`count(*)` })
     .from(leads)
-    .where(sql`deletedAt IS NULL`)
+    .where(sql`deletedAt IS NULL AND status IN ('NEW','CONTACTED','APPOINTMENT_BOOKED','FOLLOW_UP')`)
     .groupBy(leads.status);
 
   const counts: Record<string, number> = {};
-  for (const g of groups) counts[g.status] = Number(g.count);
+  for (const g of activeGroups) counts[g.status] = Number(g.count);
+
+  // Closed stages: filter by submittedAt year if provided
+  const yearCond = year ? sql`AND YEAR(submittedAt) = ${year}` : sql``;
+  const closedGroups = await db
+    .select({ status: leads.status, count: sql<number>`count(*)` })
+    .from(leads)
+    .where(sql`deletedAt IS NULL AND status IN ('ENROLLED','LOST','REJECTED') ${yearCond}`)
+    .groupBy(leads.status);
+
+  for (const g of closedGroups) counts[g.status] = Number(g.count);
 
   const [[trashRow]] = await pool.query<RowDataPacket[]>(
     "SELECT COUNT(*) as total FROM `Lead` WHERE deletedAt IS NOT NULL",
@@ -606,11 +620,11 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const totalLeads = currentLeads.length;
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
   const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST' || l.status === 'REJECTED');
-  // Attended — use the attended flag directly
-  const attendedAppointments = currentLeads.filter(l => l.attended).length;
-  // Didn't attend — had appointment but didn't attend
+  // Attended — use the attended flag, exclude rejected and active leads
+  const attendedAppointments = currentLeads.filter(l => l.attended && (l.status === 'ENROLLED' || l.status === 'LOST')).length;
+  // Didn't attend — had appointment but didn't attend, exclude rejected
   const noShowLeads = currentLeads.filter(l =>
-    l.appointmentStart !== null && !l.attended
+    l.appointmentStart !== null && !l.attended && l.status !== 'REJECTED'
   ).length;
   const totalWithAppointment = attendedAppointments + noShowLeads;
   const appointmentRate = totalWithAppointment > 0 ? attendedAppointments / totalWithAppointment : 0;
@@ -633,7 +647,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
     const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
     const age = Math.floor(ageMs / (365.25 * 24 * 3600 * 1000));
-    const ageKey = age >= 2 && age <= 7 ? String(age) : 'other';
+    const ageKey = age < 2 ? 'Below 2' : age >= 2 && age <= 7 ? String(age) : 'Above 7';
     if (!monthMap.has(monthLabel)) monthMap.set(monthLabel, {});
     const m = monthMap.get(monthLabel)!;
     m[ageKey] = (m[ageKey] ?? 0) + 1;
@@ -700,28 +714,36 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
       id: leads.id, childName: leads.childName, notes: leads.notes, lostReason: leads.lostReason,
       addressLocation: leads.addressLocation, howDidYouKnow: leads.howDidYouKnow,
       childDob: leads.childDob, submittedAt: leads.submittedAt, status: leads.status, enrolmentYear: leads.enrolmentYear,
+      attended: leads.attended,
     }).from(leads).where(closedWhere(selectedYear)).orderBy(asc(leads.submittedAt)),
-    db.select({ submittedAt: leads.submittedAt, status: leads.status }).from(leads).where(closedWhere(prevYear)),
+    db.select({ submittedAt: leads.submittedAt, status: leads.status, attended: leads.attended }).from(leads).where(closedWhere(prevYear)),
   ]);
 
-  const totalLeads = closedLeads.length;
-  const enrolledLeads = closedLeads.filter(l => l.status === 'ENROLLED').length;
-  const lostLeads = closedLeads.filter(l => l.status === 'LOST').length;
+  const salesLeads = closedLeads.filter(l => l.status !== 'REJECTED' && l.attended);
+  const totalLeads = salesLeads.length;
+  const enrolledLeads = salesLeads.filter(l => l.status === 'ENROLLED').length;
+  const lostLeads = salesLeads.filter(l => l.status === 'LOST').length;
   const closingRate = totalLeads > 0 ? enrolledLeads / totalLeads : 0;
 
   const enrolledMonthly = new Array(12).fill(0);
   const lostMonthly = new Array(12).fill(0);
-  for (const l of closedLeads) {
+  for (const l of salesLeads) {
     const m = l.submittedAt.getMonth();
     if (l.status === 'ENROLLED') enrolledMonthly[m]++;
     else if (l.status === 'LOST') lostMonthly[m]++;
   }
-  const prevMonthly = new Array(12).fill(0);
+  const prevMonthlyEnrolled = new Array(12).fill(0);
+  const prevMonthlyLost = new Array(12).fill(0);
   for (const l of prevLeads) {
-    if (l.status === 'ENROLLED') prevMonthly[l.submittedAt.getMonth()]++;
+    if (l.attended && (l.status === 'ENROLLED' || l.status === 'LOST')) {
+      if (l.status === 'ENROLLED') prevMonthlyEnrolled[l.submittedAt.getMonth()]++;
+      else prevMonthlyLost[l.submittedAt.getMonth()]++;
+    }
   }
   const monthlyComparison = MONTH_LABELS.map((label, i) => ({
-    month: label, enrolled: enrolledMonthly[i], lost: lostMonthly[i], previous: prevMonthly[i],
+    month: label, enrolled: enrolledMonthly[i], lost: lostMonthly[i],
+    prevEnrolled: prevMonthlyEnrolled[i], prevLost: prevMonthlyLost[i],
+    previousTalks: prevMonthlyEnrolled[i] + prevMonthlyLost[i], previousClosed: prevMonthlyEnrolled[i],
   }));
 
   const monthMap = new Map<string, Record<string, number>>();
@@ -729,7 +751,7 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
     const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
     const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
     const age = Math.floor(ageMs / (365.25 * 24 * 3600 * 1000));
-    const ageKey = age >= 2 && age <= 7 ? String(age) : 'other';
+    const ageKey = age < 2 ? 'Below 2' : age >= 2 && age <= 7 ? String(age) : 'Above 7';
     if (!monthMap.has(monthLabel)) monthMap.set(monthLabel, {});
     const m = monthMap.get(monthLabel)!;
     m[ageKey] = (m[ageKey] ?? 0) + 1;
@@ -743,14 +765,14 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
 
   const addressMap = new Map<string, number>();
   const channelMap = new Map<string, number>();
-  for (const lead of closedLeads) {
+  for (const lead of salesLeads) {
     if (lead.addressLocation) addressMap.set(lead.addressLocation, (addressMap.get(lead.addressLocation) ?? 0) + 1);
     if (lead.howDidYouKnow) channelMap.set(lead.howDidYouKnow, (channelMap.get(lead.howDidYouKnow) ?? 0) + 1);
   }
   const addressBreakdown = Array.from(addressMap.entries()).map(([location, count]) => ({ location, count })).sort((a, b) => b.count - a.count);
   const marketingChannelBreakdown = Array.from(channelMap.entries()).map(([channel, count]) => ({ channel, count })).sort((a, b) => b.count - a.count);
 
-  const leadsTable = closedLeads.map(lead => {
+  const leadsTable = salesLeads.map(lead => {
     const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
     return {
       id: lead.id,

@@ -48,13 +48,11 @@ function computeStatus(row: any): 'enrolled' | 'active' | 'graduated' | 'withdra
   } else {
     return 'enrolled';
   }
-  // Graduated — child age > 6
+  // Graduated — child turns 7 based on birth year (currentYear - birthYear >= 7)
   if (row.leadChildDob) {
-    const now = new Date();
-    const dob = new Date(row.leadChildDob);
-    let age = now.getFullYear() - dob.getFullYear();
-    if (now.getMonth() < dob.getMonth() || (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate())) age--;
-    if (age > 6) return 'graduated';
+    const currentYear = new Date().getFullYear();
+    const birthYear = new Date(row.leadChildDob).getFullYear();
+    if (currentYear - birthYear >= 7) return 'graduated';
   }
   return 'active';
 }
