@@ -20,7 +20,7 @@ export function adminMiddleware(
   res: Response,
   next: NextFunction,
 ): void {
-  if (req.user?.role !== 'ADMIN') {
+  if (req.user?.role !== 'ADMIN' && req.user?.role !== 'SUPERADMIN') {
     res.status(403).json({ message: 'Forbidden: Admin only' });
     return;
   }
