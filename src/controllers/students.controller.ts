@@ -281,7 +281,8 @@ export async function completeOnboarding(req: Request, res: Response): Promise<v
   const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
-  const progress = existing.onboardingProgress as Array<{ task: string; done: boolean }> | null;
+  const rawProgress = existing.onboardingProgress;
+  const progress: Array<{ task: string; done: boolean }> | null = typeof rawProgress === 'string' ? JSON.parse(rawProgress) : (Array.isArray(rawProgress) ? rawProgress : null);
   if (progress && progress.length > 0 && progress.some(t => !t.done)) {
     res.status(400).json({ message: 'All onboarding tasks must be completed first' });
     return;
