@@ -196,7 +196,8 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   if (existingStudent) { res.status(409).json({ message: 'Student already exists for this lead' }); return; }
 
   const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
-  const tasks = Array.isArray(settingRow?.value) ? (settingRow!.value as string[]) : [];
+  const rawTasks = settingRow?.value;
+  const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
   const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
 
   const now = new Date();
