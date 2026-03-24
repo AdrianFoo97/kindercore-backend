@@ -55,9 +55,13 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const ms = Date.now() - start;
     const status = res.statusCode;
-    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
-    const prefix = level === 'error' ? '[ERROR]' : level === 'warn' ? '[WARN]' : '[REQ]';
-    console.log(`${prefix} ${method} ${originalUrl} ${status} ${ms}ms`);
+    if (status >= 500) {
+      console.error(`${method} ${originalUrl} ${status} ${ms}ms`);
+    } else if (status >= 400) {
+      console.warn(`${method} ${originalUrl} ${status} ${ms}ms`);
+    } else {
+      console.info(`${method} ${originalUrl} ${status} ${ms}ms`);
+    }
   });
 
   next();
@@ -88,8 +92,8 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 });
 
 app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`[backend] Server running on http://localhost:${PORT}`);
+  console.info(`[backend] Server running on http://localhost:${PORT}`);
   const dbUrl = process.env.DATABASE_URL ?? '(not set)';
   const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
-  console.log(`[backend] DATABASE_URL: ${masked}`);
+  console.info(`[backend] DATABASE_URL: ${masked}`);
 });

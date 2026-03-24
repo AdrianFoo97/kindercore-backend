@@ -1,5 +1,5 @@
 // Startup wrapper - catches module-level crashes that would otherwise produce no logs
-console.log('[startup] process started, Node version:', process.version);
+console.info('[startup] process started, Node version:', process.version);
 
 process.on('uncaughtException', (err: Error) => {
   console.error('[startup] UNCAUGHT EXCEPTION:', err.message);
