@@ -282,7 +282,7 @@ export async function completeOnboarding(req: Request, res: Response): Promise<v
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
   const progress = existing.onboardingProgress as Array<{ task: string; done: boolean }> | null;
-  if (!progress || progress.length === 0 || progress.some(t => !t.done)) {
+  if (progress && progress.length > 0 && progress.some(t => !t.done)) {
     res.status(400).json({ message: 'All onboarding tasks must be completed first' });
     return;
   }
