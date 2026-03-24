@@ -41,7 +41,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  console.info('[Lead] New submission received:', JSON.stringify(parsed.data, null, 2));
+  console.log('[Lead] New submission received:', JSON.stringify(parsed.data, null, 2));
 
   const id = randomUUID();
   const submittedAt = submittedAtRaw ? new Date(submittedAtRaw) : new Date();

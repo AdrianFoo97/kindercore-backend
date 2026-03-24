@@ -87,7 +87,7 @@ export async function sendInviteEmail(to: string, inviteLink: string, role: stri
       subject: 'You\'re invited to KinderTech',
       html,
     });
-    console.info('[Email] Invite sent to', to);
+    console.log('[Email] Invite sent to', to);
     return true;
   } catch (err) {
     console.error('[Email] Failed to send invite to', to, err);

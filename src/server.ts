@@ -60,7 +60,7 @@ app.use((req, res, next) => {
     } else if (status >= 400) {
       console.warn(`${method} ${originalUrl} ${status} ${ms}ms`);
     } else {
-      console.info(`${method} ${originalUrl} ${status} ${ms}ms`);
+      console.log(`${method} ${originalUrl} ${status} ${ms}ms`);
     }
   });
 
@@ -92,8 +92,8 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 });
 
 app.listen(Number(PORT), '0.0.0.0', () => {
-  console.info(`[backend] Server running on http://localhost:${PORT}`);
+  console.log(`[backend] Server running on http://localhost:${PORT}`);
   const dbUrl = process.env.DATABASE_URL ?? '(not set)';
   const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
-  console.info(`[backend] DATABASE_URL: ${masked}`);
+  console.log(`[backend] DATABASE_URL: ${masked}`);
 });
