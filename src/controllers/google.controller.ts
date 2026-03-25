@@ -92,7 +92,7 @@ export async function listCalendars(_req: Request, res: Response): Promise<void>
   } catch (err: any) {
     const msg = err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error';
     const status = err?.response?.status ?? 500;
-    console.error('[Google] listCalendars failed:', JSON.stringify(err?.response?.data ?? err?.message));
+    console.log('[Google] listCalendars failed:', JSON.stringify(err?.response?.data ?? err?.message));
     res.status(status).json({ message: msg });
   }
 }
@@ -149,7 +149,7 @@ export async function handleCallback(req: Request, res: Response): Promise<void>
       const selectedId = principalCal?.id ?? (data.items ?? []).find(c => c.primary)?.id ?? 'primary';
       await db.insert(systemSettings).values({ id: randomUUID(), key: 'shared_calendar_id', value: selectedId, updatedAt: new Date() });
     } catch (err) {
-      console.error('[Google] Auto-select calendar failed:', err);
+      console.log('[Google] Auto-select calendar failed:', err);
     }
   }
 

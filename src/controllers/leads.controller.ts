@@ -484,7 +484,7 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
       },
     });
   } catch (err: any) {
-    console.error('[Google Calendar] Failed to create event:', err?.response?.data ?? err?.message);
+    console.log('[Google Calendar] Failed to create event:', err?.response?.data ?? err?.message);
     res.status(502).json({ message: `Google Calendar error: ${err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error'}` });
     return;
   }
@@ -561,7 +561,7 @@ export async function confirmAppointment(req: Request, res: Response): Promise<v
       },
     });
   } catch (err: any) {
-    console.error('[Google Calendar] confirmAppointment failed:', err?.response?.data ?? err?.message);
+    console.log('[Google Calendar] confirmAppointment failed:', err?.response?.data ?? err?.message);
     res.status(502).json({ message: `Google Calendar error: ${err?.response?.data?.error?.message ?? err?.message ?? 'Unknown error'}` });
     return;
   }

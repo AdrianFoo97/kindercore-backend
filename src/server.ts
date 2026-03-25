@@ -56,9 +56,9 @@ app.use((req, res, next) => {
     const ms = Date.now() - start;
     const status = res.statusCode;
     if (status >= 500) {
-      console.error(`${method} ${originalUrl} ${status} ${ms}ms`);
+      console.log(`[ERROR] ${method} ${originalUrl} ${status} ${ms}ms`);
     } else if (status >= 400) {
-      console.warn(`${method} ${originalUrl} ${status} ${ms}ms`);
+      console.log(`[WARNING] ${method} ${originalUrl} ${status} ${ms}ms`);
     } else {
       console.log(`${method} ${originalUrl} ${status} ${ms}ms`);
     }
@@ -79,14 +79,14 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
   const isDbError = /ECONNREFUSED|ETIMEDOUT|ER_ACCESS_DENIED|PROTOCOL_CONNECTION_LOST|ER_BAD_DB_ERROR|ENOTFOUND|connect ECONN/i.test(err.message);
 
   if (isDbError) {
-    console.error(`[ERROR] ${timestamp} DB_UNAVAILABLE | ${method} ${originalUrl} | IP: ${ip} | ${err.message}`);
+    console.log(`[ERROR] ${timestamp} DB_UNAVAILABLE | ${method} ${originalUrl} | IP: ${ip} | ${err.message}`);
     res.status(503).json({ message: 'Service temporarily unavailable. Please try again shortly.', code: 'DB_UNAVAILABLE' });
     return;
   }
 
   // Log full stack for 500 errors
-  console.error(`[ERROR] ${timestamp} INTERNAL_ERROR | ${method} ${originalUrl} | IP: ${ip}`);
-  console.error(err.stack ?? err.message);
+  console.log(`[ERROR] ${timestamp} INTERNAL_ERROR | ${method} ${originalUrl} | IP: ${ip}`);
+  console.log(err.stack ?? err.message);
 
   res.status(500).json({ message: isProd ? 'Something went wrong. Please try again.' : err.message, code: 'INTERNAL_ERROR' });
 });

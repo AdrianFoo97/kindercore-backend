@@ -14,7 +14,7 @@ const transporter = process.env.SMTP_HOST
 
 export async function sendInviteEmail(to: string, inviteLink: string, role: string): Promise<boolean> {
   if (!transporter) {
-    console.warn('[Email] SMTP not configured — skipping invite email to', to);
+    console.log('[Email] SMTP not configured — skipping invite email to', to);
     return false;
   }
 
@@ -90,7 +90,7 @@ export async function sendInviteEmail(to: string, inviteLink: string, role: stri
     console.log('[Email] Invite sent to', to);
     return true;
   } catch (err) {
-    console.error('[Email] Failed to send invite to', to, err);
+    console.log('[Email] Failed to send invite to', to, err);
     return false;
   }
 }
