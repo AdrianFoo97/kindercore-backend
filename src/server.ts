@@ -14,9 +14,19 @@ const isProd = process.env.NODE_ENV === 'production';
 app.use(helmet());
 
 // ── CORS ──
+const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+const allowedOrigins = [frontendUrl];
+if (frontendUrl.includes('://') && !frontendUrl.includes('localhost')) {
+  const url = new URL(frontendUrl);
+  if (url.hostname.startsWith('www.')) {
+    allowedOrigins.push(frontendUrl.replace('://www.', '://'));
+  } else {
+    allowedOrigins.push(frontendUrl.replace('://', '://www.'));
+  }
+}
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+    origin: allowedOrigins,
     credentials: true,
   }),
 );
