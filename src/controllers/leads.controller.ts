@@ -7,6 +7,94 @@ import { db, pool } from '../db/client.js';
 import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 
+const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
+
+/** Map internal values to Google Form option text */
+const RELATIONSHIP_MAP: Record<string, string> = {
+  'Mother': 'Mother 母亲',
+  'Father': 'Father 父亲',
+};
+const PROGRAMME_MAP: Record<string, string> = {
+  'Core': '普通课程 Basic programme (8.30am - 12.30pm)',
+  'Core+Music': '半天制课程 Half day programme (8.30am - 2.30pm)',
+  'FullDay': '全天制课程 Full day programme (8.30am - 5.30pm)',
+};
+const TIME_MAP: Record<string, string> = {
+  'Tuesday 3:30pm-4:30pm': 'Tuesday 星期二 (3.30pm - 4.30pm)',
+  'Thursday 3:30pm-4:30pm': 'Thursday 星期四 (3.30am - 4.30pm)',
+  'Saturday 1:00pm-2:00pm': 'Saturday 星期六 (1.00pm - 2.00pm)',
+  'Saturday 2:30pm-3:30pm': 'Saturday 星期六 (2.30pm -3.30pm)',
+};
+const TRANSPORT_MAP: Record<string, string> = {
+  'true': 'Yes 需要',
+  'false': 'No 不需要',
+};
+const SOURCE_MAP: Record<string, string> = {
+  'Facebook': 'Facebook',
+  'Friend Referral': 'Friend 通过朋友介绍',
+  '小红书': '小红书',
+  'Instagram': 'Instagram',
+  'Pass By': 'Pass By 驾车经过',
+  'Google': 'Google',
+  'Sibling': 'Sibling Already Studying Here 其他孩子在就读',
+  'Billboard': 'Billboard 广告牌',
+};
+
+/** Submit lead data to Google Forms as a backup */
+async function submitToGoogleForm(data: {
+  childName: string; parentPhone: string; childDob: string; enrolmentYear: number;
+  relationship?: string; programme?: string; preferredAppointmentTime?: string;
+  addressLocation?: string; needsTransport?: boolean | null; howDidYouKnow?: string;
+}): Promise<void> {
+  try {
+    const params = new URLSearchParams();
+    params.append('entry.1313190026', data.childName);
+    params.append('entry.1010235097', data.parentPhone);
+    params.append('entry.589253048', data.childDob);
+    params.append('entry.615484233', String(data.enrolmentYear));
+    if (data.relationship) {
+      const mapped = RELATIONSHIP_MAP[data.relationship];
+      params.append('entry.1585350310', mapped || `__other_option__`);
+      if (!mapped) params.append('entry.1585350310.other_option_response', data.relationship);
+    }
+    if (data.programme) params.append('entry.604826077', PROGRAMME_MAP[data.programme] || data.programme);
+    if (data.preferredAppointmentTime) {
+      for (const time of data.preferredAppointmentTime.split(',')) {
+        const t = time.trim();
+        params.append('entry.1521018061', TIME_MAP[t] || t);
+      }
+    }
+    if (data.addressLocation) {
+      const addr = data.addressLocation;
+      const knownAddresses = ['Bukit Indah', 'Taman Perling', 'Nusa Bestari', 'Horizon Hills', 'Medini', 'Eco Botanic', 'Iskandar Puteri'];
+      if (knownAddresses.includes(addr)) {
+        params.append('entry.945261551', addr);
+      } else {
+        params.append('entry.945261551', '__other_option__');
+        params.append('entry.945261551.other_option_response', addr);
+      }
+    }
+    if (data.needsTransport != null) params.append('entry.1920754796', TRANSPORT_MAP[String(data.needsTransport)] || 'No 不需要');
+    if (data.howDidYouKnow) {
+      const mapped = SOURCE_MAP[data.howDidYouKnow];
+      if (mapped) {
+        params.append('entry.306619081', mapped);
+      } else {
+        params.append('entry.306619081', '__other_option__');
+        params.append('entry.306619081.other_option_response', data.howDidYouKnow);
+      }
+    }
+
+    const resp = await fetch(GOOGLE_FORM_URL, {
+      method: 'POST',
+      body: params,
+    });
+    console.log('[Lead] Google Form submission:', resp.status, resp.statusText);
+  } catch (err) {
+    console.error('[Lead] Google Form submission failed:', err);
+  }
+}
+
 /** Score lead temperature based on which CTA the user clicked */
 function getLeadTemperature(ctaSource?: string): 'COOL' | 'WARM' | 'HOT' {
   switch (ctaSource) {
@@ -62,6 +150,14 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     needsTransport, howDidYouKnow, ctaSource, leadTemperature: getLeadTemperature(ctaSource), submittedAt,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+
+  // Fire-and-forget: submit to Google Forms as backup
+  submitToGoogleForm({
+    childName, parentPhone, childDob, enrolmentYear,
+    relationship, programme, preferredAppointmentTime, addressLocation,
+    needsTransport, howDidYouKnow,
+  });
+
   res.status(201).json(lead);
 }
 
