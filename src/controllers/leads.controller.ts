@@ -7,6 +7,17 @@ import { db, pool } from '../db/client.js';
 import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 
+/** Score lead temperature based on which CTA the user clicked */
+function getLeadTemperature(ctaSource?: string): 'COOL' | 'WARM' | 'HOT' {
+  switch (ctaSource) {
+    case 'hero': return 'COOL';
+    case 'story': return 'WARM';
+    case 'methods': return 'WARM';
+    case 'final': return 'HOT';
+    default: return 'COOL';
+  }
+}
+
 /** Normalize a name: split camelCase, title-case each word */
 function normalizeName(name: string): string {
   // Insert space before uppercase letters that follow a lowercase letter (e.g. AdamLevine → Adam Levine)
@@ -48,7 +59,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   await db.insert(leads).values({
     id, childName: normalizeName(childName), parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,
-    needsTransport, howDidYouKnow, ctaSource, submittedAt,
+    needsTransport, howDidYouKnow, ctaSource, leadTemperature: getLeadTemperature(ctaSource), submittedAt,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   res.status(201).json(lead);

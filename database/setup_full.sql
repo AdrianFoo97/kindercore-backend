@@ -49,6 +49,7 @@ CREATE TABLE `Lead` (
     `needsTransport` BOOLEAN NULL,
     `howDidYouKnow` VARCHAR(191) NULL,
     `ctaSource` VARCHAR(50) NULL,
+    `leadTemperature` ENUM('COOL', 'WARM', 'HOT') NULL,
     `deletedAt` DATETIME(3) NULL,
     `statusChangedAt` DATETIME(3) NULL,
     INDEX `Lead_submittedAt_idx`(`submittedAt`),
