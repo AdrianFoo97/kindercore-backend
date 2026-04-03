@@ -758,8 +758,8 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const monthMap = new Map<string, Record<string, number>>();
   for (const lead of currentLeads) {
     const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
-    const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
-    const age = Math.floor(ageMs / (365.25 * 24 * 3600 * 1000));
+    const birthYear = lead.childDob.getFullYear();
+    const age = lead.enrolmentYear - birthYear;
     const ageKey = age < 2 ? 'Below 2' : age >= 2 && age <= 7 ? String(age) : 'Above 7';
     if (!monthMap.has(monthLabel)) monthMap.set(monthLabel, {});
     const m = monthMap.get(monthLabel)!;
@@ -862,8 +862,8 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const monthMap = new Map<string, Record<string, number>>();
   for (const lead of closedLeads) {
     const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
-    const ageMs = lead.submittedAt.getTime() - lead.childDob.getTime();
-    const age = Math.floor(ageMs / (365.25 * 24 * 3600 * 1000));
+    const birthYear = lead.childDob.getFullYear();
+    const age = lead.enrolmentYear - birthYear;
     const ageKey = age < 2 ? 'Below 2' : age >= 2 && age <= 7 ? String(age) : 'Above 7';
     if (!monthMap.has(monthLabel)) monthMap.set(monthLabel, {});
     const m = monthMap.get(monthLabel)!;
