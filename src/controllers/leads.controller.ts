@@ -125,6 +125,15 @@ export async function getLeadById(req: Request, res: Response): Promise<void> {
   res.json(lead);
 }
 
+/** Rate limit: max 2 submissions per phone or IP per 60s */
+const recentSubmissions: { key: string; ts: number }[] = [];
+setInterval(() => {
+  const now = Date.now();
+  while (recentSubmissions.length > 0 && now - recentSubmissions[0].ts > 60_000) {
+    recentSubmissions.shift();
+  }
+}, 30_000);
+
 export async function createLead(req: Request, res: Response): Promise<void> {
   const parsed = createLeadSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -139,6 +148,23 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     res.status(400).json({ message: 'Bad request' });
     return;
   }
+
+  // Rate limit by phone number and IP
+  const now = Date.now();
+  const phoneCount = recentSubmissions.filter(e => e.key === `phone:${parentPhone}` && now - e.ts < 60_000).length;
+  if (phoneCount >= 2) {
+    console.log('[Lead] Rate limited (phone):', parentPhone);
+    res.status(429).json({ message: '请勿重复提交，请稍后再试' });
+    return;
+  }
+  const ipCount = recentSubmissions.filter(e => e.key === `ip:${req.ip}` && now - e.ts < 60_000).length;
+  if (ipCount >= 5) {
+    console.log('[Lead] Rate limited (IP):', req.ip);
+    res.status(429).json({ message: '提交过于频繁，请稍后再试' });
+    return;
+  }
+  recentSubmissions.push({ key: `phone:${parentPhone}`, ts: now });
+  recentSubmissions.push({ key: `ip:${req.ip}`, ts: now });
 
   console.log('[Lead] New submission received:', JSON.stringify(parsed.data, null, 2));
 
