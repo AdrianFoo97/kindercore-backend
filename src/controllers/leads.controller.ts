@@ -720,6 +720,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     db.select({
       submittedAt: leads.submittedAt,
       childDob: leads.childDob,
+      enrolmentYear: leads.enrolmentYear,
       appointmentStart: leads.appointmentStart,
       addressLocation: leads.addressLocation,
       howDidYouKnow: leads.howDidYouKnow,
