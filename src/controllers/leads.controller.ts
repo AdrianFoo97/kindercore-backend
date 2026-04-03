@@ -88,6 +88,7 @@ async function submitToGoogleForm(data: {
     const resp = await fetch(GOOGLE_FORM_URL, {
       method: 'POST',
       body: params,
+      redirect: 'manual',
     });
     console.log('[Lead] Google Form submission:', resp.status, resp.statusText);
   } catch (err) {
@@ -178,11 +179,12 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
 
   // Fire-and-forget: submit to Google Forms as backup
-  submitToGoogleForm({
-    childName, parentPhone, childDob, enrolmentYear,
-    relationship, programme, preferredAppointmentTime, addressLocation,
-    needsTransport, howDidYouKnow,
-  });
+  // Disabled — Apps Script on Google Form syncs back to API, causing a loop
+  // submitToGoogleForm({
+  //   childName, parentPhone, childDob, enrolmentYear,
+  //   relationship, programme, preferredAppointmentTime, addressLocation,
+  //   needsTransport, howDidYouKnow,
+  // });
 
   res.status(201).json(lead);
 }
