@@ -77,6 +77,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── SSE: real-time event stream ──
+import { sseClients } from './sse.js';
+
+app.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  res.write(':\n\n'); // heartbeat
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+});
+
 // ── Routes ──
 app.use('/api', router);
 

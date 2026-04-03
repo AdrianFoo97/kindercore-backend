@@ -6,6 +6,7 @@ import type { RowDataPacket } from 'mysql2';
 import { db, pool } from '../db/client.js';
 import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
+import { broadcast } from '../sse.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
 
@@ -186,6 +187,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   //   needsTransport, howDidYouKnow,
   // });
 
+  broadcast('new-lead');
   res.status(201).json(lead);
 }
 
