@@ -788,7 +788,7 @@ export async function getUpcomingAppointments(_req: Request, res: Response): Pro
     .from(leads)
     .where(and(
       gte(leads.appointmentStart, now),
-      sql`status NOT IN ('FOLLOW_UP', 'ENROLLED', 'LOST', 'REJECTED')`,
+      eq(leads.status, 'APPOINTMENT_BOOKED'),
       sql`deletedAt IS NULL`,
     ))
     .orderBy(asc(leads.appointmentStart));
