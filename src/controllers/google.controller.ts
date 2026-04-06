@@ -18,14 +18,25 @@ export async function getStatus(_req: Request, res: Response): Promise<void> {
   const [connection] = await db.select().from(googleConnections).limit(1);
   if (!connection) { res.json({ connected: false, email: null, calendarName: null, calendarId: null }); return; }
 
-  try {
-    const oauth2Client = getOAuth2Client();
-    oauth2Client.setCredentials({
-      access_token: connection.accessToken,
-      refresh_token: connection.refreshToken,
-      expiry_date: Number(connection.expiryDate),
-    });
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({
+    access_token: connection.accessToken,
+    refresh_token: connection.refreshToken,
+    expiry_date: Number(connection.expiryDate),
+  });
 
+  // Verify the token is still valid by forcing a refresh
+  try {
+    await oauth2Client.getAccessToken();
+  } catch (err: any) {
+    const msg = String(err?.response?.data?.error ?? err?.message ?? '');
+    if (msg.includes('invalid_grant') || msg.includes('Token has been expired or revoked')) {
+      res.json({ connected: false, email: null, calendarName: null, calendarId: null });
+      return;
+    }
+  }
+
+  try {
     const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
     const calendarId = String(calSetting?.value ?? 'primary').replace(/^"|"$/g, '');
     const [userInfoResult, calendarResult] = await Promise.allSettled([

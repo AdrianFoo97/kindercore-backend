@@ -36,5 +36,6 @@ export const updateLeadSchema = z.object({
   howDidYouKnow: z.string().min(1).nullable().optional(),
   appointmentStart: z.string().nullable().optional(),
   appointmentEnd: z.string().nullable().optional(),
+  statusChangedAt: z.string().nullable().optional(),
   attended: z.boolean().optional(),
 });

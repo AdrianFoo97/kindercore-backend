@@ -6,7 +6,7 @@ import { db } from '../db/client.js';
 import { systemSettings } from '../db/schema.js';
 
 const updateSettingSchema = z.object({
-  value: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string())]),
+  value: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string()), z.array(z.record(z.unknown()))]),
 });
 
 export async function getSettings(_req: Request, res: Response): Promise<void> {

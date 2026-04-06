@@ -14,6 +14,7 @@ import {
   permanentDeleteLead,
   createAppointment,
   confirmAppointment,
+  confirmAppointmentWithoutCalendar,
   getUpcomingAppointments,
   resetAllLeads,
   seedDummyLeads,
@@ -40,3 +41,4 @@ leadsRouter.post('/:id/restore', authMiddleware, asyncHandler(restoreLead));
 leadsRouter.delete('/:id/permanent', authMiddleware, asyncHandler(permanentDeleteLead));
 leadsRouter.post('/:id/appointment', authMiddleware, asyncHandler(createAppointment));
 leadsRouter.post('/:id/confirm-appointment', authMiddleware, asyncHandler(confirmAppointment));
+leadsRouter.post('/:id/confirm-appointment-no-calendar', authMiddleware, asyncHandler(confirmAppointmentWithoutCalendar));

@@ -9,6 +9,27 @@ import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator
 import { broadcast } from '../sse.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
+
+/** Send Slack notification for new lead */
+async function notifySlack(data: {
+  childName: string; parentPhone: string; childDob: string; enrolmentYear: number;
+  relationship?: string; programme?: string; addressLocation?: string;
+  leadTemperature: string; ctaSource?: string;
+}): Promise<void> {
+  try {
+    const temp = data.leadTemperature === 'HOT' ? '🔥 HOT' : data.leadTemperature === 'WARM' ? '🟡 WARM' : '🔵 COOL';
+    await fetch(SLACK_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `📋 *New Lead Received*\n\n👤 *Child:* ${data.childName}\n📞 *Phone:* ${data.parentPhone}\n🎂 *DOB:* ${data.childDob}\n🎓 *Enrolment:* ${data.enrolmentYear}\n👨‍👩‍👧 *Relationship:* ${data.relationship || '-'}\n📚 *Programme:* ${data.programme || '-'}\n📍 *Address:* ${data.addressLocation || '-'}\n🌡️ *Temperature:* ${temp}\n📎 *Source:* ${data.ctaSource || 'direct'}`,
+      }),
+    });
+  } catch (err) {
+    console.error('[Lead] Slack notification failed:', err);
+  }
+}
 
 /** Map internal values to Google Form option text */
 const RELATIONSHIP_MAP: Record<string, string> = {
@@ -188,6 +209,14 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   // });
 
   broadcast('new-lead');
+
+  // Fire-and-forget: Slack notification
+  notifySlack({
+    childName, parentPhone, childDob, enrolmentYear,
+    relationship, programme, addressLocation,
+    leadTemperature: getLeadTemperature(ctaSource), ctaSource,
+  });
+
   res.status(201).json(lead);
 }
 
@@ -482,7 +511,7 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const [existing] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Lead not found' }); return; }
 
-  const { childDob, childName, appointmentStart, appointmentEnd, ...rest } = parsed.data;
+  const { childDob, childName, appointmentStart, appointmentEnd, statusChangedAt, ...rest } = parsed.data;
   const statusChanged = rest.status && rest.status !== existing.status;
   const clearLostReason = rest.status && rest.status !== 'LOST';
   const unenrolling = statusChanged && existing.status === 'ENROLLED' && rest.status !== 'ENROLLED';
@@ -493,7 +522,7 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
     ...(childDob ? { childDob: new Date(childDob) } : {}),
     ...(appointmentStart ? { appointmentStart: new Date(appointmentStart) } : {}),
     ...(appointmentEnd ? { appointmentEnd: new Date(appointmentEnd) } : {}),
-    ...(statusChanged ? { statusChangedAt: new Date() } : {}),
+    ...(statusChangedAt ? { statusChangedAt: new Date(statusChangedAt) } : statusChanged ? { statusChangedAt: new Date() } : {}),
     ...(clearLostReason ? { lostReason: null } : {}),
   } as any).where(eq(leads.id, id));
 
@@ -529,30 +558,22 @@ function buildEventDescription(
   lead: { parentPhone: string; childDob: Date; enrolmentYear: number; submittedAt: Date },
   whatsappMessage?: string,
 ): string {
+  const waLink = `https://web.whatsapp.com/send?phone=${normalizePhone(lead.parentPhone)}`;
   const lines = [
     `Parent Phone: ${lead.parentPhone}`,
     `Date of Birth: ${lead.childDob.toISOString().split('T')[0]}`,
     `Enrolment Year: ${lead.enrolmentYear}`,
     `Submitted: ${lead.submittedAt.toISOString()}`,
+    `\nWhatsApp: ${waLink}`,
   ];
-  if (whatsappMessage) {
-    const waLink = `https://web.whatsapp.com/send?phone=${normalizePhone(lead.parentPhone)}`;
-    lines.push(`\nWhatsApp: ${waLink}`);
-  }
   return lines.join('\n');
 }
 
 async function _createAppointment(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
-  const { appointmentStart: appointmentStartStr, whatsappMessage, isPlaceholder } = req.body as {
-    appointmentStart?: string; whatsappMessage?: string; isPlaceholder?: boolean;
+  const { appointmentStart: appointmentStartStr, whatsappMessage, isPlaceholder, skipCalendar } = req.body as {
+    appointmentStart?: string; whatsappMessage?: string; isPlaceholder?: boolean; skipCalendar?: boolean;
   };
-
-  const [connection] = await db.select().from(googleConnections).limit(1);
-  if (!connection) {
-    res.status(409).json({ message: 'Google calendar not connected' });
-    return;
-  }
 
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
   if (!lead) {
@@ -564,15 +585,39 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     ? new Date(appointmentStartStr)
     : roundUpTo30Min(new Date(Date.now() + 2 * 60 * 60 * 1000));
 
-  const [durationSetting, calendarSetting, addressSetting] = await Promise.all([
+  const [durationSetting] = await Promise.all([
     db.select().from(systemSettings).where(eq(systemSettings.key, 'appointment_duration_minutes')).limit(1).then(r => r[0]),
+  ]);
+  const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
+  const end = new Date(start.getTime() + durationMs);
+
+  // Skip calendar sync if requested
+  if (skipCalendar) {
+    await db.update(leads).set({
+      appointmentStart: start,
+      appointmentEnd: end,
+      appointmentCreatedByUserId: req.user!.id,
+      appointmentIsPlaceholder: !!isPlaceholder,
+      status: isPlaceholder ? 'CONTACTED' : 'APPOINTMENT_BOOKED',
+      statusChangedAt: new Date(),
+    }).where(eq(leads.id, id));
+
+    res.json({ googleEventId: null, googleEventLink: null, calendarSynced: false });
+    return;
+  }
+
+  const [connection] = await db.select().from(googleConnections).limit(1);
+  if (!connection) {
+    res.status(409).json({ message: 'Google calendar not connected' });
+    return;
+  }
+
+  const [calendarSetting, addressSetting] = await Promise.all([
     db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
     db.select().from(systemSettings).where(eq(systemSettings.key, 'kinder_address')).limit(1).then(r => r[0]),
   ]);
   const calendarId = String(calendarSetting?.value ?? 'primary').replace(/^"|"$/g, '');
   const kinderAddress = (addressSetting?.value as string | undefined) ?? '';
-  const durationMs = (Number(durationSetting?.value) || 30) * 60 * 1000;
-  const end = new Date(start.getTime() + durationMs);
 
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID!,
@@ -712,6 +757,21 @@ export async function confirmAppointment(req: Request, res: Response): Promise<v
   }).where(eq(leads.id, id));
 
   res.json({ googleEventId: event.data.id, googleEventLink: event.data.htmlLink });
+}
+
+export async function confirmAppointmentWithoutCalendar(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  if (!lead) { res.status(404).json({ message: 'Lead not found' }); return; }
+  if (!lead.appointmentStart) { res.status(400).json({ message: 'No appointment to confirm' }); return; }
+
+  await db.update(leads).set({
+    appointmentIsPlaceholder: false,
+    status: 'APPOINTMENT_BOOKED',
+    statusChangedAt: new Date(),
+  }).where(eq(leads.id, id));
+
+  res.json({ confirmed: true, calendarSynced: false });
 }
 
 export async function getUpcomingAppointments(_req: Request, res: Response): Promise<void> {
