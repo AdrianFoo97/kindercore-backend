@@ -15,7 +15,7 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
 async function notifySlack(data: {
   childName: string; parentPhone: string; childDob: string; enrolmentYear: number;
   relationship?: string; programme?: string; addressLocation?: string;
-  leadTemperature: string; ctaSource?: string;
+  leadTemperature: string; ctaSource?: string; utmSource?: string;
 }): Promise<void> {
   try {
     const temp = data.leadTemperature === 'HOT' ? '🔥 HOT' : data.leadTemperature === 'WARM' ? '🟡 WARM' : '🔵 COOL';
@@ -23,7 +23,7 @@ async function notifySlack(data: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        text: `📋 *New Lead Received*\n\n👤 *Child:* ${data.childName}\n📞 *Phone:* ${data.parentPhone}\n🎂 *DOB:* ${data.childDob}\n🎓 *Enrolment:* ${data.enrolmentYear}\n👨‍👩‍👧 *Relationship:* ${data.relationship || '-'}\n📚 *Programme:* ${data.programme || '-'}\n📍 *Address:* ${data.addressLocation || '-'}\n🌡️ *Temperature:* ${temp}\n📎 *Source:* ${data.ctaSource || 'direct'}`,
+        text: `📋 *New Lead Received*\n\n👤 *Child:* ${data.childName}\n📞 *Phone:* ${data.parentPhone}\n🎂 *DOB:* ${data.childDob}\n🎓 *Enrolment:* ${data.enrolmentYear}\n👨‍👩‍👧 *Relationship:* ${data.relationship || '-'}\n📚 *Programme:* ${data.programme || '-'}\n📍 *Address:* ${data.addressLocation || '-'}\n🌡️ *Temperature:* ${temp}\n📎 *Source:* ${data.ctaSource || 'direct'}${data.utmSource ? `\n🔗 *UTM:* ${data.utmSource}` : ''}`,
       }),
     });
   } catch (err) {
@@ -166,7 +166,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
   const { childName, parentPhone, childDob, enrolmentYear, company,
           relationship, programme, preferredAppointmentTime, addressLocation,
-          needsTransport, howDidYouKnow, ctaSource, submittedAt: submittedAtRaw } = parsed.data;
+          needsTransport, howDidYouKnow, ctaSource, utmSource, submittedAt: submittedAtRaw } = parsed.data;
   if (company) {
     res.status(400).json({ message: 'Bad request' });
     return;
@@ -196,7 +196,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   await db.insert(leads).values({
     id, childName: normalizeName(childName), parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,
-    needsTransport, howDidYouKnow, ctaSource, leadTemperature: getLeadTemperature(ctaSource), submittedAt,
+    needsTransport, howDidYouKnow, ctaSource, utmSource, leadTemperature: getLeadTemperature(ctaSource), submittedAt,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
 
@@ -214,7 +214,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   notifySlack({
     childName, parentPhone, childDob, enrolmentYear,
     relationship, programme, addressLocation,
-    leadTemperature: getLeadTemperature(ctaSource), ctaSource,
+    leadTemperature: getLeadTemperature(ctaSource), ctaSource, utmSource,
   });
 
   res.status(201).json(lead);

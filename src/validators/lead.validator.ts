@@ -15,6 +15,7 @@ export const createLeadSchema = z.object({
   needsTransport: z.boolean().optional(),
   howDidYouKnow: z.string().min(1).optional(),
   ctaSource: z.string().optional(),
+  utmSource: z.string().optional(),
   submittedAt: z.string().optional(),
 });
 

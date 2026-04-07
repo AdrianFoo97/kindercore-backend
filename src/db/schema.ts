@@ -51,6 +51,7 @@ export const leads = mysqlTable('Lead', {
   needsTransport: boolean('needsTransport'),
   howDidYouKnow: varchar('howDidYouKnow', { length: 191 }),
   ctaSource: varchar('ctaSource', { length: 50 }),
+  utmSource: varchar('utmSource', { length: 191 }),
   leadTemperature: mysqlEnum('leadTemperature', ['COOL', 'WARM', 'HOT']),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
 });
