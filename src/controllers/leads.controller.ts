@@ -805,6 +805,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const dateRange = (y: number) => and(
     gte(leads.submittedAt, new Date(y, 0, 1)),
     lt(leads.submittedAt, new Date(y + 1, 0, 1)),
+    sql`deletedAt IS NULL`,
   );
 
   const [currentLeads, prevLeads] = await Promise.all([
@@ -908,6 +909,7 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const closedWhere = (year: number) => and(
     gte(leads.submittedAt, new Date(`${year}-01-01T00:00:00.000Z`)),
     lt(leads.submittedAt, new Date(`${year + 1}-01-01T00:00:00.000Z`)),
+    sql`deletedAt IS NULL`,
     or(
       eq(leads.status, 'ENROLLED'),
       and(eq(leads.status, 'LOST'), ne(leads.lostReason as any, "Didn't attend the enquiry")),
