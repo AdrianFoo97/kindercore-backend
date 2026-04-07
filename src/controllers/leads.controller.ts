@@ -17,6 +17,7 @@ async function notifySlack(data: {
   relationship?: string; programme?: string; addressLocation?: string;
   leadTemperature: string; ctaSource?: string; utmSource?: string;
 }): Promise<void> {
+  if (!SLACK_WEBHOOK_URL) return;
   try {
     const temp = data.leadTemperature === 'HOT' ? '🔥 HOT' : data.leadTemperature === 'WARM' ? '🟡 WARM' : '🔵 COOL';
     await fetch(SLACK_WEBHOOK_URL, {
