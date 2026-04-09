@@ -16,6 +16,8 @@ const studentSelect = {
   enrolledAt: students.enrolledAt,
   startDate: students.startDate,
   notes: students.notes,
+  monthlyFee: students.monthlyFee,
+  feeOverridden: students.feeOverridden,
   onboardingProgress: students.onboardingProgress,
   onboardingCompleted: students.onboardingCompleted,
   withdrawnAt: students.withdrawnAt,
@@ -29,6 +31,7 @@ const studentSelect = {
   packageProgramme: packages.programme,
   packageAge: packages.age,
   packageYear: packages.year,
+  packagePrice: packages.price,
 };
 
 function queryStudents() {
@@ -67,6 +70,8 @@ function reshape(row: typeof studentSelect extends Record<string, any> ? any : n
     enrolledAt: row.enrolledAt,
     startDate: row.startDate ?? null,
     notes: row.notes,
+    monthlyFee: row.monthlyFee,
+    feeOverridden: row.feeOverridden,
     onboardingProgress: row.onboardingProgress,
     onboardingCompleted: row.onboardingCompleted,
     withdrawnAt: row.withdrawnAt,
@@ -213,6 +218,8 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
       enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
       startDate: startDate ? new Date(startDate) : null,
       notes: notes ?? null,
+      monthlyFee: pkg.price ?? 0,
+      feeOverridden: false,
       onboardingProgress,
       createdAt: now,
     });
@@ -232,6 +239,8 @@ const updateSchema = z.object({
   enrolledAt: z.string().datetime().optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').nullable().optional(),
   notes: z.string().nullable().optional(),
+  monthlyFee: z.number().min(0).optional(),
+  feeOverridden: z.boolean().optional(),
   childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').optional(),
   childName: z.string().min(1).optional(),
   parentPhone: z.string().min(1).optional(),
@@ -248,7 +257,7 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
   const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
-  const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, childDob, childName, parentPhone } = parsed.data;
+  const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, monthlyFee, feeOverridden, childDob, childName, parentPhone } = parsed.data;
 
   const leadUpdate: Record<string, unknown> = {};
   if (childDob !== undefined) leadUpdate.childDob = new Date(childDob);
@@ -263,6 +272,8 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
       ...(enrolledAt !== undefined ? { enrolledAt: new Date(enrolledAt) } : {}),
       ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
       ...(notes !== undefined ? { notes } : {}),
+      ...(monthlyFee !== undefined ? { monthlyFee } : {}),
+      ...(feeOverridden !== undefined ? { feeOverridden } : {}),
     }).where(eq(students.id, id));
 
     if (Object.keys(leadUpdate).length > 0) {
@@ -394,4 +405,109 @@ export async function updateOnboardingProgress(req: Request, res: Response): Pro
   await db.update(students).set({ onboardingProgress: parsed.data.progress as any }).where(eq(students.id, id));
   const [row] = await queryStudents().where(eq(students.id, id));
   res.json(reshape(row));
+}
+
+// ── Revenue Analytics ────────────────────────────────────────────────────────
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function isActiveInMonth(row: any, year: number, month: number): boolean {
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0, 23, 59, 59);
+  if (!row.startDate || new Date(row.startDate) > monthEnd) return false;
+  if (row.withdrawnAt && new Date(row.withdrawnAt) < monthStart) return false;
+  if (row.leadChildDob) {
+    const birthYear = new Date(row.leadChildDob).getFullYear();
+    if (year - birthYear >= 7) return false;
+  }
+  return true;
+}
+
+export async function getRevenueAnalytics(req: Request, res: Response): Promise<void> {
+  const selectedYear = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+  const prevYear = selectedYear - 1;
+  const now = new Date();
+  const isCurrentYear = selectedYear === now.getFullYear();
+  const currentMonthIdx = isCurrentYear ? now.getMonth() : 11;
+
+  const allStudents = await queryStudents();
+
+  // Monthly revenue: actual for past/current months, forecast for future months
+  const monthlyRevenue = MONTHS.map((month, i) => {
+    let revenue = 0, studentCount = 0, previous = 0;
+    const isForecast = isCurrentYear && i > currentMonthIdx;
+
+    for (const s of allStudents) {
+      const price = (s as any).feeOverridden ? ((s as any).monthlyFee ?? 0) : ((s as any).packagePrice ?? 0);
+
+      // Actual: student active in this month
+      if (isActiveInMonth(s, selectedYear, i)) {
+        revenue += (price || 0);
+        studentCount++;
+      }
+
+      // Previous year comparison
+      if (isActiveInMonth(s, prevYear, i)) {
+        previous += (price || 0);
+      }
+    }
+
+    return { month, revenue, studentCount, current: revenue, previous, isForecast };
+  });
+
+  // Current month stats
+  const totalMonthlyRevenue = monthlyRevenue[currentMonthIdx]?.revenue ?? 0;
+  const totalActiveStudents = monthlyRevenue[currentMonthIdx]?.studentCount ?? 0;
+  const avgRevenuePerStudent = totalActiveStudents > 0 ? Math.round(totalMonthlyRevenue / totalActiveStudents) : 0;
+
+  // Annual: actual months + forecast months
+  const actualRevenue = monthlyRevenue.filter(m => !m.isForecast).reduce((sum, m) => sum + m.revenue, 0);
+  const forecastRevenue = monthlyRevenue.filter(m => m.isForecast).reduce((sum, m) => sum + m.revenue, 0);
+
+  // Revenue by programme (current month snapshot)
+  const progMap = new Map<string, { revenue: number; studentCount: number }>();
+  const ageMap = new Map<number, { revenue: number; studentCount: number }>();
+
+  for (const s of allStudents) {
+    if (!isActiveInMonth(s, selectedYear, currentMonthIdx)) continue;
+    const price = (s as any).feeOverridden ? ((s as any).monthlyFee ?? 0) : ((s as any).packagePrice ?? 0);
+    const prog = (s as any).packageProgramme || 'Unknown';
+    const age = (s as any).packageAge || 0;
+
+    const pEntry = progMap.get(prog) || { revenue: 0, studentCount: 0 };
+    pEntry.revenue += (price || 0);
+    pEntry.studentCount++;
+    progMap.set(prog, pEntry);
+
+    const aEntry = ageMap.get(age) || { revenue: 0, studentCount: 0 };
+    aEntry.revenue += (price || 0);
+    aEntry.studentCount++;
+    ageMap.set(age, aEntry);
+  }
+
+  const revenueByProgramme = [...progMap.entries()].map(([programme, data]) => ({ programme, ...data }));
+  const revenueByAge = [...ageMap.entries()].sort((a, b) => a[0] - b[0]).map(([age, data]) => ({ age: `Age ${age}`, ...data }));
+
+  // Available years
+  const yearRows = await db.selectDistinct({ year: students.enrolmentYear }).from(students).orderBy(desc(students.enrolmentYear));
+  const availableYears = yearRows.map(r => r.year);
+  const currentYear = now.getFullYear();
+  if (!availableYears.includes(currentYear)) availableYears.unshift(currentYear);
+  availableYears.sort((a, b) => b - a);
+
+  res.json({
+    selectedYear,
+    prevYear,
+    currentMonthIdx,
+    totalActiveStudents,
+    totalMonthlyRevenue,
+    avgRevenuePerStudent,
+    annualRevenue: actualRevenue + forecastRevenue,
+    actualRevenue,
+    forecastRevenue,
+    monthlyRevenue,
+    revenueByProgramme,
+    revenueByAge,
+    availableYears,
+  });
 }
