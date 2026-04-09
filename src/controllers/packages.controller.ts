@@ -33,6 +33,37 @@ async function getOrInitSetting<T>(key: string, defaultValue: T): Promise<T> {
 
 export async function getPackages(req: Request, res: Response): Promise<void> {
   const year = req.query.year ? Number(req.query.year) : undefined;
+
+  // Auto-generate packages for current year and next year if they don't exist
+  if (year !== undefined && !isNaN(year)) {
+    const yearsToCheck = [year];
+    if (year === CURRENT_YEAR) yearsToCheck.push(CURRENT_YEAR + 1);
+
+    const [programmes, ages] = await Promise.all([
+      getOrInitSetting<string[]>('package_programmes', DEFAULT_PROGRAMMES),
+      getOrInitSetting<number[]>('package_ages', DEFAULT_AGES),
+    ]);
+
+    for (const y of yearsToCheck) {
+      const existing = await db.select({ id: packages.id }).from(packages).where(eq(packages.year, y)).limit(1);
+      if (existing.length === 0) {
+        const now = new Date();
+        const values = programmes.flatMap(programme =>
+          ages.map(age => ({
+            id: randomUUID(),
+            year: y,
+            programme,
+            age,
+            name: `${y} ${programme} (${age}Y)`,
+            price: 500,
+            updatedAt: now,
+          }))
+        );
+        if (values.length > 0) await db.insert(packages).values(values);
+      }
+    }
+  }
+
   const rows = await db
     .select()
     .from(packages)
@@ -49,7 +80,10 @@ export async function getPackageYears(_req: Request, res: Response): Promise<voi
     .from(packages)
     .orderBy(desc(packages.year));
   const years = rows.map((r) => r.year);
-  if (!years.includes(CURRENT_YEAR)) years.unshift(CURRENT_YEAR);
+  const nextYear = CURRENT_YEAR + 1;
+  if (!years.includes(nextYear)) years.unshift(nextYear);
+  if (!years.includes(CURRENT_YEAR)) years.splice(years.indexOf(nextYear) + 1, 0, CURRENT_YEAR);
+  years.sort((a, b) => b - a);
   res.json(years);
 }
 

@@ -278,18 +278,35 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
 
 export async function completeOnboarding(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
+  const force = req.query.force === 'true';
 
   const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
-  const rawProgress = existing.onboardingProgress;
-  const progress: Array<{ task: string; done: boolean }> | null = typeof rawProgress === 'string' ? JSON.parse(rawProgress) : (Array.isArray(rawProgress) ? rawProgress : null);
-  if (progress && progress.length > 0 && progress.some(t => !t.done)) {
-    res.status(400).json({ message: 'All onboarding tasks must be completed first' });
-    return;
+  if (force) {
+    // Populate tasks from template and mark all done
+    const rawProgress = existing.onboardingProgress;
+    let progress: Array<{ task: string; done: boolean }> = typeof rawProgress === 'string' ? JSON.parse(rawProgress) : (Array.isArray(rawProgress) ? rawProgress : []);
+    if (progress.length === 0) {
+      // No tasks — load from settings template
+      const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
+      const rawTasks = settingRow?.value;
+      const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
+      progress = tasks.map((task: string) => ({ task, done: true }));
+    } else {
+      // Has tasks — mark all as done
+      progress = progress.map(t => ({ ...t, done: true }));
+    }
+    await db.update(students).set({ onboardingProgress: progress, onboardingCompleted: true }).where(eq(students.id, id));
+  } else {
+    const rawProgress = existing.onboardingProgress;
+    const progress: Array<{ task: string; done: boolean }> | null = typeof rawProgress === 'string' ? JSON.parse(rawProgress) : (Array.isArray(rawProgress) ? rawProgress : null);
+    if (progress && progress.length > 0 && progress.some(t => !t.done)) {
+      res.status(400).json({ message: 'All onboarding tasks must be completed first' });
+      return;
+    }
+    await db.update(students).set({ onboardingCompleted: true }).where(eq(students.id, id));
   }
-
-  await db.update(students).set({ onboardingCompleted: true }).where(eq(students.id, id));
   const [row] = await queryStudents().where(eq(students.id, id));
   res.json(reshape(row));
 }
