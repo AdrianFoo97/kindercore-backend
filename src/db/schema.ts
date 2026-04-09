@@ -95,6 +95,7 @@ export const students = mysqlTable('Student', {
   notes: text('notes'),
   monthlyFee: float('monthlyFee'),
   feeOverridden: boolean('feeOverridden').notNull().default(false),
+  ageOffset: int('ageOffset').notNull().default(0),
   onboardingProgress: json('onboardingProgress'),
   onboardingCompleted: boolean('onboardingCompleted').notNull().default(false),
   withdrawnAt: datetime('withdrawnAt', { mode: 'date', fsp: 3 }),

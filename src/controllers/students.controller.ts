@@ -18,6 +18,7 @@ const studentSelect = {
   notes: students.notes,
   monthlyFee: students.monthlyFee,
   feeOverridden: students.feeOverridden,
+  ageOffset: students.ageOffset,
   onboardingProgress: students.onboardingProgress,
   onboardingCompleted: students.onboardingCompleted,
   withdrawnAt: students.withdrawnAt,
@@ -72,6 +73,7 @@ function reshape(row: typeof studentSelect extends Record<string, any> ? any : n
     notes: row.notes,
     monthlyFee: row.monthlyFee,
     feeOverridden: row.feeOverridden,
+    ageOffset: row.ageOffset,
     onboardingProgress: row.onboardingProgress,
     onboardingCompleted: row.onboardingCompleted,
     withdrawnAt: row.withdrawnAt,
@@ -241,6 +243,7 @@ const updateSchema = z.object({
   notes: z.string().nullable().optional(),
   monthlyFee: z.number().min(0).optional(),
   feeOverridden: z.boolean().optional(),
+  ageOffset: z.number().int().min(-10).max(10).optional(),
   childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').optional(),
   childName: z.string().min(1).optional(),
   parentPhone: z.string().min(1).optional(),
@@ -257,7 +260,7 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
   const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
-  const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, monthlyFee, feeOverridden, childDob, childName, parentPhone } = parsed.data;
+  const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, monthlyFee, feeOverridden, ageOffset, childDob, childName, parentPhone } = parsed.data;
 
   const leadUpdate: Record<string, unknown> = {};
   if (childDob !== undefined) leadUpdate.childDob = new Date(childDob);
@@ -274,6 +277,7 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
       ...(notes !== undefined ? { notes } : {}),
       ...(monthlyFee !== undefined ? { monthlyFee } : {}),
       ...(feeOverridden !== undefined ? { feeOverridden } : {}),
+      ...(ageOffset !== undefined ? { ageOffset } : {}),
     }).where(eq(students.id, id));
 
     if (Object.keys(leadUpdate).length > 0) {
