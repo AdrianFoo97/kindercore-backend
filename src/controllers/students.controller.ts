@@ -232,6 +232,85 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   res.status(201).json(reshape(row));
 }
 
+// ── Create student WITH a new lead (manual / walk-in enrolment) ──────────────
+
+const createWithLeadSchema = z.object({
+  // Lead fields
+  childName: z.string().min(1),
+  parentPhone: z.string().min(1),
+  childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
+  howDidYouKnow: z.string().min(1),
+  programme: z.string().min(1),
+  submittedAt: z.string().datetime().optional(),
+  // Student fields
+  enrolmentYear: z.number().int().min(2000).max(2100),
+  enrolmentMonth: z.number().int().min(1).max(12),
+  packageId: z.string().min(1),
+  enrolledAt: z.string().datetime().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').nullable().optional(),
+  notes: z.string().nullable().optional(),
+  monthlyFee: z.number().min(0).optional(),
+  feeOverridden: z.boolean().optional(),
+});
+
+export async function createStudentWithLead(req: Request, res: Response): Promise<void> {
+  const parsed = createWithLeadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
+    return;
+  }
+  const {
+    childName, parentPhone, childDob, howDidYouKnow, programme, submittedAt,
+    enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes,
+    monthlyFee, feeOverridden,
+  } = parsed.data;
+
+  const [pkg] = await db.select().from(packages).where(eq(packages.id, packageId)).limit(1);
+  if (!pkg) { res.status(404).json({ message: 'Package not found' }); return; }
+
+  const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
+  const rawTasks = settingRow?.value;
+  const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
+  const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
+
+  const now = new Date();
+  const submittedAtDate = submittedAt ? new Date(submittedAt) : now;
+  const newLeadId = randomUUID();
+  const newStudentId = randomUUID();
+
+  await db.transaction(async (tx) => {
+    await tx.insert(leads).values({
+      id: newLeadId,
+      submittedAt: submittedAtDate,
+      childName,
+      parentPhone,
+      childDob: new Date(childDob),
+      enrolmentYear,
+      status: 'ENROLLED',
+      statusChangedAt: now,
+      howDidYouKnow,
+      programme,
+    });
+    await tx.insert(students).values({
+      id: newStudentId,
+      leadId: newLeadId,
+      enrolmentYear,
+      enrolmentMonth,
+      packageId,
+      enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
+      startDate: startDate ? new Date(startDate) : null,
+      notes: notes ?? null,
+      monthlyFee: feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0),
+      feeOverridden: feeOverridden ?? false,
+      onboardingProgress,
+      createdAt: now,
+    });
+  });
+
+  const [row] = await queryStudents().where(eq(students.id, newStudentId));
+  res.status(201).json(reshape(row));
+}
+
 // ── Update student ────────────────────────────────────────────────────────────
 
 const updateSchema = z.object({
