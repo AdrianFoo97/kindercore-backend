@@ -432,23 +432,37 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
 
   const allStudents = await queryStudents();
 
+  // Load current year packages for price lookup
+  const currentYearPackages = await db.select().from(packages).where(eq(packages.year, selectedYear));
+  const prevYearPackages = await db.select().from(packages).where(eq(packages.year, prevYear));
+
+  function getPrice(s: any, yearPkgs: typeof currentYearPackages): number {
+    // Overridden fee — use stored value
+    if (s.feeOverridden) return s.monthlyFee ?? 0;
+    // Look up matching package for the year (same programme + age)
+    const programme = s.packageProgramme;
+    const age = s.packageAge;
+    const matched = yearPkgs.find(p => p.programme === programme && p.age === age);
+    if (matched) return matched.price ?? 0;
+    // Fallback to student's enrolled package price
+    return s.packagePrice ?? 0;
+  }
+
   // Monthly revenue: actual for past/current months, forecast for future months
   const monthlyRevenue = MONTHS.map((month, i) => {
     let revenue = 0, studentCount = 0, previous = 0;
     const isForecast = isCurrentYear && i > currentMonthIdx;
 
     for (const s of allStudents) {
-      const price = (s as any).feeOverridden ? ((s as any).monthlyFee ?? 0) : ((s as any).packagePrice ?? 0);
-
       // Actual: student active in this month
       if (isActiveInMonth(s, selectedYear, i)) {
-        revenue += (price || 0);
+        revenue += getPrice(s, currentYearPackages);
         studentCount++;
       }
 
       // Previous year comparison
       if (isActiveInMonth(s, prevYear, i)) {
-        previous += (price || 0);
+        previous += getPrice(s, prevYearPackages);
       }
     }
 
@@ -470,17 +484,17 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
 
   for (const s of allStudents) {
     if (!isActiveInMonth(s, selectedYear, currentMonthIdx)) continue;
-    const price = (s as any).feeOverridden ? ((s as any).monthlyFee ?? 0) : ((s as any).packagePrice ?? 0);
+    const price = getPrice(s, currentYearPackages);
     const prog = (s as any).packageProgramme || 'Unknown';
     const age = (s as any).packageAge || 0;
 
     const pEntry = progMap.get(prog) || { revenue: 0, studentCount: 0 };
-    pEntry.revenue += (price || 0);
+    pEntry.revenue += price;
     pEntry.studentCount++;
     progMap.set(prog, pEntry);
 
     const aEntry = ageMap.get(age) || { revenue: 0, studentCount: 0 };
-    aEntry.revenue += (price || 0);
+    aEntry.revenue += price;
     aEntry.studentCount++;
     ageMap.set(age, aEntry);
   }
