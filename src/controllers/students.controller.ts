@@ -19,6 +19,8 @@ const studentSelect = {
   monthlyFee: students.monthlyFee,
   feeOverridden: students.feeOverridden,
   ageOffset: students.ageOffset,
+  studentChildName: students.childName,
+  studentChildDob: students.childDob,
   onboardingProgress: students.onboardingProgress,
   onboardingCompleted: students.onboardingCompleted,
   withdrawnAt: students.withdrawnAt,
@@ -43,6 +45,14 @@ function queryStudents() {
     .leftJoin(packages, eq(students.packageId, packages.id));
 }
 
+// Effective child name/DOB: prefer student row, fall back to lead row.
+function effectiveChildName(row: any): string | null {
+  return row.studentChildName ?? row.leadChildName ?? null;
+}
+function effectiveChildDob(row: any): Date | null {
+  return row.studentChildDob ?? row.leadChildDob ?? null;
+}
+
 function computeStatus(row: any): 'enrolled' | 'active' | 'graduated' | 'withdrawn' {
   if (row.withdrawnAt) return 'withdrawn';
   // Not yet started — startDate is null or in the future
@@ -53,15 +63,18 @@ function computeStatus(row: any): 'enrolled' | 'active' | 'graduated' | 'withdra
     return 'enrolled';
   }
   // Graduated — child turns 7 based on birth year (currentYear - birthYear >= 7)
-  if (row.leadChildDob) {
+  const dob = effectiveChildDob(row);
+  if (dob) {
     const currentYear = new Date().getFullYear();
-    const birthYear = new Date(row.leadChildDob).getFullYear();
+    const birthYear = new Date(dob).getFullYear();
     if (currentYear - birthYear >= 7) return 'graduated';
   }
   return 'active';
 }
 
-function reshape(row: typeof studentSelect extends Record<string, any> ? any : never) {
+interface SiblingRef { id: string; childName: string }
+
+function reshape(row: typeof studentSelect extends Record<string, any> ? any : never, siblings: SiblingRef[] = []) {
   return {
     id: row.id,
     leadId: row.leadId,
@@ -80,9 +93,10 @@ function reshape(row: typeof studentSelect extends Record<string, any> ? any : n
     withdrawReason: row.withdrawReason,
     createdAt: row.createdAt,
     status: computeStatus(row),
+    siblings,
     lead: {
-      childName: row.leadChildName,
-      childDob: row.leadChildDob,
+      childName: effectiveChildName(row),
+      childDob: effectiveChildDob(row),
       parentPhone: row.leadParentPhone,
       submittedAt: row.leadSubmittedAt,
     },
@@ -93,6 +107,44 @@ function reshape(row: typeof studentSelect extends Record<string, any> ? any : n
       year: row.packageYear,
     },
   };
+}
+
+// Build a leadId → siblings map for a given set of student rows.
+// "Siblings" of a student = other students sharing the same leadId.
+async function loadSiblingsMap(leadIds: string[]): Promise<Map<string, SiblingRef[]>> {
+  const map = new Map<string, SiblingRef[]>();
+  if (leadIds.length === 0) return map;
+  const rows = await db
+    .select({
+      id: students.id,
+      leadId: students.leadId,
+      studentChildName: students.childName,
+      leadChildName: leads.childName,
+    })
+    .from(students)
+    .leftJoin(leads, eq(students.leadId, leads.id));
+  // Group by leadId
+  const byLead = new Map<string, Array<{ id: string; name: string }>>();
+  for (const r of rows) {
+    if (!leadIds.includes(r.leadId)) continue;
+    const name = r.studentChildName ?? r.leadChildName ?? '';
+    if (!byLead.has(r.leadId)) byLead.set(r.leadId, []);
+    byLead.get(r.leadId)!.push({ id: r.id, name });
+  }
+  // For each lead, the "siblings" of any student in it = all other students in the same lead
+  for (const [leadId, group] of byLead) {
+    if (group.length <= 1) continue;
+    map.set(leadId, group.map(g => ({ id: g.id, childName: g.name })));
+  }
+  return map;
+}
+
+// Convenience for single-student responses
+async function reshapeOne(row: any) {
+  const map = await loadSiblingsMap([row.leadId]);
+  const allInLead = map.get(row.leadId) ?? [];
+  const otherSiblings = allInLead.filter(s => s.id !== row.id);
+  return reshape(row, otherSiblings);
 }
 
 // ── List students (with filtering, search, pagination) ───────────────────────
@@ -112,7 +164,15 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
   let query = queryStudents();
   if (yearFilter) query = query.where(eq(students.enrolmentYear, yearFilter)) as any;
   const rows = await query.orderBy(desc(students.enrolledAt));
-  const all = rows.map(reshape);
+
+  // Build sibling map across all leadIds in the current result set
+  const leadIds = [...new Set(rows.map(r => r.leadId))];
+  const siblingsMap = await loadSiblingsMap(leadIds);
+  const all = rows.map(r => {
+    const groupSiblings = siblingsMap.get(r.leadId) ?? [];
+    const others = groupSiblings.filter(s => s.id !== r.id);
+    return reshape(r, others);
+  });
 
   // Compute counts across ALL students (for status tabs)
   const statusCounts = { enrolled: 0, active: 0, graduated: 0, withdrawn: 0 };
@@ -229,7 +289,7 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   });
 
   const [row] = await queryStudents().where(eq(students.id, newId));
-  res.status(201).json(reshape(row));
+  res.status(201).json(await reshapeOne(row));
 }
 
 // ── Create student WITH a new lead (manual / walk-in enrolment) ──────────────
@@ -308,7 +368,70 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
   });
 
   const [row] = await queryStudents().where(eq(students.id, newStudentId));
-  res.status(201).json(reshape(row));
+  res.status(201).json(await reshapeOne(row));
+}
+
+// ── Create sibling student (attach to existing Lead) ────────────────────────
+
+const createSiblingSchema = z.object({
+  leadId: z.string().min(1),
+  childName: z.string().min(1),
+  childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
+  enrolmentYear: z.number().int().min(2000).max(2100),
+  enrolmentMonth: z.number().int().min(1).max(12),
+  packageId: z.string().min(1),
+  enrolledAt: z.string().datetime().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').nullable().optional(),
+  notes: z.string().nullable().optional(),
+  monthlyFee: z.number().min(0).optional(),
+  feeOverridden: z.boolean().optional(),
+});
+
+export async function createSibling(req: Request, res: Response): Promise<void> {
+  const parsed = createSiblingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
+    return;
+  }
+  const {
+    leadId, childName, childDob,
+    enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes,
+    monthlyFee, feeOverridden,
+  } = parsed.data;
+
+  const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
+  if (!lead) { res.status(404).json({ message: 'Lead not found' }); return; }
+
+  const [pkg] = await db.select().from(packages).where(eq(packages.id, packageId)).limit(1);
+  if (!pkg) { res.status(404).json({ message: 'Package not found' }); return; }
+
+  const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
+  const rawTasks = settingRow?.value;
+  const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
+  const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
+
+  const now = new Date();
+  const newId = randomUUID();
+
+  await db.insert(students).values({
+    id: newId,
+    leadId,
+    enrolmentYear,
+    enrolmentMonth,
+    packageId,
+    enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
+    startDate: startDate ? new Date(startDate) : null,
+    notes: notes ?? null,
+    monthlyFee: feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0),
+    feeOverridden: feeOverridden ?? false,
+    childName,
+    childDob: new Date(childDob),
+    onboardingProgress,
+    createdAt: now,
+  });
+
+  const [row] = await queryStudents().where(eq(students.id, newId));
+  res.status(201).json(await reshapeOne(row));
 }
 
 // ── Update student ────────────────────────────────────────────────────────────
@@ -341,10 +464,24 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
 
   const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, monthlyFee, feeOverridden, ageOffset, childDob, childName, parentPhone } = parsed.data;
 
+  // Decide where childName/childDob writes go: if this student shares a Lead
+  // with siblings (or already has its own override), write to Student.
+  // Otherwise (solo student), write to Lead so the Leads page reflects the rename.
+  const siblingCount = (await db.select({ id: students.id }).from(students).where(eq(students.leadId, existing.leadId))).length;
+  const isSibling = siblingCount > 1 || existing.childName !== null || existing.childDob !== null;
+
+  const studentChildUpdate: Record<string, unknown> = {};
   const leadUpdate: Record<string, unknown> = {};
-  if (childDob !== undefined) leadUpdate.childDob = new Date(childDob);
-  if (childName !== undefined) leadUpdate.childName = childName;
+
   if (parentPhone !== undefined) leadUpdate.parentPhone = parentPhone;
+
+  if (isSibling) {
+    if (childName !== undefined) studentChildUpdate.childName = childName;
+    if (childDob !== undefined) studentChildUpdate.childDob = new Date(childDob);
+  } else {
+    if (childName !== undefined) leadUpdate.childName = childName;
+    if (childDob !== undefined) leadUpdate.childDob = new Date(childDob);
+  }
 
   await db.transaction(async (tx) => {
     await tx.update(students).set({
@@ -357,6 +494,7 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
       ...(monthlyFee !== undefined ? { monthlyFee } : {}),
       ...(feeOverridden !== undefined ? { feeOverridden } : {}),
       ...(ageOffset !== undefined ? { ageOffset } : {}),
+      ...studentChildUpdate,
     }).where(eq(students.id, id));
 
     if (Object.keys(leadUpdate).length > 0) {
@@ -365,7 +503,7 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
   });
 
   const [row] = await queryStudents().where(eq(students.id, id));
-  res.json(reshape(row));
+  res.json(await reshapeOne(row));
 }
 
 // ── Complete onboarding ───────────────────────────────────────────────────────
@@ -402,7 +540,7 @@ export async function completeOnboarding(req: Request, res: Response): Promise<v
     await db.update(students).set({ onboardingCompleted: true }).where(eq(students.id, id));
   }
   const [row] = await queryStudents().where(eq(students.id, id));
-  res.json(reshape(row));
+  res.json(await reshapeOne(row));
 }
 
 // ── Delete student ────────────────────────────────────────────────────────────
@@ -451,7 +589,7 @@ export async function withdrawStudent(req: Request, res: Response): Promise<void
   }).where(eq(students.id, id));
 
   const [row] = await queryStudents().where(eq(students.id, id));
-  res.json(reshape(row));
+  res.json(await reshapeOne(row));
 }
 
 // ── Reactivate student (undo withdrawal) ──────────────────────────────────────
@@ -465,7 +603,7 @@ export async function reactivateStudent(req: Request, res: Response): Promise<vo
 
   await db.update(students).set({ withdrawnAt: null, withdrawReason: null }).where(eq(students.id, id));
   const [row] = await queryStudents().where(eq(students.id, id));
-  res.json(reshape(row));
+  res.json(await reshapeOne(row));
 }
 
 // ── Update onboarding progress ────────────────────────────────────────────────
@@ -487,7 +625,7 @@ export async function updateOnboardingProgress(req: Request, res: Response): Pro
 
   await db.update(students).set({ onboardingProgress: parsed.data.progress as any }).where(eq(students.id, id));
   const [row] = await queryStudents().where(eq(students.id, id));
-  res.json(reshape(row));
+  res.json(await reshapeOne(row));
 }
 
 // ── Revenue Analytics ────────────────────────────────────────────────────────

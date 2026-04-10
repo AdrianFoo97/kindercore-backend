@@ -96,6 +96,8 @@ export const students = mysqlTable('Student', {
   monthlyFee: float('monthlyFee'),
   feeOverridden: boolean('feeOverridden').notNull().default(false),
   ageOffset: int('ageOffset').notNull().default(0),
+  childName: varchar('childName', { length: 191 }),
+  childDob: datetime('childDob', { mode: 'date', fsp: 3 }),
   onboardingProgress: json('onboardingProgress'),
   onboardingCompleted: boolean('onboardingCompleted').notNull().default(false),
   withdrawnAt: datetime('withdrawnAt', { mode: 'date', fsp: 3 }),
