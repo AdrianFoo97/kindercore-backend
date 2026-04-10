@@ -640,7 +640,12 @@ function isActiveInMonth(row: any, year: number, month: number): boolean {
   // For past/future months, use end of month.
   const cutoff = isCurrentMonth ? now : new Date(year, month + 1, 0, 23, 59, 59);
   if (!row.startDate || new Date(row.startDate) > cutoff) return false;
-  if (row.withdrawnAt && new Date(row.withdrawnAt) < monthStart) return false;
+  if (row.withdrawnAt) {
+    const w = new Date(row.withdrawnAt);
+    // Current month: any withdrawal up to today excludes the student (matches Students page).
+    // Past/future months: only exclude if withdrew before that month started.
+    if (isCurrentMonth ? w <= now : w < monthStart) return false;
+  }
   const dob = row.studentChildDob ?? row.leadChildDob;
   if (dob) {
     const birthYear = new Date(dob).getFullYear();
@@ -674,16 +679,35 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
     return s.packagePrice ?? 0;
   }
 
+  // Helper: derive a student's effective age for a given year (uses ageOffset)
+  function studentEffectiveAge(s: any, year: number): number {
+    const dob = s.studentChildDob ?? s.leadChildDob;
+    if (!dob) return 0;
+    const baseAge = year - new Date(dob).getFullYear();
+    return baseAge + (s.ageOffset ?? 0);
+  }
+
   // Monthly revenue: actual for past/current months, forecast for future months
+  // Also build a per-(age × programme) breakdown for each month — Excel-style.
   const monthlyRevenue = MONTHS.map((month, i) => {
     let revenue = 0, studentCount = 0, previous = 0;
     const isForecast = isCurrentYear && i > currentMonthIdx;
+    // breakdown: { [age]: { [programme]: { count, revenue } } }
+    const breakdown: Record<number, Record<string, { count: number; revenue: number }>> = {};
 
     for (const s of allStudents) {
       // Actual: student active in this month
       if (isActiveInMonth(s, selectedYear, i)) {
-        revenue += getPrice(s, currentYearPackages);
+        const price = getPrice(s, currentYearPackages);
+        revenue += price;
         studentCount++;
+
+        const age = studentEffectiveAge(s, selectedYear);
+        const programme = (s as any).packageProgramme || 'Unknown';
+        if (!breakdown[age]) breakdown[age] = {};
+        if (!breakdown[age][programme]) breakdown[age][programme] = { count: 0, revenue: 0 };
+        breakdown[age][programme].count++;
+        breakdown[age][programme].revenue += price;
       }
 
       // Previous year comparison
@@ -692,7 +716,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
       }
     }
 
-    return { month, revenue, studentCount, current: revenue, previous, isForecast };
+    return { month, revenue, studentCount, current: revenue, previous, isForecast, breakdown };
   });
 
   // Current month stats
