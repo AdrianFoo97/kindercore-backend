@@ -633,12 +633,17 @@ export async function updateOnboardingProgress(req: Request, res: Response): Pro
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function isActiveInMonth(row: any, year: number, month: number): boolean {
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
   const monthStart = new Date(year, month, 1);
-  const monthEnd = new Date(year, month + 1, 0, 23, 59, 59);
-  if (!row.startDate || new Date(row.startDate) > monthEnd) return false;
+  // For current month, use today as cutoff (matches Students page logic).
+  // For past/future months, use end of month.
+  const cutoff = isCurrentMonth ? now : new Date(year, month + 1, 0, 23, 59, 59);
+  if (!row.startDate || new Date(row.startDate) > cutoff) return false;
   if (row.withdrawnAt && new Date(row.withdrawnAt) < monthStart) return false;
-  if (row.leadChildDob) {
-    const birthYear = new Date(row.leadChildDob).getFullYear();
+  const dob = row.studentChildDob ?? row.leadChildDob;
+  if (dob) {
+    const birthYear = new Date(dob).getFullYear();
     if (year - birthYear >= 7) return false;
   }
   return true;
