@@ -667,24 +667,28 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
   const currentYearPackages = await db.select().from(packages).where(eq(packages.year, selectedYear));
   const prevYearPackages = await db.select().from(packages).where(eq(packages.year, prevYear));
 
-  function getPrice(s: any, yearPkgs: typeof currentYearPackages): number {
-    // Overridden fee — use stored value
-    if (s.feeOverridden) return s.monthlyFee ?? 0;
-    // Look up matching package for the year (same programme + age)
-    const programme = s.packageProgramme;
-    const age = s.packageAge;
-    const matched = yearPkgs.find(p => p.programme === programme && p.age === age);
-    if (matched) return matched.price ?? 0;
-    // Fallback to student's enrolled package price
-    return s.packagePrice ?? 0;
-  }
-
   // Helper: derive a student's effective age for a given year (uses ageOffset)
   function studentEffectiveAge(s: any, year: number): number {
     const dob = s.studentChildDob ?? s.leadChildDob;
     if (!dob) return 0;
     const baseAge = year - new Date(dob).getFullYear();
     return baseAge + (s.ageOffset ?? 0);
+  }
+
+  // Current-year price: just use the student's actual assigned package price
+  // (or their custom override). The package they're on IS what they pay.
+  function getPrice(s: any): number {
+    if (s.feeOverridden) return s.monthlyFee ?? 0;
+    return s.packagePrice ?? 0;
+  }
+
+  // Prev-year price for YoY comparison: look up the equivalent package from
+  // the previous year (same programme + same package age) so the comparison
+  // reflects last year's pricing for the same enrolment.
+  function getPrevYearPrice(s: any): number {
+    if (s.feeOverridden) return s.monthlyFee ?? 0;
+    const matched = prevYearPackages.find(p => p.programme === s.packageProgramme && p.age === s.packageAge);
+    return matched?.price ?? s.packagePrice ?? 0;
   }
 
   // Monthly revenue: actual for past/current months, forecast for future months
@@ -698,7 +702,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
     for (const s of allStudents) {
       // Actual: student active in this month
       if (isActiveInMonth(s, selectedYear, i)) {
-        const price = getPrice(s, currentYearPackages);
+        const price = getPrice(s);
         revenue += price;
         studentCount++;
 
@@ -712,7 +716,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
 
       // Previous year comparison
       if (isActiveInMonth(s, prevYear, i)) {
-        previous += getPrice(s, prevYearPackages);
+        previous += getPrevYearPrice(s);
       }
     }
 
@@ -734,9 +738,9 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
 
   for (const s of allStudents) {
     if (!isActiveInMonth(s, selectedYear, currentMonthIdx)) continue;
-    const price = getPrice(s, currentYearPackages);
+    const price = getPrice(s);
     const prog = (s as any).packageProgramme || 'Unknown';
-    const age = (s as any).packageAge || 0;
+    const age = studentEffectiveAge(s, selectedYear) || (s as any).packageAge || 0;
 
     const pEntry = progMap.get(prog) || { revenue: 0, studentCount: 0 };
     pEntry.revenue += price;
