@@ -662,6 +662,10 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
   const currentMonthIdx = isCurrentYear ? now.getMonth() : 11;
 
   const allStudents = await queryStudents();
+  // Only count students whose package is for the selected year. This makes the
+  // year selector reflect "students assigned to packages for that year" instead
+  // of forecasting current students forward indefinitely.
+  const yearStudents = allStudents.filter(s => (s as any).packageYear === selectedYear);
 
   // Load current year packages for price lookup
   const currentYearPackages = await db.select().from(packages).where(eq(packages.year, selectedYear));
@@ -699,7 +703,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
     // breakdown: { [age]: { [programme]: { count, revenue } } }
     const breakdown: Record<number, Record<string, { count: number; revenue: number }>> = {};
 
-    for (const s of allStudents) {
+    for (const s of yearStudents) {
       // Actual: student active in this month
       if (isActiveInMonth(s, selectedYear, i)) {
         const price = getPrice(s);
@@ -714,8 +718,10 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
         breakdown[age][programme].count++;
         breakdown[age][programme].revenue += price;
       }
-
-      // Previous year comparison
+    }
+    // Previous-year comparison: include any student whose package was for prevYear
+    const prevYearStudents = allStudents.filter(s => (s as any).packageYear === prevYear);
+    for (const s of prevYearStudents) {
       if (isActiveInMonth(s, prevYear, i)) {
         previous += getPrevYearPrice(s);
       }
@@ -737,7 +743,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
   const progMap = new Map<string, { revenue: number; studentCount: number }>();
   const ageMap = new Map<number, { revenue: number; studentCount: number }>();
 
-  for (const s of allStudents) {
+  for (const s of yearStudents) {
     if (!isActiveInMonth(s, selectedYear, currentMonthIdx)) continue;
     const price = getPrice(s);
     const prog = (s as any).packageProgramme || 'Unknown';
