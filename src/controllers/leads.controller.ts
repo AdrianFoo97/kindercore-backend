@@ -810,6 +810,8 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
 
   const [currentLeads, prevLeads] = await Promise.all([
     db.select({
+      id: leads.id,
+      childName: leads.childName,
       submittedAt: leads.submittedAt,
       childDob: leads.childDob,
       enrolmentYear: leads.enrolmentYear,
@@ -817,6 +819,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
       addressLocation: leads.addressLocation,
       howDidYouKnow: leads.howDidYouKnow,
       status: leads.status,
+      notes: leads.notes,
       lostReason: leads.lostReason,
       attended: leads.attended,
     }).from(leads).where(dateRange(selectedYear)),
@@ -881,11 +884,21 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     .map(([channel, count]) => ({ channel, count }))
     .sort((a, b) => b.count - a.count);
 
-  const leadsDetail = currentLeads.map(l => ({
-    monthIdx: l.submittedAt.getMonth(),
-    address: l.addressLocation ?? null,
-    channel: l.howDidYouKnow ?? null,
-  }));
+  const leadsDetail = currentLeads.map(l => {
+    const ageMs = l.submittedAt.getTime() - l.childDob.getTime();
+    return {
+      id: l.id,
+      childName: l.childName,
+      status: l.status,
+      enrolmentYear: l.enrolmentYear,
+      notes: l.notes ?? l.lostReason ?? null,
+      monthIdx: l.submittedAt.getMonth(),
+      address: l.addressLocation ?? null,
+      channel: l.howDidYouKnow ?? null,
+      age: Math.floor(ageMs / (365.25 * 24 * 3600 * 1000)),
+      submittedAt: l.submittedAt,
+    };
+  });
 
   const [yearRows] = await pool.query<RowDataPacket[]>(
     'SELECT DISTINCT YEAR(submittedAt) AS year FROM `Lead` ORDER BY year DESC',

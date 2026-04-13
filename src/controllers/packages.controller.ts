@@ -69,7 +69,21 @@ export async function getPackages(req: Request, res: Response): Promise<void> {
     .from(packages)
     .where(year !== undefined && !isNaN(year) ? eq(packages.year, year) : undefined)
     .orderBy(asc(packages.programme), asc(packages.age));
-  res.json(rows);
+
+  // Attach student count per package so the frontend can render
+  // dependency-aware delete dialogs without an extra round-trip.
+  const studentRows = await db
+    .select({ packageId: students.packageId, count: sql<number>`COUNT(*)` })
+    .from(students)
+    .groupBy(students.packageId);
+  const studentCountByPkg = new Map(studentRows.map(r => [r.packageId, Number(r.count)]));
+
+  const enriched = rows.map(r => ({
+    ...r,
+    studentCount: studentCountByPkg.get(r.id) ?? 0,
+  }));
+
+  res.json(enriched);
 }
 
 // ── Get distinct years that have packages ─────────────────────────────────────
