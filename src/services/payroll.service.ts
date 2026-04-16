@@ -3,6 +3,30 @@ import { positions, levelIncentives, teachers, teacherAllowances, careerRecords,
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
+/**
+ * `resignedAt` is the source of truth for when a teacher stops counting.
+ * `isActive` is only meaningful as a soft-delete flag (isActive=false with no
+ * resignedAt means "deleted, never should have existed").
+ *
+ * A teacher counts for a month iff:
+ *  - They are not soft-deleted.
+ *  - They joined on or before end-of-month.
+ *  - They did not resign before start-of-month (mid-month resignations still
+ *    count for that month's payroll).
+ */
+export function isTeacherActiveInMonth(
+  t: { isActive: boolean; createdAt: Date | string | null; resignedAt: Date | string | null },
+  startOfMonth: Date,
+  endOfMonth: Date,
+): boolean {
+  if (!t.isActive && !t.resignedAt) return false;
+  const joined = t.createdAt ? new Date(t.createdAt) : null;
+  if (joined && joined > endOfMonth) return false;
+  const resigned = t.resignedAt ? new Date(t.resignedAt) : null;
+  if (resigned && resigned < startOfMonth) return false;
+  return true;
+}
+
 export interface MonthlyPayrollEntry {
   monthIdx: number;
   month: string;
@@ -107,16 +131,7 @@ export async function computeMonthlyPayroll(year: number): Promise<MonthlyPayrol
     const startOfMonth = new Date(year, i, 1, 0, 0, 0);
     const isCurrent = i === currentMonthIdx;
     const isForecast = year > currentYear || (year === currentYear && i > currentMonthIdx);
-    const activeTeachers = allTeachers.filter(t => {
-      // Current/forecast months: use isActive — matches Staff Analysis snapshot.
-      // Past months: date-based — reflects who was actually paid that month.
-      if (isForecast || isCurrent) return t.isActive;
-      const joined = t.createdAt ? new Date(t.createdAt) : null;
-      if (joined && joined > endOfMonth) return false;
-      const resigned = t.resignedAt ? new Date(t.resignedAt) : null;
-      if (resigned && resigned < startOfMonth) return false;
-      return true;
-    });
+    const activeTeachers = allTeachers.filter(t => isTeacherActiveInMonth(t, startOfMonth, endOfMonth));
     // Current/forecast months: use `now` so the salary matches the Staff Analysis
     // snapshot (career records scheduled later in the month aren't applied yet).
     // Past months: use end-of-month so historical promotions are honoured.

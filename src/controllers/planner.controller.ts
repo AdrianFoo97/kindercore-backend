@@ -132,7 +132,14 @@ export async function deleteTeacher(req: Request, res: Response): Promise<void> 
   const [existing] = await db.select().from(teachers).where(eq(teachers.id, id));
   if (!existing) { res.status(404).json({ message: 'Teacher not found' }); return; }
 
-  await db.update(teachers).set({ isActive: false, updatedAt: new Date() }).where(eq(teachers.id, id));
+  const now = new Date();
+  // Also stamp resignedAt so past-month payroll stops including this teacher.
+  // Only set it if not already set (preserve a real resignation date).
+  await db.update(teachers).set({
+    isActive: false,
+    resignedAt: existing.resignedAt ?? now,
+    updatedAt: now,
+  }).where(eq(teachers.id, id));
   res.status(204).end();
 }
 

@@ -4,7 +4,15 @@ import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, pool } from '../db/client.js';
 import { positions, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, systemSettings } from '../db/schema.js';
-import { computeMonthlyPayroll, computeTeacherWeightsByMonth } from '../services/payroll.service.js';
+import { computeMonthlyPayroll, computeTeacherWeightsByMonth, isTeacherActiveInMonth } from '../services/payroll.service.js';
+
+// Snapshot helper — "is the teacher active this calendar month?"
+function isTeacherActiveNow(t: { isActive: boolean; createdAt: Date | string | null; resignedAt: Date | string | null }): boolean {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  return isTeacherActiveInMonth(t, startOfMonth, endOfMonth);
+}
 
 // ── Positions ────────────────────────────────────────────────────────────────
 
@@ -152,23 +160,26 @@ export async function getEmployerContributions(_req: Request, res: Response): Pr
   // Fetch teachers — fall back to safe raw query if new columns don't exist yet in DB
   let allTeachers: (typeof teachers.$inferSelect)[];
   try {
-    allTeachers = await db.select().from(teachers).then(rows => rows.filter(t => t.isActive));
+    allTeachers = await db.select().from(teachers).then(rows => rows.filter(isTeacherActiveNow));
   } catch (e: any) {
     if (e.code === 'ER_BAD_FIELD_ERROR') {
       const [rows] = await pool.execute<any[]>(
         `SELECT id, name, positionId, level, isActive, isFixedSalary, fixedSalaryAmount,
-                salaryType, hourlyRate, workStartMinute, workEndMinute, workDays
-         FROM Teacher WHERE isActive = 1`
+                salaryType, hourlyRate, workStartMinute, workEndMinute, workDays,
+                createdAt, resignedAt
+         FROM Teacher`
       );
-      allTeachers = rows.map((r: any) => ({
-        ...r,
-        isActive: !!r.isActive,
-        isFixedSalary: !!r.isFixedSalary,
-        workDays: typeof r.workDays === 'string' ? JSON.parse(r.workDays) : r.workDays,
-        hasEpf: true,
-        hasSocso: true,
-        hasEis: true,
-      }));
+      allTeachers = rows
+        .map((r: any) => ({
+          ...r,
+          isActive: !!r.isActive,
+          isFixedSalary: !!r.isFixedSalary,
+          workDays: typeof r.workDays === 'string' ? JSON.parse(r.workDays) : r.workDays,
+          hasEpf: true,
+          hasSocso: true,
+          hasEis: true,
+        }))
+        .filter(isTeacherActiveNow);
     } else {
       throw e;
     }
@@ -282,7 +293,7 @@ export async function getTeachersWithSalary(_req: Request, res: Response): Promi
   }
 
   const result = allTeachers
-    .filter(t => t.isActive)
+    .filter(isTeacherActiveNow)
     .map(t => {
       const allowances = teacherAllowanceMap.get(t.id) ?? [];
       const totalAllowances = allowances.reduce((s, a) => s + a.amount, 0);
