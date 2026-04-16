@@ -2,8 +2,8 @@ import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '../db/client.js';
-import { positions, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords } from '../db/schema.js';
+import { db, pool } from '../db/client.js';
+import { positions, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, systemSettings } from '../db/schema.js';
 import { computeMonthlyPayroll, computeTeacherWeightsByMonth } from '../services/payroll.service.js';
 
 // ── Positions ────────────────────────────────────────────────────────────────
@@ -129,6 +129,105 @@ export async function getPayrollByMonth(req: Request, res: Response): Promise<vo
   const actualTotal = months.filter(m => !m.isForecast).reduce((sum, m) => sum + m.total, 0);
   const forecastTotal = months.filter(m => m.isForecast).reduce((sum, m) => sum + m.total, 0);
   res.json({ year: result.year, months, annualTotal, actualTotal, forecastTotal, currentMonthIdx: result.currentMonthIdx });
+}
+
+// ── Employer Contributions ───────────────────────────────────────────────────
+
+export async function getEmployerContributions(_req: Request, res: Response): Promise<void> {
+  const settingRows = await db.select().from(systemSettings);
+  const settingMap = new Map(settingRows.map(r => [r.key, r.value]));
+  const get = (key: string, def: number | boolean) => { const v = settingMap.get(key); return (v !== undefined && v !== null ? v : def) as any; };
+
+  const epfEnabled   = get('epf_enabled', true) as boolean;
+  const epfRateBelow = get('epf_rate_below', 13) as number;
+  const epfRateAbove = get('epf_rate_above', 12) as number;
+  const epfThreshold = get('epf_threshold', 5000) as number;
+  const socsoEnabled = get('socso_enabled', true) as boolean;
+  const socsoRate    = get('socso_rate', 1.75) as number;
+  const socsoCeiling = get('socso_ceiling', 4000) as number;
+  const eisEnabled   = get('eis_enabled', true) as boolean;
+  const eisRate      = get('eis_rate', 0.4) as number;
+  const eisCeiling   = get('eis_ceiling', 4000) as number;
+
+  // Fetch teachers — fall back to safe raw query if new columns don't exist yet in DB
+  let allTeachers: (typeof teachers.$inferSelect)[];
+  try {
+    allTeachers = await db.select().from(teachers).then(rows => rows.filter(t => t.isActive));
+  } catch (e: any) {
+    if (e.code === 'ER_BAD_FIELD_ERROR') {
+      const [rows] = await pool.execute<any[]>(
+        `SELECT id, name, positionId, level, isActive, isFixedSalary, fixedSalaryAmount,
+                salaryType, hourlyRate, workStartMinute, workEndMinute, workDays
+         FROM Teacher WHERE isActive = 1`
+      );
+      allTeachers = rows.map((r: any) => ({
+        ...r,
+        isActive: !!r.isActive,
+        isFixedSalary: !!r.isFixedSalary,
+        workDays: typeof r.workDays === 'string' ? JSON.parse(r.workDays) : r.workDays,
+        hasEpf: true,
+        hasSocso: true,
+        hasEis: true,
+      }));
+    } else {
+      throw e;
+    }
+  }
+
+  const [allPositions, allIncentives, allAllowances, allCareerRecords] = await Promise.all([
+    db.select().from(positions),
+    db.select().from(levelIncentives),
+    db.select().from(teacherAllowances),
+    db.select().from(careerRecords),
+  ]);
+
+  const posMap = new Map(allPositions.map(p => [p.positionId, p]));
+  const incMap = new Map(allIncentives.map(i => [`${i.positionId}|${i.level}`, i.amount]));
+  const allowMap = new Map<string, number>();
+  for (const a of allAllowances) allowMap.set(a.teacherId, (allowMap.get(a.teacherId) ?? 0) + a.amount);
+
+  const careerByTeacher = new Map<string, typeof allCareerRecords>();
+  for (const rec of allCareerRecords) {
+    const list = careerByTeacher.get(rec.teacherId) ?? [];
+    list.push(rec);
+    careerByTeacher.set(rec.teacherId, list);
+  }
+  for (const list of careerByTeacher.values()) list.sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
+
+  const now = new Date();
+  const getCareer = (id: string) => {
+    for (const rec of (careerByTeacher.get(id) ?? [])) if (new Date(rec.effectiveDate) <= now) return rec;
+    return null;
+  };
+
+  let totalEpf = 0, totalSocso = 0, totalEis = 0;
+  for (const t of allTeachers) {
+    const totalAllowances = allowMap.get(t.id) ?? 0;
+    const salaryType = t.salaryType ?? (t.isFixedSalary ? 'fixed' : 'formula');
+    let salary = 0;
+    if (salaryType === 'hourly' && t.hourlyRate != null) {
+      const rawHpd = t.workStartMinute != null && t.workEndMinute != null ? (t.workEndMinute - t.workStartMinute) / 60 : 0;
+      const hpd = rawHpd >= 6 ? rawHpd - 1 : rawHpd;
+      salary = t.hourlyRate * hpd * ((t.workDays as number[] | null)?.length ?? 0) * 4.33 + totalAllowances;
+    } else if (salaryType === 'fixed' && t.fixedSalaryAmount != null) {
+      salary = t.fixedSalaryAmount + totalAllowances;
+    } else {
+      const career = getCareer(t.id);
+      const posId = career?.positionId ?? t.positionId;
+      const level = career?.level ?? t.level ?? 0;
+      if (posId) salary = (posMap.get(posId)?.basicSalary ?? 0) + (incMap.get(`${posId}|${level}`) ?? 0) + totalAllowances;
+    }
+    if (epfEnabled   && t.hasEpf)   totalEpf   += salary <= epfThreshold ? salary * epfRateBelow / 100 : salary * epfRateAbove / 100;
+    if (socsoEnabled && t.hasSocso) totalSocso += Math.min(salary, socsoCeiling) * socsoRate / 100;
+    if (eisEnabled   && t.hasEis)   totalEis   += Math.min(salary, eisCeiling) * eisRate / 100;
+  }
+
+  res.json({
+    total: Math.round((totalEpf + totalSocso + totalEis) * 100) / 100,
+    epf:   Math.round(totalEpf   * 100) / 100,
+    socso: Math.round(totalSocso * 100) / 100,
+    eis:   Math.round(totalEis   * 100) / 100,
+  });
 }
 
 // ── Teacher title weight by month ────────────────────────────────────────────

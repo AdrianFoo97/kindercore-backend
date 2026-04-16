@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { leads, packages, students, systemSettings } from '../db/schema.js';
+import { isActiveInMonth } from '../services/revenue.service.js';
 
 // ── Shared select + reshape ───────────────────────────────────────────────────
 
@@ -631,28 +632,6 @@ export async function updateOnboardingProgress(req: Request, res: Response): Pro
 // ── Revenue Analytics ────────────────────────────────────────────────────────
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-function isActiveInMonth(row: any, year: number, month: number): boolean {
-  const now = new Date();
-  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
-  const monthStart = new Date(year, month, 1);
-  // For current month, use today as cutoff (matches Students page logic).
-  // For past/future months, use end of month.
-  const cutoff = isCurrentMonth ? now : new Date(year, month + 1, 0, 23, 59, 59);
-  if (!row.startDate || new Date(row.startDate) > cutoff) return false;
-  if (row.withdrawnAt) {
-    const w = new Date(row.withdrawnAt);
-    // Current month: any withdrawal up to today excludes the student (matches Students page).
-    // Past/future months: only exclude if withdrew before that month started.
-    if (isCurrentMonth ? w <= now : w < monthStart) return false;
-  }
-  const dob = row.studentChildDob ?? row.leadChildDob;
-  if (dob) {
-    const birthYear = new Date(dob).getFullYear();
-    if (year - birthYear >= 7) return false;
-  }
-  return true;
-}
 
 export async function getRevenueAnalytics(req: Request, res: Response): Promise<void> {
   const selectedYear = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();

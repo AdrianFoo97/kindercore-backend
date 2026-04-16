@@ -3,6 +3,7 @@ import {
   getPositions, upsertPosition, deletePosition,
   getLevelIncentives, upsertLevelIncentives,
   getTeachersWithSalary, getPayrollByMonth, getTeacherWeightsByMonth,
+  getEmployerContributions,
 } from '../controllers/salary.controller.js';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -17,3 +18,4 @@ salaryRouter.put('/level-incentives', authMiddleware, asyncHandler(upsertLevelIn
 salaryRouter.get('/teachers', authMiddleware, asyncHandler(getTeachersWithSalary));
 salaryRouter.get('/payroll-by-month', authMiddleware, asyncHandler(getPayrollByMonth));
 salaryRouter.get('/teacher-weights-by-month', authMiddleware, asyncHandler(getTeacherWeightsByMonth));
+salaryRouter.get('/employer-contributions', authMiddleware, asyncHandler(getEmployerContributions));

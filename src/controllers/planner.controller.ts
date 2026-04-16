@@ -31,6 +31,9 @@ const createTeacherSchema = z.object({
   salaryType: z.enum(['formula', 'fixed', 'hourly']).optional(),
   hourlyRate: z.number().min(0).nullable().optional(),
   excludeFromProfitShare: z.boolean().optional(),
+  hasEpf: z.boolean().optional(),
+  hasSocso: z.boolean().optional(),
+  hasEis: z.boolean().optional(),
 });
 
 export async function createTeacher(req: Request, res: Response): Promise<void> {
@@ -57,6 +60,9 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
     salaryType: parsed.data.salaryType ?? 'formula',
     hourlyRate: parsed.data.hourlyRate ?? null,
     excludeFromProfitShare: parsed.data.excludeFromProfitShare ?? false,
+    hasEpf: parsed.data.hasEpf ?? true,
+    hasSocso: parsed.data.hasSocso ?? true,
+    hasEis: parsed.data.hasEis ?? true,
     createdAt: now, updatedAt: now,
   });
   const [created] = await db.select().from(teachers).where(eq(teachers.id, id));
@@ -82,6 +88,9 @@ const updateTeacherSchema = z.object({
   excludeFromProfitShare: z.boolean().optional(),
   overrideProfitShareWeight: z.boolean().optional(),
   customProfitShareWeight: z.number().nullable().optional(),
+  hasEpf: z.boolean().optional(),
+  hasSocso: z.boolean().optional(),
+  hasEis: z.boolean().optional(),
   isActive: z.boolean().optional(),
   resignedAt: z.string().nullable().optional(),
   createdAt: z.string().nullable().optional(),

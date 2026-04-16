@@ -30,7 +30,7 @@ export async function getFinanceSummary(req: Request, res: Response): Promise<vo
   const months: FinanceMonth[] = revenue.months.map((r, i) => {
     const p = payroll.months[i];
     const o = opCost.months[i];
-    const staffCost = Math.round(p.staffCost);
+    const staffCost = Math.round(p.staffCost + p.employerContributions);
     const operatingCost = Math.round(o.operatingCost);
     const rev = Math.round(r.revenue);
     const profit = rev - staffCost - operatingCost;

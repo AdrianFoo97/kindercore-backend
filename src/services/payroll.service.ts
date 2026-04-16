@@ -1,5 +1,5 @@
 import { db } from '../db/client.js';
-import { positions, levelIncentives, teachers, teacherAllowances, careerRecords } from '../db/schema.js';
+import { positions, levelIncentives, teachers, teacherAllowances, careerRecords, systemSettings } from '../db/schema.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -7,6 +7,7 @@ export interface MonthlyPayrollEntry {
   monthIdx: number;
   month: string;
   staffCost: number;
+  employerContributions: number;
   teacherCount: number;
   isForecast: boolean;
 }
@@ -18,13 +19,28 @@ export interface MonthlyPayrollResult {
 }
 
 export async function computeMonthlyPayroll(year: number): Promise<MonthlyPayrollResult> {
-  const [allTeachers, allPositions, allIncentives, allAllowances, allCareerRecords] = await Promise.all([
+  const [allTeachers, allPositions, allIncentives, allAllowances, allCareerRecords, settingRows] = await Promise.all([
     db.select().from(teachers),
     db.select().from(positions),
     db.select().from(levelIncentives),
     db.select().from(teacherAllowances),
     db.select().from(careerRecords),
+    db.select().from(systemSettings),
   ]);
+
+  // Parse employer contribution settings
+  const settingMap = new Map(settingRows.map(r => [r.key, r.value]));
+  const getSetting = (key: string, def: number | boolean) => { const v = settingMap.get(key); return v !== undefined && v !== null ? v : def; };
+  const epfEnabled    = getSetting('epf_enabled', true) as boolean;
+  const epfRateBelow  = Number(getSetting('epf_rate_below', 13));
+  const epfRateAbove  = Number(getSetting('epf_rate_above', 12));
+  const epfThreshold  = Number(getSetting('epf_threshold', 5000));
+  const socsoEnabled  = getSetting('socso_enabled', true) as boolean;
+  const socsoRate     = Number(getSetting('socso_rate', 1.75));
+  const socsoCeiling  = Number(getSetting('socso_ceiling', 4000));
+  const eisEnabled    = getSetting('eis_enabled', true) as boolean;
+  const eisRate       = Number(getSetting('eis_rate', 0.4));
+  const eisCeiling    = Number(getSetting('eis_ceiling', 4000));
 
   const posMap = new Map(allPositions.map(p => [p.positionId, p]));
   const incMap = new Map(allIncentives.map(i => [`${i.positionId}|${i.level}`, i.amount]));
@@ -89,16 +105,32 @@ export async function computeMonthlyPayroll(year: number): Promise<MonthlyPayrol
   const months: MonthlyPayrollEntry[] = MONTHS.map((month, i) => {
     const endOfMonth = new Date(year, i + 1, 0, 23, 59, 59);
     const startOfMonth = new Date(year, i, 1, 0, 0, 0);
+    const isCurrent = i === currentMonthIdx;
+    const isForecast = year > currentYear || (year === currentYear && i > currentMonthIdx);
     const activeTeachers = allTeachers.filter(t => {
+      // Current/forecast months: use isActive — matches Staff Analysis snapshot.
+      // Past months: date-based — reflects who was actually paid that month.
+      if (isForecast || isCurrent) return t.isActive;
       const joined = t.createdAt ? new Date(t.createdAt) : null;
       if (joined && joined > endOfMonth) return false;
       const resigned = t.resignedAt ? new Date(t.resignedAt) : null;
       if (resigned && resigned < startOfMonth) return false;
       return true;
     });
-    const staffCost = activeTeachers.reduce((sum, t) => sum + computeTeacherSalary(t, endOfMonth), 0);
-    const isForecast = year > currentYear || (year === currentYear && i > currentMonthIdx);
-    return { monthIdx: i, month, staffCost, teacherCount: activeTeachers.length, isForecast };
+    // Current/forecast months: use `now` so the salary matches the Staff Analysis
+    // snapshot (career records scheduled later in the month aren't applied yet).
+    // Past months: use end-of-month so historical promotions are honoured.
+    const salaryAsOf = (isCurrent || isForecast) ? now : endOfMonth;
+    let staffCost = 0;
+    let employerContributions = 0;
+    for (const t of activeTeachers) {
+      const salary = computeTeacherSalary(t, salaryAsOf);
+      staffCost += salary;
+      if (epfEnabled   && (t as any).hasEpf   !== false) employerContributions += salary <= epfThreshold ? salary * epfRateBelow / 100 : salary * epfRateAbove / 100;
+      if (socsoEnabled && (t as any).hasSocso !== false) employerContributions += Math.min(salary, socsoCeiling) * socsoRate / 100;
+      if (eisEnabled   && (t as any).hasEis   !== false) employerContributions += Math.min(salary, eisCeiling)   * eisRate   / 100;
+    }
+    return { monthIdx: i, month, staffCost, employerContributions, teacherCount: activeTeachers.length, isForecast };
   });
 
   return { year, currentMonthIdx, months };

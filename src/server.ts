@@ -283,6 +283,9 @@ async function runMigrations() {
     `ALTER TABLE \`Teacher\` ADD COLUMN \`resignedAt\` DATETIME(3) NULL`,
     // OperatingCostCategoryGroup
     `ALTER TABLE \`OperatingCostCategoryGroup\` ADD COLUMN \`isProtected\` TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`hasEpf\` TINYINT(1) NOT NULL DEFAULT 1`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`hasSocso\` TINYINT(1) NOT NULL DEFAULT 1`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`hasEis\` TINYINT(1) NOT NULL DEFAULT 1`,
   ];
 
   const conn = await pool.getConnection();
