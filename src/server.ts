@@ -261,8 +261,27 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // Teacher — planner fields
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`allowedSubjectIds\` JSON NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`allowedClassroomIds\` JSON NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`workStartMinute\` INT NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`workEndMinute\` INT NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`workDays\` JSON NULL`,
+    // Teacher — salary fields
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`positionId\` VARCHAR(10) NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`level\` INT NULL DEFAULT 0`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`isFixedSalary\` TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`fixedSalaryAmount\` FLOAT NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`salaryType\` VARCHAR(20) NULL DEFAULT 'formula'`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`hourlyRate\` FLOAT NULL`,
+    // Teacher — HR / profit-share fields
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`excludeFromProfitShare\` TINYINT(1) NOT NULL DEFAULT 0`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`overrideProfitShareWeight\` TINYINT(1) NOT NULL DEFAULT 0`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`customProfitShareWeight\` FLOAT NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`phone\` VARCHAR(50) NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`employmentType\` VARCHAR(20) NULL DEFAULT 'full-time'`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`resignedAt\` DATETIME(3) NULL`,
+    // OperatingCostCategoryGroup
     `ALTER TABLE \`OperatingCostCategoryGroup\` ADD COLUMN \`isProtected\` TINYINT(1) NOT NULL DEFAULT 0`,
   ];
 
