@@ -10,18 +10,27 @@ import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTime
 // ══════════════════════════════════════════════════════════════════════════════
 
 export async function getTeachers(_req: Request, res: Response): Promise<void> {
-  const rows = await db.select().from(teachers).where(eq(teachers.isActive, true)).orderBy(teachers.name);
+  const rows = await db.select().from(teachers).orderBy(teachers.name);
   res.json(rows);
 }
 
 const createTeacherSchema = z.object({
   name: z.string().min(1),
   color: z.string().min(1).max(7),
+  phone: z.string().nullable().optional(),
+  employmentType: z.string().nullable().optional(),
   allowedSubjectIds: z.array(z.string()).optional(),
   allowedClassroomIds: z.array(z.string()).optional(),
   workStartMinute: z.number().int().min(0).max(1440).optional(),
   workEndMinute: z.number().int().min(0).max(1440).optional(),
   workDays: z.array(z.number().int().min(0).max(4)).optional(),
+  positionId: z.string().max(10).nullable().optional(),
+  level: z.number().int().min(0).max(10).nullable().optional(),
+  isFixedSalary: z.boolean().optional(),
+  fixedSalaryAmount: z.number().min(0).nullable().optional(),
+  salaryType: z.enum(['formula', 'fixed', 'hourly']).optional(),
+  hourlyRate: z.number().min(0).nullable().optional(),
+  excludeFromProfitShare: z.boolean().optional(),
 });
 
 export async function createTeacher(req: Request, res: Response): Promise<void> {
@@ -34,11 +43,20 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
   const id = randomUUID();
   await db.insert(teachers).values({
     id, name: parsed.data.name, color: parsed.data.color,
+    phone: parsed.data.phone ?? null,
+    employmentType: parsed.data.employmentType ?? 'full-time',
     allowedSubjectIds: parsed.data.allowedSubjectIds || null,
     allowedClassroomIds: parsed.data.allowedClassroomIds || null,
     workStartMinute: parsed.data.workStartMinute ?? null,
     workEndMinute: parsed.data.workEndMinute ?? null,
     workDays: parsed.data.workDays || null,
+    positionId: parsed.data.positionId ?? null,
+    level: parsed.data.level ?? 0,
+    isFixedSalary: parsed.data.isFixedSalary ?? false,
+    fixedSalaryAmount: parsed.data.fixedSalaryAmount ?? null,
+    salaryType: parsed.data.salaryType ?? 'formula',
+    hourlyRate: parsed.data.hourlyRate ?? null,
+    excludeFromProfitShare: parsed.data.excludeFromProfitShare ?? false,
     createdAt: now, updatedAt: now,
   });
   const [created] = await db.select().from(teachers).where(eq(teachers.id, id));
@@ -48,11 +66,25 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
 const updateTeacherSchema = z.object({
   name: z.string().min(1).optional(),
   color: z.string().min(1).max(7).optional(),
+  phone: z.string().nullable().optional(),
+  employmentType: z.string().nullable().optional(),
   allowedSubjectIds: z.array(z.string()).nullable().optional(),
   allowedClassroomIds: z.array(z.string()).nullable().optional(),
   workStartMinute: z.number().int().min(0).max(1440).nullable().optional(),
   workEndMinute: z.number().int().min(0).max(1440).nullable().optional(),
   workDays: z.array(z.number().int().min(0).max(4)).nullable().optional(),
+  positionId: z.string().max(10).nullable().optional(),
+  level: z.number().int().min(0).max(10).nullable().optional(),
+  isFixedSalary: z.boolean().optional(),
+  fixedSalaryAmount: z.number().min(0).nullable().optional(),
+  salaryType: z.enum(['formula', 'fixed', 'hourly']).optional(),
+  hourlyRate: z.number().min(0).nullable().optional(),
+  excludeFromProfitShare: z.boolean().optional(),
+  overrideProfitShareWeight: z.boolean().optional(),
+  customProfitShareWeight: z.number().nullable().optional(),
+  isActive: z.boolean().optional(),
+  resignedAt: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
 });
 
 export async function updateTeacher(req: Request, res: Response): Promise<void> {
@@ -65,7 +97,11 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
   const [existing] = await db.select().from(teachers).where(eq(teachers.id, id));
   if (!existing) { res.status(404).json({ message: 'Teacher not found' }); return; }
 
-  await db.update(teachers).set({ ...parsed.data, updatedAt: new Date() }).where(eq(teachers.id, id));
+  const { resignedAt, createdAt, ...rest } = parsed.data;
+  const setData: any = { ...rest, updatedAt: new Date() };
+  if (resignedAt !== undefined) setData.resignedAt = resignedAt ? new Date(resignedAt) : null;
+  if (createdAt !== undefined && createdAt) setData.createdAt = new Date(createdAt);
+  await db.update(teachers).set(setData).where(eq(teachers.id, id));
   const [updated] = await db.select().from(teachers).where(eq(teachers.id, id));
   res.json(updated);
 }

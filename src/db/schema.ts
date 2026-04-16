@@ -105,6 +105,25 @@ export const students = mysqlTable('Student', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+export const positions = mysqlTable('Position', {
+  positionId: varchar('positionId', { length: 10 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  titleWeight: int('titleWeight').notNull().default(0),
+  basicSalary: float('basicSalary').notNull().default(0),
+  maxLevel: int('maxLevel').notNull().default(5),
+  sortOrder: int('sortOrder').notNull().default(0),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const levelIncentives = mysqlTable('LevelIncentive', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  positionId: varchar('positionId', { length: 10 }).notNull(),
+  level: int('level').notNull(),
+  amount: float('amount').notNull().default(0),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 export const teachers = mysqlTable('Teacher', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 191 }).notNull(),
@@ -115,6 +134,75 @@ export const teachers = mysqlTable('Teacher', {
   workStartMinute: int('workStartMinute'),
   workEndMinute: int('workEndMinute'),
   workDays: json('workDays'),
+  positionId: varchar('positionId', { length: 10 }),
+  level: int('level').default(0),
+  isFixedSalary: boolean('isFixedSalary').notNull().default(false),
+  fixedSalaryAmount: float('fixedSalaryAmount'),
+  salaryType: varchar('salaryType', { length: 20 }).default('formula'),
+  hourlyRate: float('hourlyRate'),
+  excludeFromProfitShare: boolean('excludeFromProfitShare').notNull().default(false),
+  overrideProfitShareWeight: boolean('overrideProfitShareWeight').notNull().default(false),
+  customProfitShareWeight: float('customProfitShareWeight'),
+  phone: varchar('phone', { length: 50 }),
+  employmentType: varchar('employmentType', { length: 20 }).default('full-time'),
+  resignedAt: datetime('resignedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const allowanceTypes = mysqlTable('AllowanceType', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  isDefault: boolean('isDefault').notNull().default(false),
+  sortOrder: int('sortOrder').notNull().default(0),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const teacherAllowances = mysqlTable('TeacherAllowance', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  allowanceTypeId: varchar('allowanceTypeId', { length: 36 }).notNull(),
+  amount: float('amount').notNull().default(0),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const careerRecords = mysqlTable('CareerRecord', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  positionId: varchar('positionId', { length: 10 }).notNull(),
+  level: int('level').notNull().default(0),
+  effectiveDate: datetime('effectiveDate', { mode: 'date', fsp: 3 }).notNull(),
+  notes: text('notes'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const operatingCostCategoryGroups = mysqlTable('OperatingCostCategoryGroup', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  sortOrder: int('sortOrder').notNull().default(0),
+  isProtected: boolean('isProtected').notNull().default(false),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const operatingCostCategories = mysqlTable('OperatingCostCategory', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  groupId: varchar('groupId', { length: 36 }).notNull(),
+  sortOrder: int('sortOrder').notNull().default(0),
+  defaultAmount: float('defaultAmount'),
+  monthlyBudget: float('monthlyBudget'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const operatingCosts = mysqlTable('OperatingCost', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  year: int('year').notNull(),
+  month: int('month').notNull(),
+  categoryId: varchar('categoryId', { length: 36 }).notNull(),
+  amount: float('amount').notNull().default(0),
+  notes: text('notes'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });

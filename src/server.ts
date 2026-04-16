@@ -4,6 +4,31 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { router } from './routes/index.js';
+import { pool } from './db/client.js';
+
+// ── Auto-migrate: add columns that may be missing ────────────────────────────
+async function runMigrations() {
+  const migrations = [
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`overrideProfitShareWeight\` TINYINT(1) NOT NULL DEFAULT 0`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`customProfitShareWeight\` FLOAT NULL`,
+    `ALTER TABLE \`OperatingCostCategoryGroup\` ADD COLUMN \`isProtected\` TINYINT(1) NOT NULL DEFAULT 0`,
+  ];
+  const conn = await pool.getConnection();
+  try {
+    for (const sql of migrations) {
+      try {
+        await conn.execute(sql);
+        const col = sql.match(/ADD COLUMN `(\w+)`/)?.[1];
+        if (col) console.log(`[migrate] Added column: ${col}`);
+      } catch (e: any) {
+        if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+        // Column already exists — skip silently
+      }
+    }
+  } finally {
+    conn.release();
+  }
+}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -115,9 +140,16 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
   res.status(500).json({ message: isProd ? 'Something went wrong. Please try again.' : err.message, code: 'INTERNAL_ERROR' });
 });
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`[backend] Server running on http://localhost:${PORT}`);
-  const dbUrl = process.env.DATABASE_URL ?? '(not set)';
-  const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
-  console.log(`[backend] DATABASE_URL: ${masked}`);
-});
+runMigrations()
+  .then(() => {
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log(`[backend] Server running on http://localhost:${PORT}`);
+      const dbUrl = process.env.DATABASE_URL ?? '(not set)';
+      const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
+      console.log(`[backend] DATABASE_URL: ${masked}`);
+    });
+  })
+  .catch(err => {
+    console.error('[migrate] Failed to run migrations:', err.message);
+    process.exit(1);
+  });
