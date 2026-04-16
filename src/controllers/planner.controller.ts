@@ -9,9 +9,21 @@ import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTime
 // TEACHERS
 // ══════════════════════════════════════════════════════════════════════════════
 
+// mysql2 occasionally returns `json(...)` columns as raw strings (driver/version
+// dependent). Normalize at the API boundary so the frontend always gets arrays.
+const parseJson = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : v);
+function normalizeTeacher<T extends Record<string, any>>(row: T): T {
+  return {
+    ...row,
+    workDays: parseJson(row.workDays),
+    allowedSubjectIds: parseJson(row.allowedSubjectIds),
+    allowedClassroomIds: parseJson(row.allowedClassroomIds),
+  };
+}
+
 export async function getTeachers(_req: Request, res: Response): Promise<void> {
   const rows = await db.select().from(teachers).orderBy(teachers.name);
-  res.json(rows);
+  res.json(rows.map(normalizeTeacher));
 }
 
 const createTeacherSchema = z.object({
@@ -66,7 +78,7 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
     createdAt: now, updatedAt: now,
   });
   const [created] = await db.select().from(teachers).where(eq(teachers.id, id));
-  res.status(201).json(created);
+  res.status(201).json(normalizeTeacher(created));
 }
 
 const updateTeacherSchema = z.object({
@@ -112,7 +124,7 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
   if (createdAt !== undefined && createdAt) setData.createdAt = new Date(createdAt);
   await db.update(teachers).set(setData).where(eq(teachers.id, id));
   const [updated] = await db.select().from(teachers).where(eq(teachers.id, id));
-  res.json(updated);
+  res.json(normalizeTeacher(updated));
 }
 
 export async function deleteTeacher(req: Request, res: Response): Promise<void> {
