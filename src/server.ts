@@ -284,6 +284,54 @@ async function runMigrations() {
         if (e.code !== 'ER_DUP_FIELDNAME') throw e;
       }
     }
+
+    // Phase 3: seed default category groups & categories if none exist
+    const [[{ cnt }]] = await conn.execute(`SELECT COUNT(*) AS cnt FROM \`OperatingCostCategoryGroup\``) as any;
+    if (Number(cnt) === 0) {
+      const G_ADMIN = 'oc-group-0001-0000-0000-000000000001';
+      const G_SALES = 'oc-group-0002-0000-0000-000000000002';
+      const G_HR    = 'oc-group-0003-0000-0000-000000000003';
+
+      await conn.execute(`INSERT IGNORE INTO \`OperatingCostCategoryGroup\` (\`id\`,\`name\`,\`sortOrder\`,\`isProtected\`,\`createdAt\`,\`updatedAt\`) VALUES
+        ('${G_ADMIN}', 'Administrative',       10, 0, NOW(3), NOW(3)),
+        ('${G_SALES}', 'Sales & Distribution', 20, 0, NOW(3), NOW(3)),
+        ('${G_HR}',    'HR Benefits',          30, 1, NOW(3), NOW(3))`);
+
+      await conn.execute(`INSERT IGNORE INTO \`OperatingCostCategory\` (\`id\`,\`name\`,\`groupId\`,\`sortOrder\`,\`createdAt\`,\`updatedAt\`) VALUES
+        ('oc-cat-adm-001','Tel, Fax, H/P and Internet',  '${G_ADMIN}', 10,  NOW(3),NOW(3)),
+        ('oc-cat-adm-002','Printing & Stationery',        '${G_ADMIN}', 20,  NOW(3),NOW(3)),
+        ('oc-cat-adm-003','Postage & Courier',            '${G_ADMIN}', 30,  NOW(3),NOW(3)),
+        ('oc-cat-adm-004','Toll & Parking',               '${G_ADMIN}', 40,  NOW(3),NOW(3)),
+        ('oc-cat-adm-005','Petrol',                       '${G_ADMIN}', 50,  NOW(3),NOW(3)),
+        ('oc-cat-adm-006','Upkeep of Motor Vehicle',      '${G_ADMIN}', 60,  NOW(3),NOW(3)),
+        ('oc-cat-adm-007','Upkeep of Office Equipment',   '${G_ADMIN}', 70,  NOW(3),NOW(3)),
+        ('oc-cat-adm-008','Upkeep of Office',             '${G_ADMIN}', 80,  NOW(3),NOW(3)),
+        ('oc-cat-adm-009','Rental',                       '${G_ADMIN}', 90,  NOW(3),NOW(3)),
+        ('oc-cat-adm-010','Water Filter',                 '${G_ADMIN}',100,  NOW(3),NOW(3)),
+        ('oc-cat-adm-011','Road Tax & Insurance',         '${G_ADMIN}',110,  NOW(3),NOW(3)),
+        ('oc-cat-adm-012','Assessment & Quit Rent',       '${G_ADMIN}',120,  NOW(3),NOW(3)),
+        ('oc-cat-adm-013','License Fee / Stamping Fee',   '${G_ADMIN}',130,  NOW(3),NOW(3)),
+        ('oc-cat-adm-014','Waste Collection',             '${G_ADMIN}',140,  NOW(3),NOW(3)),
+        ('oc-cat-adm-015','Bank Charges',                 '${G_ADMIN}',150,  NOW(3),NOW(3)),
+        ('oc-cat-adm-016','Depreciation of Fixed Assets', '${G_ADMIN}',160,  NOW(3),NOW(3)),
+        ('oc-cat-adm-017','Secretary Fee',                '${G_ADMIN}',170,  NOW(3),NOW(3)),
+        ('oc-cat-adm-018','Cleaning Expenses',            '${G_ADMIN}',180,  NOW(3),NOW(3)),
+        ('oc-cat-adm-019','Bank Interest',                '${G_ADMIN}',190,  NOW(3),NOW(3)),
+        ('oc-cat-sal-001','Event Fee',                    '${G_SALES}', 10,  NOW(3),NOW(3)),
+        ('oc-cat-sal-002','Training Fee',                 '${G_SALES}', 20,  NOW(3),NOW(3)),
+        ('oc-cat-sal-003','Advertisement',                '${G_SALES}', 30,  NOW(3),NOW(3)),
+        ('oc-cat-sal-004','Travelling',                   '${G_SALES}', 40,  NOW(3),NOW(3)),
+        ('oc-cat-sal-005','Transportation',               '${G_SALES}', 50,  NOW(3),NOW(3)),
+        ('oc-cat-sal-006','Subscription Fee',             '${G_SALES}', 60,  NOW(3),NOW(3)),
+        ('oc-cat-sal-007','Photoshoot',                   '${G_SALES}', 70,  NOW(3),NOW(3)),
+        ('oc-cat-hr-001', 'EPF',                          '${G_HR}',    10,  NOW(3),NOW(3)),
+        ('oc-cat-hr-002', 'SOCSO',                        '${G_HR}',    20,  NOW(3),NOW(3)),
+        ('oc-cat-hr-003', 'EIS',                          '${G_HR}',    30,  NOW(3),NOW(3)),
+        ('oc-cat-hr-004', 'Medical Benefits',             '${G_HR}',    40,  NOW(3),NOW(3)),
+        ('oc-cat-hr-005', 'Staff Welfare',                '${G_HR}',    50,  NOW(3),NOW(3))`);
+
+      console.log('[migrate] Seeded default operating cost groups and categories');
+    }
   } finally {
     conn.release();
   }
