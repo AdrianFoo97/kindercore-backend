@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { operatingCosts } from '../db/schema.js';
+import { operatingCosts, operatingCostCategories } from '../db/schema.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -10,11 +10,14 @@ export interface MonthlyOperatingCostEntry {
   /** Raw total from the OperatingCost table for this month. */
   operatingCost: number;
   /**
-   * Value to display for forecasting: actual (DB total) for past/current months,
-   * rolling average across actual months for future months in the current year.
+   * Value to display for forecasting: actual (DB total) for past/current months
+   * that have entries; otherwise the rolling average across past months that
+   * do have entries.
    */
   projected: number;
   isForecast: boolean;
+  /** true when `projected` was substituted because the month has zero entries. */
+  isProjected: boolean;
 }
 
 export interface MonthlyOperatingCostResult {
@@ -24,10 +27,27 @@ export interface MonthlyOperatingCostResult {
 }
 
 export async function computeMonthlyOperatingCost(year: number): Promise<MonthlyOperatingCostResult> {
-  const rows = await db.select().from(operatingCosts).where(eq(operatingCosts.year, year));
+  const [rows, cats] = await Promise.all([
+    db.select().from(operatingCosts).where(eq(operatingCosts.year, year)),
+    db.select().from(operatingCostCategories),
+  ]);
+
+  // Preset-only rows (row.amount exactly matches the category's defaultAmount)
+  // are treated as "visual hint leftovers" rather than real expenses. They're
+  // excluded from totals AND from the has-data check, so a month containing
+  // only preset rows falls through to the forecast projection.
+  const presetMap = new Map<string, number>();
+  for (const c of cats) {
+    if (c.defaultAmount != null && c.defaultAmount > 0) presetMap.set(c.id, c.defaultAmount);
+  }
+  const isPresetOnly = (categoryId: string, amount: number) => {
+    const preset = presetMap.get(categoryId);
+    return preset != null && amount === preset;
+  };
 
   const byMonth = new Map<number, number>();
   for (const r of rows) {
+    if (isPresetOnly(r.categoryId, r.amount)) continue;
     byMonth.set(r.month, (byMonth.get(r.month) ?? 0) + r.amount);
   }
 
@@ -36,22 +56,31 @@ export async function computeMonthlyOperatingCost(year: number): Promise<Monthly
   // -1 when year is in the future (no actuals yet); 11 when year is in the past (all actuals).
   const currentMonthIdx = year === currentYear ? now.getMonth() : (year < currentYear ? 11 : -1);
 
-  // Forecast = average of completed past-months' totals (Jan through the month
-  // BEFORE currentMonthIdx). The current month is in progress so its ad-hoc
-  // entries shouldn't drag the projection. Falls back to the raw DB entry if
-  // we have no completed past months to average (e.g. January of the year).
+  // Forecast = average of completed past-months that actually HAVE entries.
+  // Empty past months (user hasn't recorded yet) would otherwise pull the
+  // average toward zero. We also skip the current month since it's in progress.
   let forecastValue: number | null = null;
   if (currentMonthIdx > 0) {
-    let sum = 0;
-    for (let i = 0; i < currentMonthIdx; i++) sum += byMonth.get(i) ?? 0;
-    forecastValue = sum / currentMonthIdx;
+    const pastWithData: number[] = [];
+    for (let i = 0; i < currentMonthIdx; i++) {
+      if (byMonth.has(i)) pastWithData.push(i);
+    }
+    if (pastWithData.length > 0) {
+      const sum = pastWithData.reduce((s, i) => s + (byMonth.get(i) ?? 0), 0);
+      forecastValue = sum / pastWithData.length;
+    }
   }
 
+  // projected = actual if the month has any entry; otherwise fall back to the
+  // forecast value. Applies to past months with no entries (e.g. user hasn't
+  // recorded Mar yet) AND to current/future months without data.
   const months: MonthlyOperatingCostEntry[] = MONTHS.map((month, i) => {
     const actual = byMonth.get(i) ?? 0;
     const isForecast = currentMonthIdx >= 0 && i > currentMonthIdx;
-    const projected = isForecast && forecastValue !== null ? forecastValue : actual;
-    return { monthIdx: i, month, operatingCost: actual, projected, isForecast };
+    const hasData = byMonth.has(i);
+    const isProjected = !hasData && forecastValue !== null;
+    const projected = isProjected ? forecastValue! : actual;
+    return { monthIdx: i, month, operatingCost: actual, projected, isForecast, isProjected };
   });
 
   return { year, currentMonthIdx, months };

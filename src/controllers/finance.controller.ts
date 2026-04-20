@@ -13,6 +13,9 @@ export interface FinanceMonth {
   studentCount: number;
   teacherCount: number;
   isForecast: boolean;
+  /** True when operatingCost was substituted with the projected value because
+      the month has no saved entries. */
+  operatingIsProjected: boolean;
 }
 
 export async function getFinanceSummary(req: Request, res: Response): Promise<void> {
@@ -45,6 +48,7 @@ export async function getFinanceSummary(req: Request, res: Response): Promise<vo
       studentCount: r.studentCount,
       teacherCount: p.teacherCount,
       isForecast: r.isForecast,
+      operatingIsProjected: o.isProjected,
     };
   });
 
