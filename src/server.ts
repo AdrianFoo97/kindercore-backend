@@ -307,6 +307,34 @@ async function runMigrations() {
       }
     }
 
+    // Phase 2b: ensure Lead.status enum includes every value the code uses.
+    // Some deployments were created before REJECTED was added — in non-strict
+    // sql_mode MySQL silently stores invalid enum values as empty string,
+    // which is why PATCHes to 'REJECTED' land as status="" with no error.
+    // MODIFY COLUMN is idempotent: if the enum is already correct, it's a
+    // no-op. We follow up by repairing any rows that already ended up as "".
+    try {
+      await conn.execute(
+        `ALTER TABLE \`Lead\` MODIFY \`status\`
+         ENUM('NEW','CONTACTED','APPOINTMENT_BOOKED','FOLLOW_UP','ENROLLED','LOST','REJECTED')
+         NOT NULL DEFAULT 'NEW'`,
+      );
+      console.log('[migrate] Verified Lead.status enum includes all 7 values');
+    } catch (e: any) {
+      console.warn('[migrate] Failed to enforce Lead.status enum:', e.message);
+    }
+    const [statusRepair] = await conn.execute<any>(
+      `UPDATE \`Lead\`
+       SET \`status\` = CASE
+         WHEN \`lostReason\` IS NOT NULL AND \`lostReason\` <> '' THEN 'REJECTED'
+         ELSE 'NEW'
+       END
+       WHERE \`status\` = ''`,
+    );
+    if (statusRepair?.affectedRows > 0) {
+      console.log(`[migrate] Repaired ${statusRepair.affectedRows} Lead(s) with empty status (routed to REJECTED if lostReason set, else NEW)`);
+    }
+
     // Phase 3: seed default category groups & categories if none exist
     const [[{ cnt }]] = await conn.execute(`SELECT COUNT(*) AS cnt FROM \`OperatingCostCategoryGroup\``) as any;
     if (Number(cnt) === 0) {
