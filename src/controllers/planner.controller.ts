@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables } from '../db/schema.js';
+import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords } from '../db/schema.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TEACHERS
@@ -77,6 +77,20 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
     hasEis: parsed.data.hasEis ?? true,
     createdAt: now, updatedAt: now,
   });
+  // Seed an initial career record so the teacher's position history starts at
+  // their join date. Without this, payroll for pre-first-record months falls
+  // back to the Teacher row's current position — a data-integrity gap.
+  if (parsed.data.positionId) {
+    await db.insert(careerRecords).values({
+      id: randomUUID(),
+      teacherId: id,
+      positionId: parsed.data.positionId,
+      level: parsed.data.level ?? 0,
+      effectiveDate: now,
+      notes: null,
+      createdAt: now,
+    });
+  }
   const [created] = await db.select().from(teachers).where(eq(teachers.id, id));
   res.status(201).json(normalizeTeacher(created));
 }

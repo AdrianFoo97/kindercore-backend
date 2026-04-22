@@ -39,4 +39,13 @@ export const updateLeadSchema = z.object({
   appointmentEnd: z.string().nullable().optional(),
   statusChangedAt: z.string().nullable().optional(),
   attended: z.boolean().optional(),
-});
+}).refine(
+  // A lead marked LOST or REJECTED must carry a reason — it's what drives
+  // the Lead Quality KPI and the Unqualified tooltip in analytics. The UI
+  // already blocks the transition; this is the backend safety net.
+  data => {
+    if (data.status !== 'LOST' && data.status !== 'REJECTED') return true;
+    return typeof data.lostReason === 'string' && data.lostReason.trim().length > 0;
+  },
+  { message: 'A reason is required when marking a lead as Lost or Rejected.', path: ['lostReason'] },
+);

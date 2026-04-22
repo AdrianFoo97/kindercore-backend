@@ -354,6 +354,100 @@ async function runMigrations() {
 
       console.log('[migrate] Seeded default operating cost groups and categories');
     }
+
+    // Phase 4: backfill initial career records so every teacher's position
+    // history starts at their join date. Done via two lookups + in-memory
+    // reconciliation to avoid cross-table JOIN collation issues.
+    const [allTeacherRows] = await conn.execute<any[]>(
+      `SELECT id, positionId, level, createdAt FROM \`Teacher\`
+       WHERE positionId IS NOT NULL AND createdAt IS NOT NULL`
+    );
+    const [earliestRows] = await conn.execute<any[]>(
+      `SELECT teacherId, MIN(effectiveDate) AS earliest
+       FROM \`CareerRecord\` GROUP BY teacherId`
+    );
+    const earliestByTeacher = new Map<string, Date>();
+    for (const r of earliestRows) earliestByTeacher.set(r.teacherId, new Date(r.earliest));
+    let seededCount = 0;
+    for (const t of allTeacherRows) {
+      const joinDate = new Date(t.createdAt);
+      const earliest = earliestByTeacher.get(t.id);
+      if (earliest && earliest <= joinDate) continue; // already covered
+      const recordId = `car-${String(t.id).substring(0, 8)}-seed-${Date.now().toString(36)}-${seededCount}`;
+      await conn.execute(
+        `INSERT INTO \`CareerRecord\` (id, teacherId, positionId, level, effectiveDate, notes, createdAt)
+         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+        [recordId, t.id, t.positionId, t.level ?? 0, joinDate, joinDate],
+      );
+      seededCount++;
+    }
+    if (seededCount > 0) {
+      console.log(`[migrate] Seeded initial CareerRecord for ${seededCount} teacher(s)`);
+    }
+
+    // Phase 5: reconcile pre-existing lost-reason strings with the current
+    // system-pinned labels. Each mapping rewrites historical strings — on any
+    // fresh deployment the UPDATE is a no-op.
+    const LOST_REASON_RENAMES: [from: string, to: string][] = [
+      ["Didn't reply",                              'No response or declined appointment'],
+      ["Didn't reply or didn't want appointment",   'No response or declined appointment'],
+      ["Didn't attend the enquiry",                 'Missed appointment'],
+      ["Didn't attend",                             'Missed appointment'],
+    ];
+    for (const [from, to] of LOST_REASON_RENAMES) {
+      const [res] = await conn.execute<any>(
+        `UPDATE \`Lead\` SET \`lostReason\` = ? WHERE \`lostReason\` = ?`,
+        [to, from],
+      );
+      if (res?.affectedRows > 0) {
+        console.log(`[migrate] Renamed ${res.affectedRows} Lead(s) lostReason: "${from}" → "${to}"`);
+      }
+    }
+    // Phase 5b: backfill LOST / REJECTED leads that have no stored reason.
+    // The prior version of updateLead wiped lostReason whenever status moved
+    // away from LOST — including transitions to REJECTED — so historical
+    // REJECTED rows ended up with null reasons. A placeholder preserves the
+    // "every rejected lead has a reason" invariant without inventing detail
+    // we don't actually have.
+    const [backfilled] = await conn.execute<any>(
+      `UPDATE \`Lead\`
+       SET \`lostReason\` = 'Reason not recorded'
+       WHERE \`status\` IN ('LOST', 'REJECTED')
+         AND (\`lostReason\` IS NULL OR \`lostReason\` = '')`,
+    );
+    if (backfilled?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled ${backfilled.affectedRows} LOST/REJECTED lead(s) with placeholder reason`);
+    }
+
+    // Strip any obsolete/renamed entries from the settings lost_reasons list
+    // so the two sources of truth agree. `getSettings` normalizes system
+    // labels back in on read, so it's safe to drop them here.
+    const obsoleteLabels = new Set<string>([
+      "Didn't reply",
+      "Didn't reply or didn't want appointment",
+      "Didn't attend the enquiry",
+      "Didn't attend",
+    ]);
+    const [[settingRow]] = await conn.execute<any[]>(
+      `SELECT \`value\` FROM \`SystemSetting\` WHERE \`key\` = 'lost_reasons'`,
+    );
+    if (settingRow?.value) {
+      try {
+        const parsed = typeof settingRow.value === 'string'
+          ? JSON.parse(settingRow.value)
+          : settingRow.value;
+        if (Array.isArray(parsed) && parsed.some(r => obsoleteLabels.has(String(r)))) {
+          const cleaned = parsed.filter((r: unknown) => !obsoleteLabels.has(String(r)));
+          await conn.execute(
+            `UPDATE \`SystemSetting\` SET \`value\` = ?, \`updatedAt\` = NOW(3) WHERE \`key\` = 'lost_reasons'`,
+            [JSON.stringify(cleaned)],
+          );
+          console.log(`[migrate] Removed obsolete lost_reasons entries from settings`);
+        }
+      } catch {
+        // malformed JSON — getSettings normalizes it back into shape on read
+      }
+    }
   } finally {
     conn.release();
   }

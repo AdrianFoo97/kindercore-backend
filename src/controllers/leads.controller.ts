@@ -7,6 +7,7 @@ import { db, pool } from '../db/client.js';
 import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 import { broadcast } from '../sse.js';
+import { systemRoleFor } from '../constants/lostReasons.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
@@ -514,7 +515,9 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
 
   const { childDob, childName, appointmentStart, appointmentEnd, statusChangedAt, ...rest } = parsed.data;
   const statusChanged = rest.status && rest.status !== existing.status;
-  const clearLostReason = rest.status && rest.status !== 'LOST';
+  // LOST and REJECTED both carry a reason — only wipe lostReason when moving
+  // to a status where a reason wouldn't make sense (NEW / CONTACTED / etc.).
+  const clearLostReason = rest.status && rest.status !== 'LOST' && rest.status !== 'REJECTED';
   const unenrolling = statusChanged && existing.status === 'ENROLLED' && rest.status !== 'ENROLLED';
 
   await db.update(leads).set({
@@ -843,12 +846,72 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   ).length;
   const rejectedLeads = currentLeads.filter(l => l.status === 'REJECTED').length;
 
+  // ── Lead Quality classifier ────────────────────────────────────────────────
+  // A lead is "qualified" when it demonstrated Fit + Reachable + Intent:
+  //   • attended                      → obviously qualified
+  //   • booked but didn't show        → had intent, scheduling broke (qualified)
+  //   • LOST with user-defined reason → the lead engaged; school didn't win them
+  // "Unqualified" applies when the lead never truly engaged:
+  //   • REJECTED for wrong fit (age / location / special need / etc.)
+  //   • LOST with the system "cold" reason (didn't reply / no appointment wanted)
+  // Everything else is still "open" — no decision yet, so it doesn't bias Lead
+  // Quality up or down.
+  const classifyQualification = (l: typeof currentLeads[0]): 'qualified' | 'unqualified' | 'open' => {
+    const status = l.status as string;
+    if (status === 'REJECTED') return 'unqualified';
+    if (l.attended && (status === 'ENROLLED' || status === 'LOST')) return 'qualified';
+    if (l.appointmentStart !== null && !l.attended && status !== 'REJECTED') return 'qualified';
+    if (status === 'LOST') {
+      return systemRoleFor(l.lostReason) === 'cold' ? 'unqualified' : 'qualified';
+    }
+    return 'open';
+  };
+  const qualifiedLeads = currentLeads.filter(l => classifyQualification(l) === 'qualified').length;
+  const unqualifiedLeads = currentLeads.filter(l => classifyQualification(l) === 'unqualified').length;
+  const openLeads = currentLeads.filter(l => classifyQualification(l) === 'open').length;
+  const leadQualityRate = totalLeads > 0 ? qualifiedLeads / totalLeads : 0;
+
   const currentMonthly = new Array(12).fill(0);
   for (const l of currentLeads) currentMonthly[l.submittedAt.getMonth()]++;
   const prevMonthly = new Array(12).fill(0);
   for (const l of prevLeads) prevMonthly[l.submittedAt.getMonth()]++;
+
+  // Per-month outcome breakdown for the stacked Monthly Enquiries bar. Each
+  // lead falls into exactly ONE bucket so the four values sum to the month's
+  // total (matching the Leads Detail list). Buckets mirror the qualification
+  // framework so this chart and the Lead Quality / Appointment Rate KPIs tell
+  // the same story:
+  //   attended    → qualified + showed up (attended flag set)
+  //   noShow      → qualified but missed appointment (appointment booked, !attended)
+  //   unqualified → REJECTED or LOST with a "cold" system reason (never engaged)
+  //   pending     → everything else — still open, or lost for a user-defined
+  //                 reason without an appointment (rare, undecided from a
+  //                 chart-at-a-glance perspective)
+  const currentBreakdown = Array.from({ length: 12 }, () => ({ attended: 0, noShow: 0, unqualified: 0, pending: 0 }));
+  for (const l of currentLeads) {
+    const m = l.submittedAt.getMonth();
+    const status = l.status as string;
+    if (status === 'REJECTED') {
+      currentBreakdown[m].unqualified++;
+    } else if (l.attended && (status === 'ENROLLED' || status === 'LOST')) {
+      currentBreakdown[m].attended++;
+    } else if (l.appointmentStart !== null && !l.attended) {
+      currentBreakdown[m].noShow++;
+    } else if (status === 'LOST' && systemRoleFor(l.lostReason) === 'cold') {
+      currentBreakdown[m].unqualified++;
+    } else {
+      currentBreakdown[m].pending++;
+    }
+  }
+
   const monthlyComparison = MONTH_LABELS.map((label, i) => ({
-    month: label, current: currentMonthly[i], previous: prevMonthly[i],
+    month: label,
+    current: currentMonthly[i],
+    previous: prevMonthly[i],
+    attended: currentBreakdown[i].attended,
+    noShow: currentBreakdown[i].noShow,
+    unqualified: currentBreakdown[i].unqualified,
+    pending: currentBreakdown[i].pending,
   }));
 
   const monthMap = new Map<string, Record<string, number>>();
@@ -884,12 +947,23 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     .map(([channel, count]) => ({ channel, count }))
     .sort((a, b) => b.count - a.count);
 
+  const classifyOutcome = (l: typeof currentLeads[0]): 'attended' | 'noShow' | 'unqualified' | 'pending' => {
+    const status = l.status as string;
+    if (status === 'REJECTED') return 'unqualified';
+    if (l.attended && (status === 'ENROLLED' || status === 'LOST')) return 'attended';
+    if (l.appointmentStart !== null && !l.attended) return 'noShow';
+    if (status === 'LOST' && systemRoleFor(l.lostReason) === 'cold') return 'unqualified';
+    return 'pending';
+  };
+
   const leadsDetail = currentLeads.map(l => {
     const ageMs = l.submittedAt.getTime() - l.childDob.getTime();
     return {
       id: l.id,
       childName: l.childName,
       status: l.status,
+      outcome: classifyOutcome(l),
+      lostReason: l.lostReason ?? null,
       enrolmentYear: l.enrolmentYear,
       notes: l.notes ?? l.lostReason ?? null,
       monthIdx: l.submittedAt.getMonth(),
@@ -909,6 +983,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     selectedYear, prevYear,
     totalLeads, totalAppointments, completedLeads: completedLeads.length,
     attendedAppointments, noShowLeads, appointmentRate, pendingLeads, rejectedLeads,
+    qualifiedLeads, unqualifiedLeads, openLeads, leadQualityRate,
     monthlyComparison, monthlyByAge,
     addressBreakdown, marketingChannelBreakdown,
     leadsDetail, availableYears,

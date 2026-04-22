@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { careerRecords, teachers } from '../db/schema.js';
+import { careerRecords, teachers, positions } from '../db/schema.js';
 
 // ── Get all career records for a teacher ─────────────────────────────────────
 
@@ -13,6 +13,83 @@ export async function getCareerRecords(req: Request, res: Response): Promise<voi
     .where(eq(careerRecords.teacherId, teacherId))
     .orderBy(desc(careerRecords.createdAt));
   res.json(rows);
+}
+
+// ── Get all career records in a year, enriched for display ───────────────────
+// Returns raw CareerRecord rows joined with teacher + position metadata so the
+// frontend can render "Nabila promoted to EI L1" without extra lookups. Events
+// are compared against each teacher's PREVIOUS career record to classify as
+// promotion / demotion / position-change / first-assignment.
+
+export async function getCareerRecordsByYear(req: Request, res: Response): Promise<void> {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const startOfYear = new Date(year, 0, 1);
+  const endOfYear = new Date(year, 11, 31, 23, 59, 59);
+
+  const [all, allTeachers, allPositions] = await Promise.all([
+    db.select().from(careerRecords),
+    db.select().from(teachers),
+    db.select().from(positions),
+  ]);
+
+  const teacherMap = new Map(allTeachers.map(t => [t.id, t]));
+  const posMap = new Map(allPositions.map(p => [p.positionId, p]));
+
+  // Sort all records globally by effectiveDate ascending so we can walk a
+  // teacher's timeline in order and know the "previous" record.
+  const sorted = [...all].sort((a, b) =>
+    new Date(a.effectiveDate).getTime() - new Date(b.effectiveDate).getTime()
+  );
+  const lastByTeacher = new Map<string, typeof sorted[0]>();
+
+  const result: any[] = [];
+  for (const rec of sorted) {
+    const prev = lastByTeacher.get(rec.teacherId) ?? null;
+    lastByTeacher.set(rec.teacherId, rec);
+
+    const eff = new Date(rec.effectiveDate);
+    if (eff < startOfYear || eff > endOfYear) continue;
+
+    const teacher = teacherMap.get(rec.teacherId);
+    const currentPos = posMap.get(rec.positionId);
+    const prevPos = prev ? posMap.get(prev.positionId) : null;
+
+    let eventType: 'promotion' | 'demotion' | 'position_change' | 'assignment' = 'assignment';
+    if (prev) {
+      if (prev.positionId !== rec.positionId) {
+        // Compare positions by titleWeight when available to classify direction
+        const prevW = prevPos?.titleWeight ?? 0;
+        const currW = currentPos?.titleWeight ?? 0;
+        if (currW > prevW) eventType = 'promotion';
+        else if (currW < prevW) eventType = 'demotion';
+        else eventType = 'position_change';
+      } else if (rec.level > prev.level) {
+        eventType = 'promotion';
+      } else if (rec.level < prev.level) {
+        eventType = 'demotion';
+      } else {
+        eventType = 'position_change';
+      }
+    }
+
+    result.push({
+      id: rec.id,
+      teacherId: rec.teacherId,
+      teacherName: teacher?.name ?? 'Unknown',
+      teacherColor: teacher?.color ?? '#94a3b8',
+      positionId: rec.positionId,
+      positionName: currentPos?.name ?? rec.positionId,
+      level: rec.level,
+      prevPositionId: prev?.positionId ?? null,
+      prevPositionName: prevPos?.name ?? null,
+      prevLevel: prev?.level ?? null,
+      effectiveDate: rec.effectiveDate,
+      notes: rec.notes,
+      eventType,
+    });
+  }
+
+  res.json(result);
 }
 
 // ── Create a career record (promotion / position change) ─────────────────────
