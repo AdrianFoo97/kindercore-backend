@@ -286,7 +286,8 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
       onboardingProgress,
       createdAt: now,
     });
-    await tx.update(leads).set({ status: 'ENROLLED' }).where(eq(leads.id, leadId));
+    // Enrollment implies a visit took place — mark both so analytics agree.
+    await tx.update(leads).set({ status: 'ENROLLED', attended: true }).where(eq(leads.id, leadId));
   });
 
   const [row] = await queryStudents().where(eq(students.id, newId));
@@ -348,6 +349,7 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
       childDob: new Date(childDob),
       enrolmentYear,
       status: 'ENROLLED',
+      attended: true,
       statusChangedAt: now,
       howDidYouKnow,
       programme,

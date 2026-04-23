@@ -832,17 +832,27 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const totalLeads = currentLeads.length;
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
   const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST' || l.status === 'REJECTED');
-  // Attended — use the attended flag, exclude rejected and active leads
-  const attendedAppointments = currentLeads.filter(l => l.attended && (l.status === 'ENROLLED' || l.status === 'LOST')).length;
-  // Didn't attend — had appointment but didn't attend, exclude rejected
+  // Status is the source of truth for "did the parent show up". FOLLOW_UP
+  // and ENROLLED both mean the visit happened; LOST with attended=true
+  // covers visits that came but didn't convert. The `attended` flag alone
+  // is unreliable — historically the UI set status to FOLLOW_UP without
+  // flipping the flag, leaving many real visits showing as no-shows.
+  const hasAttendedVisit = (l: { status: string; attended: boolean }) =>
+    l.status === 'FOLLOW_UP' ||
+    l.status === 'ENROLLED' ||
+    (l.status === 'LOST' && l.attended);
+  // Attended = visit happened (captured via status, not just flag)
+  const attendedAppointments = currentLeads.filter(hasAttendedVisit).length;
+  // Didn't attend = had an appointment slot but didn't show up.
+  // Excludes visits that actually happened and excludes rejects.
   const noShowLeads = currentLeads.filter(l =>
-    l.appointmentStart !== null && !l.attended && l.status !== 'REJECTED'
+    l.appointmentStart !== null && !hasAttendedVisit(l) && l.status !== 'REJECTED'
   ).length;
   const totalWithAppointment = attendedAppointments + noShowLeads;
   const appointmentRate = totalWithAppointment > 0 ? attendedAppointments / totalWithAppointment : 0;
-  // Pending = not attended, not didn't-attend, not enrolled, not lost, not rejected
+  // Pending = no appointment yet + not in any terminal state
   const pendingLeads = currentLeads.filter(l =>
-    !l.attended && l.appointmentStart === null && l.status !== 'ENROLLED' && l.status !== 'LOST' && l.status !== 'REJECTED'
+    l.appointmentStart === null && !['FOLLOW_UP', 'ENROLLED', 'LOST', 'REJECTED'].includes(l.status)
   ).length;
   const rejectedLeads = currentLeads.filter(l => l.status === 'REJECTED').length;
 
@@ -859,8 +869,8 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const classifyQualification = (l: typeof currentLeads[0]): 'qualified' | 'unqualified' | 'open' => {
     const status = l.status as string;
     if (status === 'REJECTED') return 'unqualified';
-    if (l.attended && (status === 'ENROLLED' || status === 'LOST')) return 'qualified';
-    if (l.appointmentStart !== null && !l.attended && status !== 'REJECTED') return 'qualified';
+    if (hasAttendedVisit(l)) return 'qualified';
+    if (l.appointmentStart !== null && status !== 'REJECTED') return 'qualified'; // booked but didn't show
     if (status === 'LOST') {
       return systemRoleFor(l.lostReason) === 'cold' ? 'unqualified' : 'qualified';
     }
@@ -893,9 +903,9 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     const status = l.status as string;
     if (status === 'REJECTED') {
       currentBreakdown[m].unqualified++;
-    } else if (l.attended && (status === 'ENROLLED' || status === 'LOST')) {
+    } else if (hasAttendedVisit(l)) {
       currentBreakdown[m].attended++;
-    } else if (l.appointmentStart !== null && !l.attended) {
+    } else if (l.appointmentStart !== null) {
       currentBreakdown[m].noShow++;
     } else if (status === 'LOST' && systemRoleFor(l.lostReason) === 'cold') {
       currentBreakdown[m].unqualified++;
@@ -950,8 +960,8 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const classifyOutcome = (l: typeof currentLeads[0]): 'attended' | 'noShow' | 'unqualified' | 'pending' => {
     const status = l.status as string;
     if (status === 'REJECTED') return 'unqualified';
-    if (l.attended && (status === 'ENROLLED' || status === 'LOST')) return 'attended';
-    if (l.appointmentStart !== null && !l.attended) return 'noShow';
+    if (hasAttendedVisit(l)) return 'attended';
+    if (l.appointmentStart !== null) return 'noShow';
     if (status === 'LOST' && systemRoleFor(l.lostReason) === 'cold') return 'unqualified';
     return 'pending';
   };
@@ -1014,7 +1024,12 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
     db.select({ submittedAt: leads.submittedAt, status: leads.status, attended: leads.attended }).from(leads).where(closedWhere(prevYear)),
   ]);
 
-  const salesLeads = closedLeads.filter(l => l.status !== 'REJECTED' && l.attended);
+  // Sales talks = visits that actually happened. ENROLLED implies the visit
+  // by definition (you don't enroll without attending); LOST counts only when
+  // the attended flag confirms it (lost after the visit, not before).
+  const salesLeads = closedLeads.filter(l =>
+    l.status === 'ENROLLED' || (l.status === 'LOST' && l.attended),
+  );
   const totalLeads = salesLeads.length;
   const enrolledLeads = salesLeads.filter(l => l.status === 'ENROLLED').length;
   const lostLeads = salesLeads.filter(l => l.status === 'LOST').length;
@@ -1030,7 +1045,7 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const prevMonthlyEnrolled = new Array(12).fill(0);
   const prevMonthlyLost = new Array(12).fill(0);
   for (const l of prevLeads) {
-    if (l.attended && (l.status === 'ENROLLED' || l.status === 'LOST')) {
+    if (l.status === 'ENROLLED' || (l.status === 'LOST' && l.attended)) {
       if (l.status === 'ENROLLED') prevMonthlyEnrolled[l.submittedAt.getMonth()]++;
       else prevMonthlyLost[l.submittedAt.getMonth()]++;
     }

@@ -335,6 +335,19 @@ async function runMigrations() {
       console.log(`[migrate] Repaired ${statusRepair.affectedRows} Lead(s) with empty status (routed to REJECTED if lostReason set, else NEW)`);
     }
 
+    // Phase 2c: backfill Lead.attended for rows whose status already
+    // implies the visit happened. The older markAttendance flow set
+    // status='FOLLOW_UP' without flipping the attended flag, leaving
+    // real visits miscounted as no-shows in the Marketing analysis.
+    const [attendedBackfill] = await conn.execute<any>(
+      `UPDATE \`Lead\` SET \`attended\` = 1
+       WHERE \`status\` IN ('FOLLOW_UP', 'ENROLLED')
+         AND (\`attended\` IS NULL OR \`attended\` = 0)`,
+    );
+    if (attendedBackfill?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled attended=true for ${attendedBackfill.affectedRows} FOLLOW_UP/ENROLLED Lead(s)`);
+    }
+
     // Phase 3: seed default category groups & categories if none exist
     const [[{ cnt }]] = await conn.execute(`SELECT COUNT(*) AS cnt FROM \`OperatingCostCategoryGroup\``) as any;
     if (Number(cnt) === 0) {
