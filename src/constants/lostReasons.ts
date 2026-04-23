@@ -3,17 +3,21 @@
 // users can't delete them — because the classifier's case handling would
 // break silently otherwise.
 //
-// Exactly two roles:
+// Three roles:
 //   • no_show — the lead had an appointment but didn't show up. Still counts
 //     as QUALIFIED (they demonstrated intent; execution broke).
-//   • cold   — the lead never engaged (no reply, didn't want to come). Counts
-//     as UNQUALIFIED — marketing didn't convert them.
+//   • cold    — the lead never engaged (no reply, didn't want to come).
+//     Counts as UNQUALIFIED — marketing didn't convert them.
+//   • not_fit — a structural mismatch between the lead and what the school
+//     can offer (e.g. special-needs support we don't provide). Counts as
+//     UNQUALIFIED — the lead was never a viable prospect, regardless of
+//     how well marketing or sales performed.
 //
 // Any other lost reason (e.g. "Fee too expensive", "Enrolled other school")
 // is user-managed and defaults to QUALIFIED — the lead was real, the school
 // just didn't win them.
 
-export type SystemLostReasonRole = 'no_show' | 'cold';
+export type SystemLostReasonRole = 'no_show' | 'cold' | 'not_fit';
 
 export interface SystemLostReason {
   label: string;
@@ -21,8 +25,9 @@ export interface SystemLostReason {
 }
 
 export const SYSTEM_LOST_REASONS: readonly SystemLostReason[] = [
-  { label: 'Missed appointment',                role: 'no_show' },
-  { label: 'No response or declined appointment', role: 'cold' },
+  { label: 'Missed appointment',                  role: 'no_show' },
+  { label: 'No response or declined appointment', role: 'cold'    },
+  { label: 'Special Need',                        role: 'not_fit' },
 ];
 
 export const SYSTEM_LOST_REASON_LABELS = SYSTEM_LOST_REASONS.map(r => r.label);
@@ -45,7 +50,10 @@ export type LeadStatus =
 
 export function deriveIsQualified(status: LeadStatus | string, lostReason: string | null | undefined): boolean {
   if (status === 'REJECTED') return false;
-  if (status === 'LOST' && systemRoleFor(lostReason) === 'cold') return false;
+  if (status === 'LOST') {
+    const role = systemRoleFor(lostReason);
+    if (role === 'cold' || role === 'not_fit') return false;
+  }
   return true;
 }
 

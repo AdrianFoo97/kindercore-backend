@@ -353,23 +353,21 @@ async function runMigrations() {
     }
 
     // Phase 2d: backfill the new explicit analytics columns from existing
-    // status + lostReason + attended state. Pattern: isQualified = false
-    // only when the lead is REJECTED or LOST with a cold system reason;
-    // visitOutcome = 'ATTENDED' only when the visit demonstrably happened.
-    // NO_SHOW is intentionally left unset — the classifier derives it at
-    // query time from `appointmentStart < now` so it auto-advances without
-    // cron jobs. Both updates are idempotent.
-    const coldSystemLabels = SYSTEM_LOST_REASONS
-      .filter(r => r.role === 'cold')
+    // status + lostReason + attended state. Any system reason whose role
+    // isn't 'no_show' unqualifies the lead (cold, not_fit, ...). NO_SHOW
+    // is intentionally left unset for pending rows — the classifier derives
+    // it at query time from `appointmentStart < now`. Updates are idempotent.
+    const unqualifyingSystemLabels = SYSTEM_LOST_REASONS
+      .filter(r => r.role !== 'no_show')
       .map(r => r.label);
     const [qualifiedBackfill] = await conn.execute<any>(
       `UPDATE \`Lead\`
        SET \`isQualified\` = CASE
          WHEN \`status\` = 'REJECTED' THEN 0
-         WHEN \`status\` = 'LOST' AND \`lostReason\` IN (${coldSystemLabels.map(() => '?').join(',')}) THEN 0
+         WHEN \`status\` = 'LOST' AND \`lostReason\` IN (${unqualifyingSystemLabels.map(() => '?').join(',')}) THEN 0
          ELSE 1
        END`,
-      coldSystemLabels,
+      unqualifyingSystemLabels,
     );
     if (qualifiedBackfill?.affectedRows > 0) {
       console.log(`[migrate] Backfilled isQualified for ${qualifiedBackfill.affectedRows} Lead(s)`);
@@ -518,14 +516,18 @@ async function runMigrations() {
       console.log(`[migrate] Backfilled ${backfilled.affectedRows} LOST/REJECTED lead(s) with placeholder reason`);
     }
 
-    // Strip any obsolete/renamed entries from the settings lost_reasons list
-    // so the two sources of truth agree. `getSettings` normalizes system
-    // labels back in on read, so it's safe to drop them here.
+    // Strip any obsolete/renamed entries and current system labels from the
+    // settings lost_reasons list. `getSettings` always re-prepends system
+    // labels on read, so the stored form only needs the user-managed tail.
     const obsoleteLabels = new Set<string>([
       "Didn't reply",
       "Didn't reply or didn't want appointment",
       "Didn't attend the enquiry",
       "Didn't attend",
+      'No show',
+      // Current system labels — drop from the user section so they don't
+      // duplicate with the auto-prepended system block.
+      ...SYSTEM_LOST_REASONS.map(r => r.label),
     ]);
     const [[settingRow]] = await conn.execute<any[]>(
       `SELECT \`value\` FROM \`SystemSetting\` WHERE \`key\` = 'lost_reasons'`,
