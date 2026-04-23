@@ -65,10 +65,22 @@ export function deriveVisitOutcome(
   lostReason: string | null | undefined,
 ): VisitOutcome {
   if (status === 'FOLLOW_UP' || status === 'ENROLLED') return 'ATTENDED';
-  if (status === 'LOST' && attended) return 'ATTENDED';
-  // Explicit no-show: user marked the lead LOST with the system "no_show"
-  // reason. Storing NO_SHOW directly means the classifier doesn't need to
-  // infer from time for these rows.
-  if (status === 'LOST' && systemRoleFor(lostReason) === 'no_show') return 'NO_SHOW';
+  if (status === 'LOST') {
+    // System-tagged reasons drive the outcome directly:
+    //   no_show  → visit was booked but missed
+    //   cold     → never engaged (isQualified=false handles classification)
+    //   not_fit  → structural mismatch (isQualified=false handles)
+    // Anything else is a user-defined reason (Fee, Distance, Enrolled
+    // other school, etc.) — they engaged enough to give a concrete reason,
+    // so we treat it as ATTENDED for analytics purposes. Avoids the
+    // awkward "Lost but Pending" rows that slipped through previously.
+    const role = systemRoleFor(lostReason);
+    if (role === 'no_show') return 'NO_SHOW';
+    if (role === 'cold' || role === 'not_fit') return null;
+    return 'ATTENDED';
+  }
+  // Keep attended flag as a fallback path for any other status combo we
+  // might encounter (historical data, edge cases).
+  if (attended) return 'ATTENDED';
   return null;
 }

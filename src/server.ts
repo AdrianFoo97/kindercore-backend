@@ -372,34 +372,61 @@ async function runMigrations() {
     if (qualifiedBackfill?.affectedRows > 0) {
       console.log(`[migrate] Backfilled isQualified for ${qualifiedBackfill.affectedRows} Lead(s)`);
     }
-    const [visitAttendedBackfill] = await conn.execute<any>(
-      `UPDATE \`Lead\`
-       SET \`visitOutcome\` = 'ATTENDED'
-       WHERE (\`status\` IN ('FOLLOW_UP', 'ENROLLED')
-              OR (\`status\` = 'LOST' AND \`attended\` = 1))
-         AND (\`visitOutcome\` IS NULL OR \`visitOutcome\` <> 'ATTENDED')`,
-    );
-    if (visitAttendedBackfill?.affectedRows > 0) {
-      console.log(`[migrate] Backfilled visitOutcome='ATTENDED' for ${visitAttendedBackfill.affectedRows} Lead(s)`);
-    }
-    // Explicit NO_SHOW for LOST leads whose lostReason is the system
-    // no_show label (covers the Loh-Zi-Ning case — historical "No show"
-    // leads that the classifier otherwise couldn't disambiguate).
-    const noShowLabels = SYSTEM_LOST_REASONS
-      .filter(r => r.role === 'no_show')
-      .map(r => r.label);
+    // Partition system labels by role — drives the three backfill cases.
+    const noShowLabels = SYSTEM_LOST_REASONS.filter(r => r.role === 'no_show').map(r => r.label);
+    const unqualifyingLabels = SYSTEM_LOST_REASONS.filter(r => r.role !== 'no_show').map(r => r.label);
+
+    // NO_SHOW: LOST with a no_show system reason (Missed appointment).
     if (noShowLabels.length > 0) {
       const [visitNoShowBackfill] = await conn.execute<any>(
         `UPDATE \`Lead\`
          SET \`visitOutcome\` = 'NO_SHOW'
          WHERE \`status\` = 'LOST'
-           AND \`attended\` = 0
            AND \`lostReason\` IN (${noShowLabels.map(() => '?').join(',')})
            AND (\`visitOutcome\` IS NULL OR \`visitOutcome\` <> 'NO_SHOW')`,
         noShowLabels,
       );
       if (visitNoShowBackfill?.affectedRows > 0) {
         console.log(`[migrate] Backfilled visitOutcome='NO_SHOW' for ${visitNoShowBackfill.affectedRows} Lead(s)`);
+      }
+    }
+
+    // ATTENDED: visit clearly happened — FOLLOW_UP, ENROLLED, or LOST with
+    // a user-defined reason (anything not in the system unqualifying /
+    // no_show sets). A concrete lost reason implies the lead engaged with
+    // us enough to give one; treat it as attended for analytics so the
+    // Leads Detail pill no longer shows "Pending" on terminal losses.
+    const atAllSystem = [...noShowLabels, ...unqualifyingLabels];
+    const atParams = atAllSystem.length > 0 ? atAllSystem : ['__never__'];
+    const atPlaceholders = atParams.map(() => '?').join(',');
+    const [visitAttendedBackfill] = await conn.execute<any>(
+      `UPDATE \`Lead\`
+       SET \`visitOutcome\` = 'ATTENDED'
+       WHERE (
+         \`status\` IN ('FOLLOW_UP', 'ENROLLED')
+         OR (\`status\` = 'LOST' AND (\`lostReason\` IS NULL OR \`lostReason\` NOT IN (${atPlaceholders})))
+       )
+       AND (\`visitOutcome\` IS NULL OR \`visitOutcome\` <> 'ATTENDED')`,
+      atParams,
+    );
+    if (visitAttendedBackfill?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled visitOutcome='ATTENDED' for ${visitAttendedBackfill.affectedRows} Lead(s)`);
+    }
+
+    // NULL: LOST with an unqualifying system reason — isQualified=false
+    // handles the classification; visitOutcome stays NULL. Force any prior
+    // value back to NULL so re-running after a role change cleans up.
+    if (unqualifyingLabels.length > 0) {
+      const [visitClearBackfill] = await conn.execute<any>(
+        `UPDATE \`Lead\`
+         SET \`visitOutcome\` = NULL
+         WHERE \`status\` = 'LOST'
+           AND \`lostReason\` IN (${unqualifyingLabels.map(() => '?').join(',')})
+           AND \`visitOutcome\` IS NOT NULL`,
+        unqualifyingLabels,
+      );
+      if (visitClearBackfill?.affectedRows > 0) {
+        console.log(`[migrate] Cleared visitOutcome for ${visitClearBackfill.affectedRows} unqualified-system-reason Lead(s)`);
       }
     }
 
