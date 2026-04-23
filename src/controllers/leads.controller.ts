@@ -865,10 +865,13 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const isAttended = (l: { visitOutcome: string | null }) => l.visitOutcome === 'ATTENDED';
   const isNoShow = (l: { visitOutcome: string | null; appointmentStart: Date | null; status: string }) => {
     if (isAttended(l)) return false;
-    if (['FOLLOW_UP', 'ENROLLED', 'REJECTED'].includes(l.status)) return false;
-    // Explicit no-show stored on the row (user marked LOST + missed-appt reason).
+    // Explicit NO_SHOW on the row (LOST + no_show-role reason) wins.
     if (l.visitOutcome === 'NO_SHOW') return true;
-    // Time-derived: a past appointment that was never attended.
+    // Time-derived NO_SHOW only applies to leads still in flight — a past
+    // appointment that nobody has resolved yet. Terminal states have already
+    // been decided: LOST with a real reason (Special Need, Fee, etc.) is
+    // NOT a no-show, even if the stored appointmentStart is in the past.
+    if (!['NEW', 'CONTACTED', 'APPOINTMENT_BOOKED'].includes(l.status)) return false;
     return l.appointmentStart !== null && l.appointmentStart < now;
   };
 
