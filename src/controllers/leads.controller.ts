@@ -527,7 +527,7 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const nextLostReason = clearLostReason ? null : (rest.lostReason ?? existing.lostReason);
   const nextAttended = rest.attended ?? existing.attended;
   const derivedIsQualified = deriveIsQualified(nextStatus, nextLostReason);
-  const derivedVisitOutcome = deriveVisitOutcome(nextStatus, nextAttended);
+  const derivedVisitOutcome = deriveVisitOutcome(nextStatus, nextAttended, nextLostReason);
 
   await db.update(leads).set({
     ...rest,
@@ -863,11 +863,14 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   // appointment rolls over automatically with no cron job.
   const now = new Date();
   const isAttended = (l: { visitOutcome: string | null }) => l.visitOutcome === 'ATTENDED';
-  const isNoShow = (l: { visitOutcome: string | null; appointmentStart: Date | null; status: string }) =>
-    !isAttended(l) &&
-    l.appointmentStart !== null &&
-    l.appointmentStart < now &&
-    !['FOLLOW_UP', 'ENROLLED', 'REJECTED'].includes(l.status);
+  const isNoShow = (l: { visitOutcome: string | null; appointmentStart: Date | null; status: string }) => {
+    if (isAttended(l)) return false;
+    if (['FOLLOW_UP', 'ENROLLED', 'REJECTED'].includes(l.status)) return false;
+    // Explicit no-show stored on the row (user marked LOST + missed-appt reason).
+    if (l.visitOutcome === 'NO_SHOW') return true;
+    // Time-derived: a past appointment that was never attended.
+    return l.appointmentStart !== null && l.appointmentStart < now;
+  };
 
   const attendedAppointments = currentLeads.filter(isAttended).length;
   const noShowLeads = currentLeads.filter(isNoShow).length;

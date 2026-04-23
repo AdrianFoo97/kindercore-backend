@@ -374,15 +374,35 @@ async function runMigrations() {
     if (qualifiedBackfill?.affectedRows > 0) {
       console.log(`[migrate] Backfilled isQualified for ${qualifiedBackfill.affectedRows} Lead(s)`);
     }
-    const [visitBackfill] = await conn.execute<any>(
+    const [visitAttendedBackfill] = await conn.execute<any>(
       `UPDATE \`Lead\`
        SET \`visitOutcome\` = 'ATTENDED'
        WHERE (\`status\` IN ('FOLLOW_UP', 'ENROLLED')
               OR (\`status\` = 'LOST' AND \`attended\` = 1))
          AND (\`visitOutcome\` IS NULL OR \`visitOutcome\` <> 'ATTENDED')`,
     );
-    if (visitBackfill?.affectedRows > 0) {
-      console.log(`[migrate] Backfilled visitOutcome='ATTENDED' for ${visitBackfill.affectedRows} Lead(s)`);
+    if (visitAttendedBackfill?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled visitOutcome='ATTENDED' for ${visitAttendedBackfill.affectedRows} Lead(s)`);
+    }
+    // Explicit NO_SHOW for LOST leads whose lostReason is the system
+    // no_show label (covers the Loh-Zi-Ning case — historical "No show"
+    // leads that the classifier otherwise couldn't disambiguate).
+    const noShowLabels = SYSTEM_LOST_REASONS
+      .filter(r => r.role === 'no_show')
+      .map(r => r.label);
+    if (noShowLabels.length > 0) {
+      const [visitNoShowBackfill] = await conn.execute<any>(
+        `UPDATE \`Lead\`
+         SET \`visitOutcome\` = 'NO_SHOW'
+         WHERE \`status\` = 'LOST'
+           AND \`attended\` = 0
+           AND \`lostReason\` IN (${noShowLabels.map(() => '?').join(',')})
+           AND (\`visitOutcome\` IS NULL OR \`visitOutcome\` <> 'NO_SHOW')`,
+        noShowLabels,
+      );
+      if (visitNoShowBackfill?.affectedRows > 0) {
+        console.log(`[migrate] Backfilled visitOutcome='NO_SHOW' for ${visitNoShowBackfill.affectedRows} Lead(s)`);
+      }
     }
 
     // Phase 3: seed default category groups & categories if none exist
@@ -471,6 +491,7 @@ async function runMigrations() {
       ["Didn't reply or didn't want appointment",   'No response or declined appointment'],
       ["Didn't attend the enquiry",                 'Missed appointment'],
       ["Didn't attend",                             'Missed appointment'],
+      ['No show',                                   'Missed appointment'],
     ];
     for (const [from, to] of LOST_REASON_RENAMES) {
       const [res] = await conn.execute<any>(

@@ -43,16 +43,24 @@ export type LeadStatus =
   | 'NEW' | 'CONTACTED' | 'APPOINTMENT_BOOKED' | 'FOLLOW_UP'
   | 'ENROLLED' | 'LOST' | 'REJECTED';
 
-export type VisitOutcomeStored = 'ATTENDED' | null;
-
 export function deriveIsQualified(status: LeadStatus | string, lostReason: string | null | undefined): boolean {
   if (status === 'REJECTED') return false;
   if (status === 'LOST' && systemRoleFor(lostReason) === 'cold') return false;
   return true;
 }
 
-export function deriveVisitOutcome(status: LeadStatus | string, attended: boolean): VisitOutcomeStored {
+export type VisitOutcome = 'ATTENDED' | 'NO_SHOW' | null;
+
+export function deriveVisitOutcome(
+  status: LeadStatus | string,
+  attended: boolean,
+  lostReason: string | null | undefined,
+): VisitOutcome {
   if (status === 'FOLLOW_UP' || status === 'ENROLLED') return 'ATTENDED';
   if (status === 'LOST' && attended) return 'ATTENDED';
+  // Explicit no-show: user marked the lead LOST with the system "no_show"
+  // reason. Storing NO_SHOW directly means the classifier doesn't need to
+  // infer from time for these rows.
+  if (status === 'LOST' && systemRoleFor(lostReason) === 'no_show') return 'NO_SHOW';
   return null;
 }
