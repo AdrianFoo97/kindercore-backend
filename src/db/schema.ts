@@ -42,6 +42,16 @@ export const leads = mysqlTable('Lead', {
   appointmentCreatedByUserId: varchar('appointmentCreatedByUserId', { length: 36 }),
   appointmentIsPlaceholder: boolean('appointmentIsPlaceholder').notNull().default(false),
   attended: boolean('attended').notNull().default(false),
+  // Explicit analytics columns — source of truth for Lead Quality & visit
+  // outcome. Derived by the backend on every write from status/lostReason/
+  // attended so the frontend never has to recompute.
+  //   isQualified = false only when status=REJECTED or LOST+cold-system-reason
+  //   visitOutcome = 'ATTENDED' stored when the visit happened
+  //   visitOutcome = 'NO_SHOW'  only derived at query time (past appointment,
+  //                             no ATTENDED outcome, not in a state that
+  //                             implies the visit)
+  isQualified: boolean('isQualified').notNull().default(true),
+  visitOutcome: mysqlEnum('visitOutcome', ['ATTENDED', 'NO_SHOW']),
   statusChangedAt: datetime('statusChangedAt', { mode: 'date', fsp: 3 }),
   lostReason: text('lostReason'),
   relationship: varchar('relationship', { length: 191 }),

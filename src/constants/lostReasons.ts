@@ -32,3 +32,27 @@ export function systemRoleFor(label: string | null | undefined): SystemLostReaso
   const hit = SYSTEM_LOST_REASONS.find(r => r.label === label);
   return hit?.role ?? null;
 }
+
+// ── Derived analytics columns ───────────────────────────────────────────────
+// Every Lead write path must route through these helpers so the two
+// analytics columns (isQualified, visitOutcome) stay consistent with the
+// status + lostReason + attended combination. Centralising the rules here
+// means the classifier downstream is a pure read — zero inference.
+
+export type LeadStatus =
+  | 'NEW' | 'CONTACTED' | 'APPOINTMENT_BOOKED' | 'FOLLOW_UP'
+  | 'ENROLLED' | 'LOST' | 'REJECTED';
+
+export type VisitOutcomeStored = 'ATTENDED' | null;
+
+export function deriveIsQualified(status: LeadStatus | string, lostReason: string | null | undefined): boolean {
+  if (status === 'REJECTED') return false;
+  if (status === 'LOST' && systemRoleFor(lostReason) === 'cold') return false;
+  return true;
+}
+
+export function deriveVisitOutcome(status: LeadStatus | string, attended: boolean): VisitOutcomeStored {
+  if (status === 'FOLLOW_UP' || status === 'ENROLLED') return 'ATTENDED';
+  if (status === 'LOST' && attended) return 'ATTENDED';
+  return null;
+}

@@ -286,8 +286,14 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
       onboardingProgress,
       createdAt: now,
     });
-    // Enrollment implies a visit took place — mark both so analytics agree.
-    await tx.update(leads).set({ status: 'ENROLLED', attended: true }).where(eq(leads.id, leadId));
+    // Enrollment implies a visit took place and the lead is qualified —
+    // set every analytics column explicitly so the classifier agrees.
+    await tx.update(leads).set({
+      status: 'ENROLLED',
+      attended: true,
+      isQualified: true,
+      visitOutcome: 'ATTENDED',
+    }).where(eq(leads.id, leadId));
   });
 
   const [row] = await queryStudents().where(eq(students.id, newId));
@@ -350,6 +356,8 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
       enrolmentYear,
       status: 'ENROLLED',
       attended: true,
+      isQualified: true,
+      visitOutcome: 'ATTENDED',
       statusChangedAt: now,
       howDidYouKnow,
       programme,
@@ -561,7 +569,14 @@ export async function deleteStudent(req: Request, res: Response): Promise<void> 
 
   await db.transaction(async (tx) => {
     await tx.delete(students).where(eq(students.id, id));
-    await tx.update(leads).set({ status: 'LOST' }).where(eq(leads.id, existing.leadId));
+    // Reverting an enrolled lead back to LOST. Keep isQualified true
+    // (non-cold reason by default) and preserve the earlier ATTENDED
+    // visitOutcome — they did visit, they just didn't stay.
+    await tx.update(leads).set({
+      status: 'LOST',
+      isQualified: true,
+      visitOutcome: 'ATTENDED',
+    }).where(eq(leads.id, existing.leadId));
   });
 
   res.status(204).end();

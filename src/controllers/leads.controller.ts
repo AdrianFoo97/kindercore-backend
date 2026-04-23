@@ -7,7 +7,7 @@ import { db, pool } from '../db/client.js';
 import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 import { broadcast } from '../sse.js';
-import { systemRoleFor } from '../constants/lostReasons.js';
+import { systemRoleFor, deriveIsQualified, deriveVisitOutcome } from '../constants/lostReasons.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
@@ -520,6 +520,15 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const clearLostReason = rest.status && rest.status !== 'LOST' && rest.status !== 'REJECTED';
   const unenrolling = statusChanged && existing.status === 'ENROLLED' && rest.status !== 'ENROLLED';
 
+  // Derive the two analytics columns from the resolved state post-patch.
+  // These are the authoritative signal for Lead Quality / Appointment Rate;
+  // centralising the derivation here means every write path agrees.
+  const nextStatus = rest.status ?? existing.status;
+  const nextLostReason = clearLostReason ? null : (rest.lostReason ?? existing.lostReason);
+  const nextAttended = rest.attended ?? existing.attended;
+  const derivedIsQualified = deriveIsQualified(nextStatus, nextLostReason);
+  const derivedVisitOutcome = deriveVisitOutcome(nextStatus, nextAttended);
+
   await db.update(leads).set({
     ...rest,
     ...(childName ? { childName: normalizeName(childName) } : {}),
@@ -528,6 +537,8 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
     ...(appointmentEnd ? { appointmentEnd: new Date(appointmentEnd) } : {}),
     ...(statusChangedAt ? { statusChangedAt: new Date(statusChangedAt) } : statusChanged ? { statusChangedAt: new Date() } : {}),
     ...(clearLostReason ? { lostReason: null } : {}),
+    isQualified: derivedIsQualified,
+    visitOutcome: derivedVisitOutcome,
   } as any).where(eq(leads.id, id));
 
   if (unenrolling) {
@@ -604,6 +615,10 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
       appointmentIsPlaceholder: !!isPlaceholder,
       status: isPlaceholder ? 'CONTACTED' : 'APPOINTMENT_BOOKED',
       statusChangedAt: new Date(),
+      // Booking an appointment re-engages the lead — clear any prior
+      // unqualified / no-visit outcome so analytics reflect the new state.
+      isQualified: true,
+      visitOutcome: null,
     }).where(eq(leads.id, id));
 
     res.json({ googleEventId: null, googleEventLink: null, calendarSynced: false });
@@ -684,6 +699,8 @@ async function _createAppointment(req: Request, res: Response): Promise<void> {
     appointmentIsPlaceholder: !!isPlaceholder,
     status: isPlaceholder ? 'CONTACTED' : 'APPOINTMENT_BOOKED',
     statusChangedAt: new Date(),
+    isQualified: true,
+    visitOutcome: null,
   }).where(eq(leads.id, id));
 
   res.json({ googleEventId: event.data.id, googleEventLink: event.data.htmlLink });
@@ -758,6 +775,8 @@ export async function confirmAppointment(req: Request, res: Response): Promise<v
     appointmentIsPlaceholder: false,
     status: 'APPOINTMENT_BOOKED',
     statusChangedAt: new Date(),
+    isQualified: true,
+    visitOutcome: null,
   }).where(eq(leads.id, id));
 
   res.json({ googleEventId: event.data.id, googleEventLink: event.data.htmlLink });
@@ -773,6 +792,8 @@ export async function confirmAppointmentWithoutCalendar(req: Request, res: Respo
     appointmentIsPlaceholder: false,
     status: 'APPOINTMENT_BOOKED',
     statusChangedAt: new Date(),
+    isQualified: true,
+    visitOutcome: null,
   }).where(eq(leads.id, id));
 
   res.json({ confirmed: true, calendarSynced: false });
@@ -825,6 +846,8 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
       notes: leads.notes,
       lostReason: leads.lostReason,
       attended: leads.attended,
+      isQualified: leads.isQualified,
+      visitOutcome: leads.visitOutcome,
     }).from(leads).where(dateRange(selectedYear)),
     db.select({ submittedAt: leads.submittedAt }).from(leads).where(dateRange(prevYear)),
   ]);
@@ -832,48 +855,36 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const totalLeads = currentLeads.length;
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
   const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST' || l.status === 'REJECTED');
-  // Status is the source of truth for "did the parent show up". FOLLOW_UP
-  // and ENROLLED both mean the visit happened; LOST with attended=true
-  // covers visits that came but didn't convert. The `attended` flag alone
-  // is unreliable — historically the UI set status to FOLLOW_UP without
-  // flipping the flag, leaving many real visits showing as no-shows.
-  const hasAttendedVisit = (l: { status: string; attended: boolean }) =>
-    l.status === 'FOLLOW_UP' ||
-    l.status === 'ENROLLED' ||
-    (l.status === 'LOST' && l.attended);
-  // Attended = visit happened (captured via status, not just flag)
-  const attendedAppointments = currentLeads.filter(hasAttendedVisit).length;
-  // Didn't attend = had an appointment slot but didn't show up.
-  // Excludes visits that actually happened and excludes rejects.
-  const noShowLeads = currentLeads.filter(l =>
-    l.appointmentStart !== null && !hasAttendedVisit(l) && l.status !== 'REJECTED'
-  ).length;
+
+  // ── Classifier reads explicit analytics columns ────────────────────────────
+  // isQualified and visitOutcome are stored on the Lead at write time (see
+  // deriveIsQualified / deriveVisitOutcome). The classifier is a pure read
+  // with one small derivation: NO_SHOW is computed from time so a past
+  // appointment rolls over automatically with no cron job.
+  const now = new Date();
+  const isAttended = (l: { visitOutcome: string | null }) => l.visitOutcome === 'ATTENDED';
+  const isNoShow = (l: { visitOutcome: string | null; appointmentStart: Date | null; status: string }) =>
+    !isAttended(l) &&
+    l.appointmentStart !== null &&
+    l.appointmentStart < now &&
+    !['FOLLOW_UP', 'ENROLLED', 'REJECTED'].includes(l.status);
+
+  const attendedAppointments = currentLeads.filter(isAttended).length;
+  const noShowLeads = currentLeads.filter(isNoShow).length;
   const totalWithAppointment = attendedAppointments + noShowLeads;
   const appointmentRate = totalWithAppointment > 0 ? attendedAppointments / totalWithAppointment : 0;
-  // Pending = no appointment yet + not in any terminal state
   const pendingLeads = currentLeads.filter(l =>
-    l.appointmentStart === null && !['FOLLOW_UP', 'ENROLLED', 'LOST', 'REJECTED'].includes(l.status)
+    l.isQualified && !isAttended(l) && !isNoShow(l)
   ).length;
   const rejectedLeads = currentLeads.filter(l => l.status === 'REJECTED').length;
 
-  // ── Lead Quality classifier ────────────────────────────────────────────────
-  // A lead is "qualified" when it demonstrated Fit + Reachable + Intent:
-  //   • attended                      → obviously qualified
-  //   • booked but didn't show        → had intent, scheduling broke (qualified)
-  //   • LOST with user-defined reason → the lead engaged; school didn't win them
-  // "Unqualified" applies when the lead never truly engaged:
-  //   • REJECTED for wrong fit (age / location / special need / etc.)
-  //   • LOST with the system "cold" reason (didn't reply / no appointment wanted)
-  // Everything else is still "open" — no decision yet, so it doesn't bias Lead
-  // Quality up or down.
+  // Qualification: read the stored column. Qualified leads are those that
+  // reached a decided state (visited, missed, or lost for a real reason).
+  // Pending = still isQualified=true but no decision yet; we mirror the prior
+  // semantics so the KPI values stay comparable to earlier periods.
   const classifyQualification = (l: typeof currentLeads[0]): 'qualified' | 'unqualified' | 'open' => {
-    const status = l.status as string;
-    if (status === 'REJECTED') return 'unqualified';
-    if (hasAttendedVisit(l)) return 'qualified';
-    if (l.appointmentStart !== null && status !== 'REJECTED') return 'qualified'; // booked but didn't show
-    if (status === 'LOST') {
-      return systemRoleFor(l.lostReason) === 'cold' ? 'unqualified' : 'qualified';
-    }
+    if (!l.isQualified) return 'unqualified';
+    if (isAttended(l) || isNoShow(l) || l.appointmentStart !== null || l.status === 'LOST') return 'qualified';
     return 'open';
   };
   const qualifiedLeads = currentLeads.filter(l => classifyQualification(l) === 'qualified').length;
@@ -900,18 +911,10 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   const currentBreakdown = Array.from({ length: 12 }, () => ({ attended: 0, noShow: 0, unqualified: 0, pending: 0 }));
   for (const l of currentLeads) {
     const m = l.submittedAt.getMonth();
-    const status = l.status as string;
-    if (status === 'REJECTED') {
-      currentBreakdown[m].unqualified++;
-    } else if (hasAttendedVisit(l)) {
-      currentBreakdown[m].attended++;
-    } else if (l.appointmentStart !== null) {
-      currentBreakdown[m].noShow++;
-    } else if (status === 'LOST' && systemRoleFor(l.lostReason) === 'cold') {
-      currentBreakdown[m].unqualified++;
-    } else {
-      currentBreakdown[m].pending++;
-    }
+    if (!l.isQualified) currentBreakdown[m].unqualified++;
+    else if (isAttended(l)) currentBreakdown[m].attended++;
+    else if (isNoShow(l)) currentBreakdown[m].noShow++;
+    else currentBreakdown[m].pending++;
   }
 
   const monthlyComparison = MONTH_LABELS.map((label, i) => ({
@@ -958,11 +961,9 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
     .sort((a, b) => b.count - a.count);
 
   const classifyOutcome = (l: typeof currentLeads[0]): 'attended' | 'noShow' | 'unqualified' | 'pending' => {
-    const status = l.status as string;
-    if (status === 'REJECTED') return 'unqualified';
-    if (hasAttendedVisit(l)) return 'attended';
-    if (l.appointmentStart !== null) return 'noShow';
-    if (status === 'LOST' && systemRoleFor(l.lostReason) === 'cold') return 'unqualified';
+    if (!l.isQualified) return 'unqualified';
+    if (isAttended(l)) return 'attended';
+    if (isNoShow(l)) return 'noShow';
     return 'pending';
   };
 
@@ -1020,16 +1021,14 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
       addressLocation: leads.addressLocation, howDidYouKnow: leads.howDidYouKnow,
       childDob: leads.childDob, submittedAt: leads.submittedAt, status: leads.status, enrolmentYear: leads.enrolmentYear,
       attended: leads.attended,
+      visitOutcome: leads.visitOutcome,
     }).from(leads).where(closedWhere(selectedYear)).orderBy(asc(leads.submittedAt)),
-    db.select({ submittedAt: leads.submittedAt, status: leads.status, attended: leads.attended }).from(leads).where(closedWhere(prevYear)),
+    db.select({ submittedAt: leads.submittedAt, status: leads.status, visitOutcome: leads.visitOutcome }).from(leads).where(closedWhere(prevYear)),
   ]);
 
-  // Sales talks = visits that actually happened. ENROLLED implies the visit
-  // by definition (you don't enroll without attending); LOST counts only when
-  // the attended flag confirms it (lost after the visit, not before).
-  const salesLeads = closedLeads.filter(l =>
-    l.status === 'ENROLLED' || (l.status === 'LOST' && l.attended),
-  );
+  // Sales talks = visits that happened. Read the explicit visitOutcome
+  // column (single source of truth, set by every write path).
+  const salesLeads = closedLeads.filter(l => l.visitOutcome === 'ATTENDED');
   const totalLeads = salesLeads.length;
   const enrolledLeads = salesLeads.filter(l => l.status === 'ENROLLED').length;
   const lostLeads = salesLeads.filter(l => l.status === 'LOST').length;
@@ -1045,9 +1044,9 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const prevMonthlyEnrolled = new Array(12).fill(0);
   const prevMonthlyLost = new Array(12).fill(0);
   for (const l of prevLeads) {
-    if (l.status === 'ENROLLED' || (l.status === 'LOST' && l.attended)) {
+    if (l.visitOutcome === 'ATTENDED') {
       if (l.status === 'ENROLLED') prevMonthlyEnrolled[l.submittedAt.getMonth()]++;
-      else prevMonthlyLost[l.submittedAt.getMonth()]++;
+      else if (l.status === 'LOST') prevMonthlyLost[l.submittedAt.getMonth()]++;
     }
   }
   const monthlyComparison = MONTH_LABELS.map((label, i) => ({

@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { router } from './routes/index.js';
 import { pool } from './db/client.js';
+import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -286,6 +287,9 @@ async function runMigrations() {
     `ALTER TABLE \`Teacher\` ADD COLUMN \`hasEpf\` TINYINT(1) NOT NULL DEFAULT 1`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`hasSocso\` TINYINT(1) NOT NULL DEFAULT 1`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`hasEis\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // Lead — explicit analytics columns (source of truth for classifiers)
+    `ALTER TABLE \`Lead\` ADD COLUMN \`isQualified\` TINYINT(1) NOT NULL DEFAULT 1`,
+    `ALTER TABLE \`Lead\` ADD COLUMN \`visitOutcome\` ENUM('ATTENDED','NO_SHOW') DEFAULT NULL`,
   ];
 
   const conn = await pool.getConnection();
@@ -346,6 +350,39 @@ async function runMigrations() {
     );
     if (attendedBackfill?.affectedRows > 0) {
       console.log(`[migrate] Backfilled attended=true for ${attendedBackfill.affectedRows} FOLLOW_UP/ENROLLED Lead(s)`);
+    }
+
+    // Phase 2d: backfill the new explicit analytics columns from existing
+    // status + lostReason + attended state. Pattern: isQualified = false
+    // only when the lead is REJECTED or LOST with a cold system reason;
+    // visitOutcome = 'ATTENDED' only when the visit demonstrably happened.
+    // NO_SHOW is intentionally left unset — the classifier derives it at
+    // query time from `appointmentStart < now` so it auto-advances without
+    // cron jobs. Both updates are idempotent.
+    const coldSystemLabels = SYSTEM_LOST_REASONS
+      .filter(r => r.role === 'cold')
+      .map(r => r.label);
+    const [qualifiedBackfill] = await conn.execute<any>(
+      `UPDATE \`Lead\`
+       SET \`isQualified\` = CASE
+         WHEN \`status\` = 'REJECTED' THEN 0
+         WHEN \`status\` = 'LOST' AND \`lostReason\` IN (${coldSystemLabels.map(() => '?').join(',')}) THEN 0
+         ELSE 1
+       END`,
+      coldSystemLabels,
+    );
+    if (qualifiedBackfill?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled isQualified for ${qualifiedBackfill.affectedRows} Lead(s)`);
+    }
+    const [visitBackfill] = await conn.execute<any>(
+      `UPDATE \`Lead\`
+       SET \`visitOutcome\` = 'ATTENDED'
+       WHERE (\`status\` IN ('FOLLOW_UP', 'ENROLLED')
+              OR (\`status\` = 'LOST' AND \`attended\` = 1))
+         AND (\`visitOutcome\` IS NULL OR \`visitOutcome\` <> 'ATTENDED')`,
+    );
+    if (visitBackfill?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled visitOutcome='ATTENDED' for ${visitBackfill.affectedRows} Lead(s)`);
     }
 
     // Phase 3: seed default category groups & categories if none exist
