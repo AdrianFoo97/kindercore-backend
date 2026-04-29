@@ -1,10 +1,9 @@
 import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { leads, packages, students, systemSettings } from '../db/schema.js';
-import { isActiveInMonth } from '../services/revenue.service.js';
+import { leads, packages, students, studentEnrollments, systemSettings } from '../db/schema.js';
 
 // ── Shared select + reshape ───────────────────────────────────────────────────
 
@@ -286,6 +285,19 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
       onboardingProgress,
       createdAt: now,
     });
+    // Open the initial enrollment period. Same packageId/fee as the Student
+    // row; startDate matches the student's startDate or enrolledAt fallback.
+    await tx.insert(studentEnrollments).values({
+      id: randomUUID(),
+      studentId: newId,
+      packageId,
+      monthlyFee: pkg.price ?? 0,
+      feeOverridden: false,
+      startDate: startDate ? new Date(startDate) : (enrolledAt ? new Date(enrolledAt) : now),
+      endDate: null,
+      reason: null,
+      createdAt: now,
+    });
     // Enrollment implies a visit took place and the lead is qualified —
     // set every analytics column explicitly so the classifier agrees.
     await tx.update(leads).set({
@@ -362,6 +374,7 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
       howDidYouKnow,
       programme,
     });
+    const initialFee = feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0);
     await tx.insert(students).values({
       id: newStudentId,
       leadId: newLeadId,
@@ -371,9 +384,21 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
       enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
       startDate: startDate ? new Date(startDate) : null,
       notes: notes ?? null,
-      monthlyFee: feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0),
+      monthlyFee: initialFee,
       feeOverridden: feeOverridden ?? false,
       onboardingProgress,
+      createdAt: now,
+    });
+    // Open the initial enrollment period to mirror the Student row.
+    await tx.insert(studentEnrollments).values({
+      id: randomUUID(),
+      studentId: newStudentId,
+      packageId,
+      monthlyFee: initialFee,
+      feeOverridden: feeOverridden ?? false,
+      startDate: startDate ? new Date(startDate) : (enrolledAt ? new Date(enrolledAt) : now),
+      endDate: null,
+      reason: null,
       createdAt: now,
     });
   });
@@ -423,22 +448,37 @@ export async function createSibling(req: Request, res: Response): Promise<void> 
 
   const now = new Date();
   const newId = randomUUID();
+  const initialFee = feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0);
 
-  await db.insert(students).values({
-    id: newId,
-    leadId,
-    enrolmentYear,
-    enrolmentMonth,
-    packageId,
-    enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
-    startDate: startDate ? new Date(startDate) : null,
-    notes: notes ?? null,
-    monthlyFee: feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0),
-    feeOverridden: feeOverridden ?? false,
-    childName,
-    childDob: new Date(childDob),
-    onboardingProgress,
-    createdAt: now,
+  await db.transaction(async (tx) => {
+    await tx.insert(students).values({
+      id: newId,
+      leadId,
+      enrolmentYear,
+      enrolmentMonth,
+      packageId,
+      enrolledAt: enrolledAt ? new Date(enrolledAt) : now,
+      startDate: startDate ? new Date(startDate) : null,
+      notes: notes ?? null,
+      monthlyFee: initialFee,
+      feeOverridden: feeOverridden ?? false,
+      childName,
+      childDob: new Date(childDob),
+      onboardingProgress,
+      createdAt: now,
+    });
+    // Open the initial enrollment period to mirror the Student row.
+    await tx.insert(studentEnrollments).values({
+      id: randomUUID(),
+      studentId: newId,
+      packageId,
+      monthlyFee: initialFee,
+      feeOverridden: feeOverridden ?? false,
+      startDate: startDate ? new Date(startDate) : (enrolledAt ? new Date(enrolledAt) : now),
+      endDate: null,
+      reason: null,
+      createdAt: now,
+    });
   });
 
   const [row] = await queryStudents().where(eq(students.id, newId));
@@ -510,6 +550,24 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
 
     if (Object.keys(leadUpdate).length > 0) {
       await tx.update(leads).set(leadUpdate as any).where(eq(leads.id, existing.leadId));
+    }
+
+    // Keep the current open enrollment in sync with the Student row's
+    // package/fee fields. Editing here is for *correcting* the current
+    // period — for scheduling a real package change, the frontend uses
+    // POST /students/:id/enrollments instead.
+    const enrollmentPatch: Record<string, unknown> = {};
+    if (packageId !== undefined)     enrollmentPatch.packageId = packageId;
+    if (monthlyFee !== undefined)    enrollmentPatch.monthlyFee = monthlyFee;
+    if (feeOverridden !== undefined) enrollmentPatch.feeOverridden = feeOverridden;
+    if (Object.keys(enrollmentPatch).length > 0) {
+      const [currentEnr] = await tx.select().from(studentEnrollments).where(and(
+        eq(studentEnrollments.studentId, id),
+        isNull(studentEnrollments.endDate),
+      )).limit(1);
+      if (currentEnr) {
+        await tx.update(studentEnrollments).set(enrollmentPatch).where(eq(studentEnrollments.id, currentEnr.id));
+      }
     }
   });
 
@@ -601,10 +659,23 @@ export async function withdrawStudent(req: Request, res: Response): Promise<void
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
   const { withdrawnAt, withdrawReason } = parsed.data;
-  await db.update(students).set({
-    withdrawnAt: withdrawnAt ? new Date(withdrawnAt) : new Date(),
-    withdrawReason: withdrawReason ?? null,
-  }).where(eq(students.id, id));
+  const withdrawDate = withdrawnAt ? new Date(withdrawnAt) : new Date();
+
+  await db.transaction(async (tx) => {
+    await tx.update(students).set({
+      withdrawnAt: withdrawDate,
+      withdrawReason: withdrawReason ?? null,
+    }).where(eq(students.id, id));
+
+    // Close the current open enrollment so revenue stops counting after the
+    // withdraw date. Past months keep their original package + fee.
+    await tx.update(studentEnrollments)
+      .set({ endDate: withdrawDate })
+      .where(and(
+        eq(studentEnrollments.studentId, id),
+        isNull(studentEnrollments.endDate),
+      ));
+  });
 
   const [row] = await queryStudents().where(eq(students.id, id));
   res.json(await reshapeOne(row));
@@ -619,7 +690,22 @@ export async function reactivateStudent(req: Request, res: Response): Promise<vo
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
   if (!existing.withdrawnAt) { res.status(400).json({ message: 'Student is not withdrawn' }); return; }
 
-  await db.update(students).set({ withdrawnAt: null, withdrawReason: null }).where(eq(students.id, id));
+  await db.transaction(async (tx) => {
+    await tx.update(students).set({ withdrawnAt: null, withdrawReason: null }).where(eq(students.id, id));
+
+    // Reopen the most recent enrollment (the one closed at withdrawal time).
+    // This treats reactivation as "undo withdraw" — continuous package, no
+    // gap. If the user wants to model an actual gap with different terms,
+    // they can create a new enrollment afterwards.
+    const [last] = await tx.select().from(studentEnrollments)
+      .where(eq(studentEnrollments.studentId, id))
+      .orderBy(desc(studentEnrollments.startDate))
+      .limit(1);
+    if (last && last.endDate !== null) {
+      await tx.update(studentEnrollments).set({ endDate: null }).where(eq(studentEnrollments.id, last.id));
+    }
+  });
+
   const [row] = await queryStudents().where(eq(students.id, id));
   res.json(await reshapeOne(row));
 }
@@ -657,105 +743,185 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
   const isCurrentYear = selectedYear === now.getFullYear();
   const currentMonthIdx = isCurrentYear ? now.getMonth() : 11;
 
-  const allStudents = await queryStudents();
-  // Only count students whose package is for the selected year. This makes the
-  // year selector reflect "students assigned to packages for that year" instead
-  // of forecasting current students forward indefinitely.
-  const yearStudents = allStudents.filter(s => (s as any).packageYear === selectedYear);
+  // Enrollment-period source of truth. Each row carries its own package + fee;
+  // for any given month the credited row is the one active at end-of-month
+  // (cutoff). Mid-month withdrawals/changes still credit the period that was
+  // open through the cutoff. Current month uses real `now` so same-day changes
+  // take effect immediately.
+  const enrollmentRows = await db
+    .select({
+      studentId: studentEnrollments.studentId,
+      startDate: studentEnrollments.startDate,
+      endDate: studentEnrollments.endDate,
+      monthlyFee: studentEnrollments.monthlyFee,
+      feeOverridden: studentEnrollments.feeOverridden,
+      packageAge: packages.age,
+      packageProgramme: packages.programme,
+      packagePrice: packages.price,
+      packageName: packages.name,
+      reason: studentEnrollments.reason,
+      studentChildName: students.childName,
+      studentChildDob: students.childDob,
+      leadChildName: leads.childName,
+      leadChildDob: leads.childDob,
+    })
+    .from(studentEnrollments)
+    .leftJoin(packages, eq(studentEnrollments.packageId, packages.id))
+    .leftJoin(students, eq(studentEnrollments.studentId, students.id))
+    .leftJoin(leads, eq(students.leadId, leads.id));
 
-  // Load current year packages for price lookup
-  const currentYearPackages = await db.select().from(packages).where(eq(packages.year, selectedYear));
-  const prevYearPackages = await db.select().from(packages).where(eq(packages.year, prevYear));
+  type ERow = (typeof enrollmentRows)[number];
 
-  // Class age = DOB-based age + ageOffset. This is the student's canonical
-  // class assignment and should match the package age.
-  function studentClassAge(s: any, year: number): number {
-    const dob = s.studentChildDob ?? s.leadChildDob;
-    if (!dob) return (s as any).packageAge ?? 0;
-    return (year - new Date(dob).getFullYear()) + (s.ageOffset ?? 0);
+  const byStudent = new Map<string, ERow[]>();
+  for (const r of enrollmentRows) {
+    if (!byStudent.has(r.studentId)) byStudent.set(r.studentId, []);
+    byStudent.get(r.studentId)!.push(r);
   }
 
-  // Each student has a current-year package assigned. Revenue = that package's
-  // price (or their override). Simple.
-  function getPrice(s: any): number {
-    if (s.feeOverridden) return s.monthlyFee ?? 0;
-    return s.packagePrice ?? 0;
-  }
+  type MonthAggregate = {
+    month: string;
+    revenue: number;
+    studentCount: number;
+    isForecast: boolean;
+    breakdown: Record<number, Record<string, { count: number; revenue: number }>>;
+  };
 
-  // YoY comparison: look up the equivalent package from the previous year by
-  // (programme + package age) so the chart shows what last year's pricing
-  // would have been for the same class.
-  function getPrevYearPrice(s: any): number {
-    if (s.feeOverridden) return s.monthlyFee ?? 0;
-    const matched = prevYearPackages.find(p => p.programme === s.packageProgramme && p.age === s.packageAge);
-    return matched?.price ?? s.packagePrice ?? 0;
-  }
+  function walkYear(year: number): MonthAggregate[] {
+    const isCurY = year === now.getFullYear();
+    return MONTHS.map((month, i) => {
+      const isForecast = isCurY && i > now.getMonth();
+      const isCurrentMonth = isCurY && i === now.getMonth();
+      const monthStart = new Date(year, i, 1);
+      const cutoff = isCurrentMonth ? now : new Date(year, i + 1, 0, 23, 59, 59);
 
-  // Monthly revenue: actual for past/current months, forecast for future months
-  // Also build a per-(age × programme) breakdown for each month — Excel-style.
-  const monthlyRevenue = MONTHS.map((month, i) => {
-    let revenue = 0, studentCount = 0, previous = 0;
-    const isForecast = isCurrentYear && i > currentMonthIdx;
-    // breakdown: { [age]: { [programme]: { count, revenue } } }
-    const breakdown: Record<number, Record<string, { count: number; revenue: number }>> = {};
+      const overlaps = (e: ERow): boolean => {
+        if (e.startDate > cutoff) return false;
+        if (e.endDate) {
+          if (isCurrentMonth ? e.endDate <= now : e.endDate < monthStart) return false;
+        }
+        return true;
+      };
+      const activeAtCutoff = (e: ERow): boolean => {
+        if (e.startDate > cutoff) return false;
+        if (e.endDate && e.endDate <= cutoff) return false;
+        return true;
+      };
 
-    for (const s of yearStudents) {
-      // Actual: student active in this month
-      if (isActiveInMonth(s, selectedYear, i)) {
-        const price = getPrice(s);
-        revenue += price;
+      let revenue = 0, studentCount = 0;
+      const breakdown: Record<number, Record<string, { count: number; revenue: number }>> = {};
+
+      for (const enrollments of byStudent.values()) {
+        const overlapping = enrollments.filter(overlaps);
+        if (overlapping.length === 0) continue;
+        const credit = overlapping.find(activeAtCutoff) ?? overlapping[overlapping.length - 1];
+        // Graduated at 7 — student is excluded for the year they turn 7.
+        const dob = credit.studentChildDob ?? credit.leadChildDob;
+        if (dob) {
+          const birthYear = dob.getFullYear();
+          if (year - birthYear >= 7) continue;
+        }
+        const fee = credit.feeOverridden ? credit.monthlyFee : (credit.packagePrice ?? 0);
+        revenue += fee;
         studentCount++;
-
-        // Group by the student's class age (= package age in well-managed data)
-        const age = studentClassAge(s, selectedYear);
-        const programme = (s as any).packageProgramme || 'Unknown';
+        const age = credit.packageAge ?? 0;
+        const programme = credit.packageProgramme || 'Unknown';
         if (!breakdown[age]) breakdown[age] = {};
         if (!breakdown[age][programme]) breakdown[age][programme] = { count: 0, revenue: 0 };
         breakdown[age][programme].count++;
-        breakdown[age][programme].revenue += price;
+        breakdown[age][programme].revenue += fee;
       }
-    }
-    // Previous-year comparison: include any student whose package was for prevYear
-    const prevYearStudents = allStudents.filter(s => (s as any).packageYear === prevYear);
-    for (const s of prevYearStudents) {
-      if (isActiveInMonth(s, prevYear, i)) {
-        previous += getPrevYearPrice(s);
-      }
-    }
 
-    return { month, revenue, studentCount, current: revenue, previous, isForecast, breakdown };
-  });
+      return { month, revenue, studentCount, isForecast, breakdown };
+    });
+  }
 
-  // Current month stats
+  const currentYearMonths = walkYear(selectedYear);
+  const prevYearMonths = walkYear(prevYear);
+
+  // Per-month enrollment events (new joins + package changes) for the
+  // selected year. Driven entirely by enrollment-period start dates so
+  // future-dated changes naturally appear in the month they take effect.
+  type EnrollmentEvent = {
+    studentId: string;
+    studentName: string;
+    effectiveDate: Date;
+    type: 'new' | 'change';
+    packageName: string | null;
+    programme: string | null;
+    packageAge: number | null;
+    monthlyFee: number;
+    prevPackageName: string | null;
+    prevProgramme: string | null;
+    prevMonthlyFee: number | null;
+  };
+  const SYSTEM_EVENT_REASONS = new Set(['Year rollover', 'Repair: stuck rollover']);
+  const eventsByMonth: Record<number, EnrollmentEvent[]> = {};
+  for (const enrollments of byStudent.values()) {
+    const sorted = [...enrollments].sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+    for (let i = 0; i < sorted.length; i++) {
+      const e = sorted[i];
+      if (e.startDate.getFullYear() !== selectedYear) continue;
+      // Filter out automated rollover/repair events — they aren't meaningful
+      // package decisions, just bookkeeping at the year boundary.
+      if (e.reason && SYSTEM_EVENT_REASONS.has(e.reason)) continue;
+      const monthIdx = e.startDate.getMonth();
+      const prev = i > 0 ? sorted[i - 1] : null;
+      const fee = e.feeOverridden ? e.monthlyFee : (e.packagePrice ?? 0);
+      const prevFee = prev ? (prev.feeOverridden ? prev.monthlyFee : (prev.packagePrice ?? 0)) : null;
+      const event: EnrollmentEvent = {
+        studentId: e.studentId,
+        studentName: e.studentChildName ?? e.leadChildName ?? '(unknown)',
+        effectiveDate: e.startDate,
+        type: prev ? 'change' : 'new',
+        packageName: e.packageName,
+        programme: e.packageProgramme,
+        packageAge: e.packageAge,
+        monthlyFee: fee,
+        prevPackageName: prev?.packageName ?? null,
+        prevProgramme: prev?.packageProgramme ?? null,
+        prevMonthlyFee: prevFee,
+      };
+      if (!eventsByMonth[monthIdx]) eventsByMonth[monthIdx] = [];
+      eventsByMonth[monthIdx].push(event);
+    }
+  }
+  for (const list of Object.values(eventsByMonth)) {
+    list.sort((a, b) => a.effectiveDate.getTime() - b.effectiveDate.getTime());
+  }
+
+  const monthlyRevenue = currentYearMonths.map((m, i) => ({
+    month: m.month,
+    revenue: m.revenue,
+    studentCount: m.studentCount,
+    current: m.revenue,
+    previous: prevYearMonths[i].revenue,
+    isForecast: m.isForecast,
+    breakdown: m.breakdown,
+    events: eventsByMonth[i] ?? [],
+  }));
+
   const totalMonthlyRevenue = monthlyRevenue[currentMonthIdx]?.revenue ?? 0;
   const totalActiveStudents = monthlyRevenue[currentMonthIdx]?.studentCount ?? 0;
   const avgRevenuePerStudent = totalActiveStudents > 0 ? Math.round(totalMonthlyRevenue / totalActiveStudents) : 0;
 
-  // Annual: actual months + forecast months
   const actualRevenue = monthlyRevenue.filter(m => !m.isForecast).reduce((sum, m) => sum + m.revenue, 0);
   const forecastRevenue = monthlyRevenue.filter(m => m.isForecast).reduce((sum, m) => sum + m.revenue, 0);
 
-  // Revenue by programme (current month snapshot)
+  // Snapshot charts use the current month's enrollment-credited breakdown.
+  const currentBreakdown = monthlyRevenue[currentMonthIdx]?.breakdown ?? {};
   const progMap = new Map<string, { revenue: number; studentCount: number }>();
   const ageMap = new Map<number, { revenue: number; studentCount: number }>();
-
-  for (const s of yearStudents) {
-    if (!isActiveInMonth(s, selectedYear, currentMonthIdx)) continue;
-    const price = getPrice(s);
-    const prog = (s as any).packageProgramme || 'Unknown';
-    const age = studentClassAge(s, selectedYear);
-
-    const pEntry = progMap.get(prog) || { revenue: 0, studentCount: 0 };
-    pEntry.revenue += price;
-    pEntry.studentCount++;
-    progMap.set(prog, pEntry);
-
-    const aEntry = ageMap.get(age) || { revenue: 0, studentCount: 0 };
-    aEntry.revenue += price;
-    aEntry.studentCount++;
-    ageMap.set(age, aEntry);
+  for (const ageStr of Object.keys(currentBreakdown)) {
+    const age = Number(ageStr);
+    for (const [prog, { count, revenue }] of Object.entries(currentBreakdown[age])) {
+      const p = progMap.get(prog) ?? { revenue: 0, studentCount: 0 };
+      p.revenue += revenue; p.studentCount += count;
+      progMap.set(prog, p);
+      const a = ageMap.get(age) ?? { revenue: 0, studentCount: 0 };
+      a.revenue += revenue; a.studentCount += count;
+      ageMap.set(age, a);
+    }
   }
-
   const revenueByProgramme = [...progMap.entries()].map(([programme, data]) => ({ programme, ...data }));
   const revenueByAge = [...ageMap.entries()].sort((a, b) => a[0] - b[0]).map(([age, data]) => ({ age: `Age ${age}`, ...data }));
 

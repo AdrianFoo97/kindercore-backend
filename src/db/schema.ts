@@ -115,6 +115,27 @@ export const students = mysqlTable('Student', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// One package-enrollment period for a student. Multiple rows form a
+// non-overlapping timeline; the row with `endDate=null` is the current
+// enrollment. Past rows are immutable history. Revenue for a given month
+// is computed from whichever row covers the month-end cutoff.
+//
+// On the Student row, `packageId`/`monthlyFee`/`feeOverridden` are kept
+// in sync with the latest active enrollment (denormalized for fast list
+// queries), but enrollments is the source of truth for history.
+export const studentEnrollments = mysqlTable('StudentEnrollment', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  studentId: varchar('studentId', { length: 36 }).notNull(),
+  packageId: varchar('packageId', { length: 36 }).notNull(),
+  monthlyFee: float('monthlyFee').notNull(),
+  feeOverridden: boolean('feeOverridden').notNull().default(false),
+  // Inclusive start. `endDate` is exclusive; null = currently active.
+  startDate: datetime('startDate', { mode: 'date', fsp: 3 }).notNull(),
+  endDate: datetime('endDate', { mode: 'date', fsp: 3 }),
+  reason: varchar('reason', { length: 191 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 export const positions = mysqlTable('Position', {
   positionId: varchar('positionId', { length: 10 }).primaryKey(),
   name: varchar('name', { length: 191 }).notNull(),

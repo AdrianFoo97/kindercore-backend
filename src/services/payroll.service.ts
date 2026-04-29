@@ -163,8 +163,16 @@ export interface TeacherWeightMonth {
   baseWeight: number;
   /** Interpolated level contribution: (level / maxLevel) × gap-to-next-rank. */
   levelWeight: number;
-  /** Final profit-share weight: (baseWeight + levelWeight), halved if part-time. */
+  /** Weight before the active-days proration: (baseWeight + levelWeight), halved if part-time. */
+  fullWeight: number;
+  /** Final profit-share weight for the month = fullWeight × (activeDays / daysInMonth). */
   weight: number;
+  /** Days the teacher was on payroll this month (handles mid-month join / resignation). */
+  activeDays: number;
+  /** Calendar days in the month (28–31). */
+  daysInMonth: number;
+  /** activeDays / daysInMonth, in [0, 1]. */
+  activeDayRatio: number;
   isPartTime: boolean;
   isActive: boolean;
 }
@@ -237,10 +245,12 @@ export async function computeTeacherWeightsByMonth(year: number): Promise<Teache
       const joined = t.createdAt ? new Date(t.createdAt) : null;
       const resigned = t.resignedAt ? new Date(t.resignedAt) : null;
       const isActive = !(joined && joined > endOfMonth) && !(resigned && resigned < startOfMonth);
+      const daysInMonth = endOfMonth.getDate();
       if (!isActive) {
         return {
           monthIdx: i, positionId: null, positionCode: null, positionName: null,
-          level: 0, baseWeight: 0, levelWeight: 0, weight: 0,
+          level: 0, baseWeight: 0, levelWeight: 0, fullWeight: 0, weight: 0,
+          activeDays: 0, daysInMonth, activeDayRatio: 0,
           isPartTime, isActive: false,
         };
       }
@@ -263,13 +273,24 @@ export async function computeTeacherWeightsByMonth(year: number): Promise<Teache
         levelWeight = (effectiveLevel / maxLevel) * gap;
       }
 
-      let weight = baseWeight + levelWeight;
-      if (isPartTime) weight = weight / 2;
+      let fullWeight = baseWeight + levelWeight;
+      if (isPartTime) fullWeight = fullWeight / 2;
 
       // Override: use custom weight if the teacher has set a manual override
       if (t.overrideProfitShareWeight && t.customProfitShareWeight != null) {
-        weight = t.customProfitShareWeight;
+        fullWeight = t.customProfitShareWeight;
       }
+
+      // Pro-rate by active days in the month — handles partial months at
+      // join and resignation. A teacher who started on the 20th of a 31-day
+      // month earns 12/31 of the full weight for that month.
+      const joinDay = joined && joined.getFullYear() === year && joined.getMonth() === i
+        ? joined.getDate() : 1;
+      const leaveDay = resigned && resigned.getFullYear() === year && resigned.getMonth() === i
+        ? resigned.getDate() : daysInMonth;
+      const activeDays = Math.max(0, leaveDay - joinDay + 1);
+      const activeDayRatio = activeDays / daysInMonth;
+      const weight = fullWeight * activeDayRatio;
 
       return {
         monthIdx: i,
@@ -279,7 +300,11 @@ export async function computeTeacherWeightsByMonth(year: number): Promise<Teache
         level: effectiveLevel,
         baseWeight,
         levelWeight,
+        fullWeight,
         weight,
+        activeDays,
+        daysInMonth,
+        activeDayRatio,
         isPartTime,
         isActive: true,
       };

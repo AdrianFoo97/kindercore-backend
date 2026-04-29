@@ -102,6 +102,28 @@ async function runMigrations() {
       \`createdAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
     )`,
+    // Per-period enrollment history. Each row owns the package + monthly fee
+    // for a contiguous period of the student's life. The row with
+    // `endDate IS NULL` is the current enrollment.
+    //
+    // Collation MUST match the older Student table's `utf8mb4_unicode_ci`,
+    // otherwise comparing `e.studentId = s.id` across the two tables throws
+    // "Illegal mix of collations" on MySQL 8 (whose default is the newer
+    // `utf8mb4_0900_ai_ci`).
+    `CREATE TABLE IF NOT EXISTS \`StudentEnrollment\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`studentId\` VARCHAR(36) NOT NULL,
+      \`packageId\` VARCHAR(36) NOT NULL,
+      \`monthlyFee\` FLOAT NOT NULL,
+      \`feeOverridden\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`startDate\` DATETIME(3) NOT NULL,
+      \`endDate\` DATETIME(3),
+      \`reason\` VARCHAR(191),
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`StudentEnrollment_studentId_idx\` (\`studentId\`),
+      INDEX \`StudentEnrollment_period_idx\` (\`studentId\`, \`startDate\`, \`endDate\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS \`Position\` (
       \`positionId\` VARCHAR(10) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
@@ -428,6 +450,46 @@ async function runMigrations() {
       if (visitClearBackfill?.affectedRows > 0) {
         console.log(`[migrate] Cleared visitOutcome for ${visitClearBackfill.affectedRows} unqualified-system-reason Lead(s)`);
       }
+    }
+
+    // Repair: if an earlier boot created StudentEnrollment with MySQL 8's
+    // default `utf8mb4_0900_ai_ci` collation, convert it to match Student
+    // so cross-table joins work. CONVERT TO is a no-op when the collation
+    // already matches, so this is safe to run every boot.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`StudentEnrollment\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+      );
+    } catch (e: any) {
+      // ER_NO_SUCH_TABLE shouldn't fire (we just created it), but guard
+      // anyway so a deploy that skips the create phase doesn't break.
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // Backfill: every existing Student needs at least one StudentEnrollment
+    // row covering their full active period. Skip students that already
+    // have one (idempotent — safe to run on every boot).
+    const [enrollmentBackfill] = await conn.execute<any>(
+      `INSERT INTO \`StudentEnrollment\`
+        (\`id\`, \`studentId\`, \`packageId\`, \`monthlyFee\`, \`feeOverridden\`,
+         \`startDate\`, \`endDate\`, \`reason\`, \`createdAt\`)
+       SELECT
+         UUID(),
+         s.\`id\`,
+         s.\`packageId\`,
+         COALESCE(s.\`monthlyFee\`, 0),
+         s.\`feeOverridden\`,
+         COALESCE(s.\`startDate\`, s.\`enrolledAt\`),
+         s.\`withdrawnAt\`,
+         NULL,
+         s.\`createdAt\`
+       FROM \`Student\` s
+       WHERE NOT EXISTS (
+         SELECT 1 FROM \`StudentEnrollment\` e WHERE e.\`studentId\` = s.\`id\`
+       )`,
+    );
+    if (enrollmentBackfill?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled ${enrollmentBackfill.affectedRows} StudentEnrollment row(s) from existing Student(s)`);
     }
 
     // Phase 3: seed default category groups & categories if none exist

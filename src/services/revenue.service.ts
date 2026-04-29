@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { leads, packages, students } from '../db/schema.js';
+import { leads, packages, students, studentEnrollments } from '../db/schema.js';
 
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -46,26 +46,50 @@ export interface MonthlyRevenueResult {
   months: MonthlyRevenueEntry[];
 }
 
-const revenueSelect = {
-  startDate: students.startDate,
-  withdrawnAt: students.withdrawnAt,
-  monthlyFee: students.monthlyFee,
-  feeOverridden: students.feeOverridden,
-  ageOffset: students.ageOffset,
-  studentChildDob: students.childDob,
-  leadChildDob: leads.childDob,
+// Enrollment-aware revenue. Each student can have many enrollment periods;
+// for any given month we credit whichever period is "active at end of
+// month" (cutoff). Withdrawn students are still credited the month they
+// left in (matching the existing students-page semantics where mid-month
+// withdrawals don't lose that month's revenue retroactively for past
+// months — current month uses real-time `now` instead).
+const enrollmentRevenueSelect = {
+  studentId: studentEnrollments.studentId,
+  startDate: studentEnrollments.startDate,
+  endDate: studentEnrollments.endDate,
+  monthlyFee: studentEnrollments.monthlyFee,
+  feeOverridden: studentEnrollments.feeOverridden,
   packageYear: packages.year,
   packagePrice: packages.price,
+  studentChildDob: students.childDob,
+  leadChildDob: leads.childDob,
+};
+
+type EnrollmentRow = {
+  studentId: string;
+  startDate: Date;
+  endDate: Date | null;
+  monthlyFee: number;
+  feeOverridden: boolean;
+  packageYear: number | null;
+  packagePrice: number | null;
+  studentChildDob: Date | null;
+  leadChildDob: Date | null;
 };
 
 export async function computeMonthlyRevenue(year: number): Promise<MonthlyRevenueResult> {
-  const rows = await db
-    .select(revenueSelect)
-    .from(students)
-    .leftJoin(leads, eq(students.leadId, leads.id))
-    .leftJoin(packages, eq(students.packageId, packages.id));
+  const rows: EnrollmentRow[] = await db
+    .select(enrollmentRevenueSelect)
+    .from(studentEnrollments)
+    .leftJoin(packages, eq(studentEnrollments.packageId, packages.id))
+    .leftJoin(students, eq(studentEnrollments.studentId, students.id))
+    .leftJoin(leads, eq(students.leadId, leads.id));
 
-  const yearRows = rows.filter(r => r.packageYear === year);
+  // Group enrollments by student so we can pick the credited period per month.
+  const byStudent = new Map<string, EnrollmentRow[]>();
+  for (const r of rows) {
+    if (!byStudent.has(r.studentId)) byStudent.set(r.studentId, []);
+    byStudent.get(r.studentId)!.push(r);
+  }
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -75,12 +99,51 @@ export async function computeMonthlyRevenue(year: number): Promise<MonthlyRevenu
     let revenue = 0;
     let studentCount = 0;
     const isForecast = year > currentYear || (year === currentYear && i > currentMonthIdx);
-    for (const s of yearRows) {
-      if (isActiveInMonth(s, year, i)) {
-        revenue += studentMonthlyPrice(s);
-        studentCount++;
+    const isCurrentMonth = year === currentYear && i === currentMonthIdx;
+    const monthStart = new Date(year, i, 1);
+    const cutoff = isCurrentMonth ? now : new Date(year, i + 1, 0, 23, 59, 59);
+
+    // An enrollment "overlaps" the month if it's still alive on at least one
+    // day of the month — matches the existing isActiveInMonth semantics so
+    // mid-month withdrawals in past months keep their month's revenue.
+    const overlaps = (e: EnrollmentRow): boolean => {
+      if (e.startDate > cutoff) return false;
+      if (e.endDate) {
+        if (isCurrentMonth ? e.endDate <= now : e.endDate < monthStart) return false;
       }
+      return true;
+    };
+
+    // The "credited" period is the one active at end-of-month (cutoff).
+    // For mid-month package changes, this picks the new package — end-of-
+    // month wins. For mid-month withdrawals there's no period at cutoff
+    // (current month) or fall back to the only overlapping period (past).
+    const activeAtCutoff = (e: EnrollmentRow): boolean => {
+      if (e.startDate > cutoff) return false;
+      if (e.endDate && e.endDate <= cutoff) return false;
+      return true;
+    };
+
+    for (const enrollments of byStudent.values()) {
+      const overlapping = enrollments.filter(overlaps);
+      if (overlapping.length === 0) continue;
+      const credit = overlapping.find(activeAtCutoff) ?? overlapping[overlapping.length - 1];
+      // Cash-flow accounting: any active enrollment generates revenue at
+      // its monthly fee regardless of which year the package is labelled.
+      // We don't filter by package.year — a student paying RM 500/month is
+      // worth RM 500 to the school every month they're enrolled, even if
+      // they were never rolled over to the current year's package catalog.
+      // Graduated at 7 — student is excluded for the year they turn 7.
+      const dob = credit.studentChildDob ?? credit.leadChildDob;
+      if (dob) {
+        const birthYear = dob.getFullYear();
+        if (year - birthYear >= 7) continue;
+      }
+      const fee = credit.feeOverridden ? credit.monthlyFee : (credit.packagePrice ?? 0);
+      revenue += fee;
+      studentCount++;
     }
+
     return { monthIdx: i, month, revenue, studentCount, isForecast };
   });
 
