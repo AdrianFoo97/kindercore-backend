@@ -10,9 +10,13 @@ import { adminRouter } from './admin.routes.js';
 import { plannerRouter } from './planner.routes.js';
 import { salaryRouter } from './salary.routes.js';
 import { careerRouter } from './career.routes.js';
+import { careerMissionsRouter } from './career-missions.routes.js';
+import { missionCategoriesRouter } from './mission-categories.routes.js';
+import { teacherAppraisalsRouter } from './teacher-appraisals.routes.js';
 import { allowanceRouter } from './allowance.routes.js';
 import { financeRouter } from './finance.routes.js';
 import { operatingCostRouter } from './operatingCost.routes.js';
+import { uploadRouter } from './upload.routes.js';
 
 export const router = Router();
 
@@ -70,5 +74,9 @@ router.use('/planner', plannerRouter);
 router.use('/salary', salaryRouter);
 router.use('/finance', financeRouter);
 router.use('/operating-cost', operatingCostRouter);
+router.use('/upload', uploadRouter);
 router.use('/', careerRouter);
+router.use('/', careerMissionsRouter);
+router.use('/', missionCategoriesRouter);
+router.use('/', teacherAppraisalsRouter);
 router.use('/', allowanceRouter);

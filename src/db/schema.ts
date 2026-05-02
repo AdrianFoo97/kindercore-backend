@@ -143,6 +143,18 @@ export const positions = mysqlTable('Position', {
   basicSalary: float('basicSalary').notNull().default(0),
   maxLevel: int('maxLevel').notNull().default(5),
   sortOrder: int('sortOrder').notNull().default(0),
+  // Whether this position is part of the teacher's career progression
+  // ladder. Off for "support"/"non-progression" roles like "Staff" that
+  // should be excluded from the Career Journey Map. Defaults true.
+  inCareerProgression: boolean('inCareerProgression').notNull().default(true),
+  // Optional title-badge image URL — shown beside the Career Journey on
+  // the teacher career page. Admin uploads/sets this per position.
+  badgeUrl: varchar('badgeUrl', { length: 500 }),
+  // Star color (hex, e.g. "#C0C0C0" for silver, "#FFD700" for gold) —
+  // when a teacher completes all missions in an achievement category at
+  // this position, the achievement is rendered with a star in this color.
+  // Lets each tier feel distinct (silver → gold → blue → ...).
+  starColor: varchar('starColor', { length: 20 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -208,6 +220,85 @@ export const careerRecords = mysqlTable('CareerRecord', {
   effectiveDate: datetime('effectiveDate', { mode: 'date', fsp: 3 }).notNull(),
   notes: text('notes'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Mission categories — admin-managed capability buckets that drive the
+// achievement badges on the teacher's career page. Code is the stable
+// identifier used by careerMissions; presentation (name, achievementName,
+// icon, color) is editable from the settings UI.
+export const missionCategories = mysqlTable('MissionCategory', {
+  code: varchar('code', { length: 50 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  achievementName: varchar('achievementName', { length: 191 }).notNull(),
+  description: text('description'),
+  icon: varchar('icon', { length: 50 }).notNull(),
+  color: varchar('color', { length: 20 }).notNull(),
+  sortOrder: int('sortOrder').notNull().default(0),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Capability missions configured per position. Defines what a teacher must
+// demonstrate before they can be promoted from this position. Soft-deleted
+// when their position is removed so historical TeacherMissionProgress rows
+// can still resolve the mission name.
+//
+// `category` references MissionCategory.code as a free-string FK. Loosened
+// from an enum so admins can add categories without a code deploy.
+export const careerMissions = mysqlTable('CareerMission', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  positionId: varchar('positionId', { length: 10 }).notNull(),
+  title: varchar('title', { length: 191 }).notNull(),
+  category: varchar('category', { length: 50 }).notNull(),
+  description: text('description'),
+  // Promotion-rationale copy: WHY completing this mission moves the teacher
+  // closer to the next position. Distinct from `description` ("what to do").
+  whyItMatters: text('whyItMatters'),
+  difficulty: mysqlEnum('difficulty', ['BASIC', 'INTERMEDIATE', 'ADVANCED']).notNull().default('BASIC'),
+  evidenceRequirements: text('evidenceRequirements'),
+  required: boolean('required').notNull().default(true),
+  // High-priority missions surface a "Priority" badge on the teacher's
+  // Mission Board so they're visually pulled to the top of the list.
+  highPriority: boolean('highPriority').notNull().default(false),
+  requiresApproval: boolean('requiresApproval').notNull().default(true),
+  displayOrder: int('displayOrder').notNull().default(0),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Monthly appraisal score per teacher. Average of recent months drives the
+// "Average appraisal > 75%" promotion gate on the Teacher Career Page.
+// One row per (teacherId, year, month) pair; month is 0–11 to match JS.
+export const teacherAppraisals = mysqlTable('TeacherAppraisal', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  year: int('year').notNull(),
+  month: int('month').notNull(),
+  score: float('score').notNull(),
+  notes: text('notes'),
+  evaluatedBy: varchar('evaluatedBy', { length: 191 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Per-teacher progress on a single mission. One row per (teacherId, missionId)
+// pair. Rows persist even after a mission is soft-deleted so we can show
+// historical career progression on the teacher's profile.
+export const teacherMissionProgress = mysqlTable('TeacherMissionProgress', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  missionId: varchar('missionId', { length: 36 }).notNull(),
+  status: mysqlEnum('status', ['PENDING', 'IN_PROGRESS', 'UNDER_REVIEW', 'COMPLETED']).notNull().default('PENDING'),
+  evidenceCount: int('evidenceCount').notNull().default(0),
+  evidenceTotal: int('evidenceTotal').notNull().default(0),
+  notes: text('notes'),
+  startedAt: datetime('startedAt', { mode: 'date', fsp: 3 }),
+  submittedAt: datetime('submittedAt', { mode: 'date', fsp: 3 }),
+  approvedAt: datetime('approvedAt', { mode: 'date', fsp: 3 }),
+  approvedBy: varchar('approvedBy', { length: 36 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 export const operatingCostCategoryGroups = mysqlTable('OperatingCostCategoryGroup', {

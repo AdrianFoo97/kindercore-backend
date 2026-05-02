@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, pool } from '../db/client.js';
-import { positions, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, systemSettings } from '../db/schema.js';
+import { positions, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, careerMissions, systemSettings } from '../db/schema.js';
 import { computeMonthlyPayroll, computeTeacherWeightsByMonth, isTeacherActiveInMonth } from '../services/payroll.service.js';
 
 // Snapshot helper — "is the teacher active this calendar month?"
@@ -27,6 +27,9 @@ const upsertPositionSchema = z.object({
   basicSalary: z.number().min(0),
   maxLevel: z.number().int().min(0).max(10),
   sortOrder: z.number().int().min(0).optional(),
+  inCareerProgression: z.boolean().optional(),
+  badgeUrl: z.string().max(500).nullable().optional(),
+  starColor: z.string().max(20).nullable().optional(),
 });
 
 export async function upsertPosition(req: Request, res: Response): Promise<void> {
@@ -52,6 +55,9 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
       basicSalary: parsed.data.basicSalary,
       maxLevel: parsed.data.maxLevel,
       sortOrder: parsed.data.sortOrder ?? 0,
+      inCareerProgression: parsed.data.inCareerProgression ?? true,
+      badgeUrl: parsed.data.badgeUrl ?? null,
+      starColor: parsed.data.starColor ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -69,6 +75,12 @@ export async function deletePosition(req: Request, res: Response): Promise<void>
     return;
   }
   await db.delete(levelIncentives).where(eq(levelIncentives.positionId, positionId));
+  // Soft-delete career missions for this position so historical teacher
+  // progress rows can still resolve the mission name. New listings filter
+  // out missions where deletedAt is set.
+  await db.update(careerMissions)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(eq(careerMissions.positionId, positionId));
   await db.delete(positions).where(eq(positions.positionId, positionId));
   res.json({ ok: true });
 }

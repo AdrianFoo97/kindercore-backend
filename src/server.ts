@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { randomUUID } from 'crypto';
 import { router } from './routes/index.js';
 import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
@@ -131,6 +132,9 @@ async function runMigrations() {
       \`basicSalary\` FLOAT NOT NULL DEFAULT 0,
       \`maxLevel\` INT NOT NULL DEFAULT 5,
       \`sortOrder\` INT NOT NULL DEFAULT 0,
+      \`inCareerProgression\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`badgeUrl\` VARCHAR(500),
+      \`starColor\` VARCHAR(20),
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`positionId\`)
@@ -195,6 +199,69 @@ async function runMigrations() {
       \`createdAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`MissionCategory\` (
+      \`code\` VARCHAR(50) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`achievementName\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT,
+      \`icon\` VARCHAR(50) NOT NULL,
+      \`color\` VARCHAR(20) NOT NULL,
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`code\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`CareerMission\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`positionId\` VARCHAR(10) NOT NULL,
+      \`title\` VARCHAR(191) NOT NULL,
+      \`category\` VARCHAR(50) NOT NULL,
+      \`description\` TEXT,
+      \`whyItMatters\` TEXT,
+      \`difficulty\` ENUM('BASIC','INTERMEDIATE','ADVANCED') NOT NULL DEFAULT 'BASIC',
+      \`evidenceRequirements\` TEXT,
+      \`required\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`highPriority\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`requiresApproval\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`displayOrder\` INT NOT NULL DEFAULT 0,
+      \`deletedAt\` DATETIME(3),
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`CareerMission_positionId_idx\` (\`positionId\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`TeacherAppraisal\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`year\` INT NOT NULL,
+      \`month\` INT NOT NULL,
+      \`score\` FLOAT NOT NULL,
+      \`notes\` TEXT,
+      \`evaluatedBy\` VARCHAR(191),
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`TeacherAppraisal_period_uq\` (\`teacherId\`, \`year\`, \`month\`),
+      INDEX \`TeacherAppraisal_teacherId_idx\` (\`teacherId\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`TeacherMissionProgress\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`missionId\` VARCHAR(36) NOT NULL,
+      \`status\` ENUM('PENDING','IN_PROGRESS','UNDER_REVIEW','COMPLETED') NOT NULL DEFAULT 'PENDING',
+      \`evidenceCount\` INT NOT NULL DEFAULT 0,
+      \`evidenceTotal\` INT NOT NULL DEFAULT 0,
+      \`notes\` TEXT,
+      \`startedAt\` DATETIME(3),
+      \`submittedAt\` DATETIME(3),
+      \`approvedAt\` DATETIME(3),
+      \`approvedBy\` VARCHAR(36),
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`TMP_teacher_mission_uq\` (\`teacherId\`, \`missionId\`),
+      INDEX \`TMP_teacherId_idx\` (\`teacherId\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS \`OperatingCostCategoryGroup\` (
       \`id\` VARCHAR(36) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
@@ -312,6 +379,12 @@ async function runMigrations() {
     // Lead — explicit analytics columns (source of truth for classifiers)
     `ALTER TABLE \`Lead\` ADD COLUMN \`isQualified\` TINYINT(1) NOT NULL DEFAULT 1`,
     `ALTER TABLE \`Lead\` ADD COLUMN \`visitOutcome\` ENUM('ATTENDED','NO_SHOW') DEFAULT NULL`,
+    // Career progression columns
+    `ALTER TABLE \`Position\` ADD COLUMN \`inCareerProgression\` TINYINT(1) NOT NULL DEFAULT 1`,
+    `ALTER TABLE \`Position\` ADD COLUMN \`badgeUrl\` VARCHAR(500) NULL`,
+    `ALTER TABLE \`Position\` ADD COLUMN \`starColor\` VARCHAR(20) NULL`,
+    `ALTER TABLE \`CareerMission\` ADD COLUMN \`whyItMatters\` TEXT`,
+    `ALTER TABLE \`CareerMission\` ADD COLUMN \`highPriority\` TINYINT(1) NOT NULL DEFAULT 0`,
   ];
 
   const conn = await pool.getConnection();
@@ -570,6 +643,376 @@ async function runMigrations() {
       console.log(`[migrate] Seeded initial CareerRecord for ${seededCount} teacher(s)`);
     }
 
+    // Phase 4a: seed default mission categories + loosen the legacy enum.
+    // Categories are admin-managed now; the 5 originals are seeded so
+    // existing missions continue to resolve. Idempotent — INSERT IGNORE
+    // skips rows already present.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`CareerMission\` MODIFY \`category\` VARCHAR(50) NOT NULL`,
+      );
+    } catch (e: any) {
+      // Column might not exist yet on a fresh DB (table just got created
+      // with the new VARCHAR shape). Anything else, surface.
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') {
+        console.warn('[migrate] CareerMission.category MODIFY skipped:', e.message);
+      }
+    }
+    type CategorySeed = { code: string; name: string; achievementName: string; icon: string; color: string; description: string };
+    const DEFAULT_CATEGORIES: CategorySeed[] = [
+      { code: 'CLASSROOM',  name: 'Classroom',  achievementName: 'Classroom Leader',           icon: 'faRoad',           color: '#1e40af', description: 'Demonstrated independent classroom routines and lesson delivery.' },
+      { code: 'SOP',        name: 'SOP',        achievementName: 'SOP Reliable',               icon: 'faClipboardCheck', color: '#0e7490', description: 'Reliably follows school standard operating procedures.' },
+      { code: 'EVENT',      name: 'Event',      achievementName: 'Event Leader',               icon: 'faCalendarDays',   color: '#9a3412', description: 'Plans and leads school events end-to-end.' },
+      { code: 'PARENT',     name: 'Parent',     achievementName: 'Parent Communication Ready', icon: 'faPeopleArrows',   color: '#86198f', description: 'Owns parent relationships with confidence.' },
+      { code: 'LEADERSHIP', name: 'Leadership', achievementName: 'Team Builder',               icon: 'faStar',           color: '#92400e', description: 'Mentors and develops other teachers.' },
+    ];
+    let seededCategoryCount = 0;
+    for (let i = 0; i < DEFAULT_CATEGORIES.length; i++) {
+      const c = DEFAULT_CATEGORIES[i];
+      const [res] = await conn.execute<any>(
+        `INSERT IGNORE INTO \`MissionCategory\`
+          (\`code\`, \`name\`, \`achievementName\`, \`description\`, \`icon\`, \`color\`, \`sortOrder\`, \`createdAt\`, \`updatedAt\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(3), NOW(3))`,
+        [c.code, c.name, c.achievementName, c.description, c.icon, c.color, i],
+      );
+      if (res?.affectedRows > 0) seededCategoryCount++;
+    }
+    if (seededCategoryCount > 0) {
+      console.log(`[migrate] Seeded ${seededCategoryCount} default MissionCategory row(s)`);
+    }
+
+    // Phase 4b: seed default career missions for each position. Idempotent:
+    // we only seed a position if it has zero CareerMission rows (including
+    // soft-deleted), so admin-deleted defaults won't reappear. The tier is
+    // picked from the position name; positions whose name doesn't match a
+    // known pattern get a generic intermediate set.
+    type MissionSeed = {
+      title: string;
+      category: 'CLASSROOM' | 'SOP' | 'EVENT' | 'PARENT' | 'LEADERSHIP';
+      difficulty: 'BASIC' | 'INTERMEDIATE' | 'ADVANCED';
+      description: string;
+      whyItMatters: string;
+      evidenceRequirements: string;
+      required: boolean;
+      highPriority: boolean;
+      requiresApproval: boolean;
+    };
+    const TIERS: Record<string, MissionSeed[]> = {
+      entry: [
+        { title: 'Master Classroom Routines',  category: 'CLASSROOM', difficulty: 'BASIC', required: true,  highPriority: true,  requiresApproval: true,
+          description: 'Run daily classroom routines (arrival, transitions, departure) without supervisor prompting.',
+          whyItMatters: 'Reliable routines are the foundation of every higher position. Without this, you can\'t take ownership of a class.',
+          evidenceRequirements: 'Supervisor observation\nWeekly routine checklist\nVideo or photo of one transition' },
+        { title: 'Complete SOP Onboarding',    category: 'SOP', difficulty: 'BASIC', required: true,  highPriority: true,  requiresApproval: true,
+          description: 'Read and acknowledge all SOPs and pass the entry-level SOP quiz.',
+          whyItMatters: 'Every promotion gate includes SOP compliance. Pass this once and the SOP track stays unblocked.',
+          evidenceRequirements: 'Signed SOP acknowledgement\nSOP quiz score (≥80%)' },
+        { title: 'Daily Reports to Parents',   category: 'PARENT', difficulty: 'BASIC', required: true,  highPriority: false, requiresApproval: false,
+          description: 'Submit accurate daily reports for assigned students for 4 consecutive weeks.',
+          whyItMatters: 'Consistent parent communication earns trust — it\'s the cheapest way to demonstrate you\'re ready for more responsibility.',
+          evidenceRequirements: '4 weeks of submitted reports\nSpot-check by supervisor' },
+        { title: 'Safety & Hygiene Checklist', category: 'SOP', difficulty: 'BASIC', required: true,  highPriority: false, requiresApproval: true,
+          description: 'Pass the unannounced classroom safety & hygiene audit.',
+          whyItMatters: 'Safety failures block all promotions. Demonstrating it once shows you can be trusted in a classroom alone.',
+          evidenceRequirements: 'Audit pass certificate' },
+        { title: 'Parent Greeting Protocol',   category: 'PARENT', difficulty: 'BASIC', required: false, highPriority: false, requiresApproval: false,
+          description: 'Greet every parent by name during pickup/drop-off for one full week.',
+          whyItMatters: 'A small but visible signal that you\'re ready to own parent relationships.',
+          evidenceRequirements: 'Supervisor observation' },
+      ],
+      junior: [
+        { title: 'Lead a Lesson',                  category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Plan and lead a full lesson independently with supervisor observation.',
+          whyItMatters: 'Independent lesson delivery is the single biggest gap between Junior and Senior. Closing it makes the next promotion conversation easy.',
+          evidenceRequirements: 'Lesson plan\nObservation feedback form\nStudent work samples' },
+        { title: 'Manage Behaviour Independently', category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Resolve a behaviour incident independently using the school behaviour framework.',
+          whyItMatters: 'Senior teachers can\'t escalate every incident. Proving you can handle one signals readiness for class ownership.',
+          evidenceRequirements: 'Incident report\nResolution outcome' },
+        { title: 'Conduct Parent-Teacher Update',  category: 'PARENT', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Lead a one-on-one parent update meeting with prepared talking points.',
+          whyItMatters: 'Direct parent dialogue is required at the next stage. Practice now while a supervisor is observing.',
+          evidenceRequirements: 'Meeting notes\nParent feedback' },
+        { title: 'Assist in a School Event',       category: 'EVENT', difficulty: 'BASIC', required: true, highPriority: false, requiresApproval: false,
+          description: 'Take a named role in a school event (set-up, station lead, runner).',
+          whyItMatters: 'Event support is how Senior teachers earn the right to lead one. Start small.',
+          evidenceRequirements: 'Event role assignment\nPost-event reflection' },
+        { title: 'Pass SOP Spot Check',            category: 'SOP', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Pass two unannounced SOP spot checks within a quarter.',
+          whyItMatters: 'SOP reliability is non-negotiable for class ownership. Two consecutive passes prove this isn\'t a fluke.',
+          evidenceRequirements: 'Spot-check pass records (×2)' },
+      ],
+      senior: [
+        { title: 'Run a Class Independently',     category: 'CLASSROOM', difficulty: 'ADVANCED', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Take full ownership of a class for one term — planning, execution, parent comms, reporting.',
+          whyItMatters: 'Supervisors are evaluated on team output. Owning a class proves you can be evaluated on it instead of supervised through it.',
+          evidenceRequirements: 'Term plan\nMidterm review\nEnd-of-term parent feedback' },
+        { title: 'Lead a Parent Conference',      category: 'PARENT', difficulty: 'ADVANCED', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Run a structured parent conference covering progress, next-term goals, and concerns.',
+          whyItMatters: 'Parent conferences are a Supervisor-level signal. Closing one cleanly is the cheapest way to demonstrate readiness.',
+          evidenceRequirements: 'Conference agenda\nParent sign-off\nNotes' },
+        { title: 'Co-Lead a School Event',        category: 'EVENT', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Co-own the planning + execution of a school event with another senior.',
+          whyItMatters: 'Demonstrates you can plan and ship something bigger than your own class — a hard requirement at Supervisor level.',
+          evidenceRequirements: 'Event plan\nBudget reconciliation\nPost-event report' },
+        { title: 'Mentor a Junior Teacher',       category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Mentor a junior teacher through their onboarding for at least one month.',
+          whyItMatters: 'Supervisors\' main lever is uplifting the team. Mentorship is the proof you can do it.',
+          evidenceRequirements: 'Mentee progress log\nWeekly 1:1 notes' },
+        { title: 'Curriculum Contribution',       category: 'CLASSROOM', difficulty: 'ADVANCED', required: false, highPriority: false, requiresApproval: true,
+          description: 'Propose and ship a curriculum improvement adopted by the school.',
+          whyItMatters: 'Optional, but a strong signal of going beyond your current scope — pulls a future Shadow Principal review.',
+          evidenceRequirements: 'Proposal doc\nAdoption decision' },
+      ],
+      supervisor: [
+        { title: 'Manage Class Schedule',          category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Build and maintain the weekly class schedule across teachers and rooms.',
+          whyItMatters: 'Operational ownership is core to the next stage. Schedule conflicts that you resolved are the easiest evidence to produce.',
+          evidenceRequirements: 'Approved weekly schedule\nConflict resolution notes' },
+        { title: 'Conduct Team Briefings',         category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Lead the daily/weekly team briefing for one full month.',
+          whyItMatters: 'Setting team rhythm is what Shadow Principals do daily. Practicing this with a smaller team builds the muscle.',
+          evidenceRequirements: 'Briefing agenda samples\nAttendance log' },
+        { title: 'Resolve Parent Escalation',      category: 'PARENT', difficulty: 'ADVANCED', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Own a parent escalation end-to-end — diagnosis, resolution, follow-up.',
+          whyItMatters: 'Principals own outcomes when teachers can\'t close a parent issue. Show you\'re the one those issues stop with.',
+          evidenceRequirements: 'Escalation case file\nResolution sign-off' },
+        { title: 'Lead a School Event',            category: 'EVENT', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Be the lead organiser for a major school event.',
+          whyItMatters: 'Solo event leadership demonstrates readiness for cross-team accountability — the threshold for Shadow Principal.',
+          evidenceRequirements: 'Event plan\nPost-event report\nParent feedback summary' },
+        { title: 'SOP Audit Lead',                 category: 'SOP', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Lead a quarterly SOP audit across at least three classrooms.',
+          whyItMatters: 'Auditing is a leadership skill. Doing one well surfaces what your future self will need to fix.',
+          evidenceRequirements: 'Audit checklist used\nFindings + remediation plan' },
+        { title: 'Train a New Teacher',            category: 'LEADERSHIP', difficulty: 'ADVANCED', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Take a new hire from day-1 to fully independent within one month.',
+          whyItMatters: 'Hiring impact compounds. Showing you can ramp someone up is what makes a Shadow Principal worth promoting.',
+          evidenceRequirements: 'Training plan\nNew hire sign-off' },
+      ],
+      shadow: [
+        { title: 'Run Weekly Operations',          category: 'LEADERSHIP', difficulty: 'ADVANCED', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Operate the school for one full week as acting principal.',
+          whyItMatters: 'The strongest possible signal that you\'re ready for the principal seat.',
+          evidenceRequirements: 'Operations log\nIssue resolution log\nPrincipal sign-off' },
+        { title: 'Lead a Hiring Round',            category: 'LEADERSHIP', difficulty: 'ADVANCED', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Own a complete hiring round — JD, sourcing, interviews, offer.',
+          whyItMatters: 'Principals own the team they inherit. Building yours starts here.',
+          evidenceRequirements: 'Hiring scorecard\nFinal hire decision memo' },
+        { title: 'Drive a Strategic Initiative',   category: 'LEADERSHIP', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Take a strategic initiative from proposal to full rollout.',
+          whyItMatters: 'Demonstrates you can move the school forward, not just run it day-to-day.',
+          evidenceRequirements: 'Initiative proposal\nKPIs achieved' },
+        { title: 'Parent Community Building',      category: 'PARENT', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Build or grow a parent community programme (e.g. PTA, parent committee).',
+          whyItMatters: 'Long-term parent retention is a Principal-level outcome. Lay the foundation now.',
+          evidenceRequirements: 'Programme charter\nParticipation metrics' },
+        { title: 'Quality Audit Across Classes',   category: 'SOP', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Lead a school-wide quality audit and present findings to leadership.',
+          whyItMatters: 'Top-down accountability is the principal\'s job. Practice it once before you own it.',
+          evidenceRequirements: 'Audit report\nPresentation deck' },
+      ],
+      generic: [
+        { title: 'Capability Mission 1',  category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: true,  requiresApproval: true,
+          description: 'Edit me — describe what success looks like at this position level.',
+          whyItMatters: 'Edit me — explain why completing this is what unlocks the next position.',
+          evidenceRequirements: 'Edit me' },
+        { title: 'Capability Mission 2',  category: 'SOP', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Edit me.',
+          whyItMatters: 'Edit me.',
+          evidenceRequirements: 'Edit me' },
+        { title: 'Capability Mission 3',  category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Edit me.',
+          whyItMatters: 'Edit me.',
+          evidenceRequirements: 'Edit me' },
+      ],
+    };
+
+    // Phase 4b-extra: top-up missions per tier. Inserted with deterministic
+    // IDs (`mx-${positionId}-${n}`) so this phase is idempotent and admin
+    // deletions stay sticky (INSERT IGNORE skips when the row already exists,
+    // even soft-deleted). Adding more missions to TIER_EXTRAS later will
+    // automatically seed them on the next boot.
+    const TIER_EXTRAS: Record<string, MissionSeed[]> = {
+      entry: [
+        { title: 'Document Daily Activities',  category: 'CLASSROOM', difficulty: 'BASIC', required: true, highPriority: false, requiresApproval: false,
+          description: 'Maintain a daily classroom activity log for one full month.',
+          whyItMatters: 'Documentation discipline carries forward — it\'s what makes parent updates and senior reviews fast later on.',
+          evidenceRequirements: '4 weeks of daily logs\nSupervisor sign-off' },
+        { title: 'First-Aid Awareness',        category: 'SOP', difficulty: 'BASIC', required: true, highPriority: false, requiresApproval: true,
+          description: 'Complete the first-aid orientation and pass the basic emergency response check.',
+          whyItMatters: 'Children\'s safety is the school\'s number-one obligation. Knowing what to do in the first 60 seconds is non-negotiable.',
+          evidenceRequirements: 'First-aid orientation certificate\nEmergency drill participation' },
+        { title: 'Observe a Senior Teacher',   category: 'CLASSROOM', difficulty: 'BASIC', required: false, highPriority: false, requiresApproval: false,
+          description: 'Shadow a senior teacher for one full day and capture three takeaways.',
+          whyItMatters: 'Watching how someone runs the room cuts months off your own learning curve.',
+          evidenceRequirements: 'Observation notes\nThree takeaways shared with supervisor' },
+        { title: 'Build a Classroom Resource', category: 'CLASSROOM', difficulty: 'BASIC', required: false, highPriority: false, requiresApproval: false,
+          description: 'Create a reusable classroom resource (visual aid, activity sheet, or song pack).',
+          whyItMatters: 'Small contributions early signal that you take ownership beyond your assigned tasks.',
+          evidenceRequirements: 'Resource shared in team folder' },
+        { title: 'Greet Parents at Drop-Off',  category: 'PARENT', difficulty: 'BASIC', required: false, highPriority: false, requiresApproval: false,
+          description: 'Lead morning drop-off greetings for one full week.',
+          whyItMatters: 'Parents read the front door — being visible there builds trust before you say a word.',
+          evidenceRequirements: 'Supervisor observation\nParent feedback (informal)' },
+      ],
+      junior: [
+        { title: 'Run a Small-Group Activity',     category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Plan and run a structured small-group learning activity.',
+          whyItMatters: 'Differentiated group work is where Junior teachers prove they can handle attention split across students.',
+          evidenceRequirements: 'Activity plan\nSupervisor observation\nStudent output samples' },
+        { title: 'Document Behaviour Patterns',    category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: false,
+          description: 'Track and document behaviour patterns for two students over two weeks.',
+          whyItMatters: 'Pattern-spotting is the precursor to intervention. Senior teachers are expected to do this without prompting.',
+          evidenceRequirements: 'Behaviour log\nPattern summary\nSupervisor review' },
+        { title: 'Lead a Story Session',           category: 'CLASSROOM', difficulty: 'BASIC', required: false, highPriority: false, requiresApproval: false,
+          description: 'Lead a full circle-time story session with engagement activities.',
+          whyItMatters: 'Story-time leadership is low-risk practice for whole-class delivery.',
+          evidenceRequirements: 'Session plan\nPeer or supervisor observation' },
+        { title: 'Co-design a Lesson Plan',        category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: false, highPriority: false, requiresApproval: true,
+          description: 'Co-design a lesson plan with a senior teacher and deliver it together.',
+          whyItMatters: 'Co-design is faster than going solo and exposes you to a senior\'s thought process.',
+          evidenceRequirements: 'Joint lesson plan\nDelivery notes' },
+        { title: 'Contribute to Parent Newsletter', category: 'PARENT', difficulty: 'BASIC', required: false, highPriority: false, requiresApproval: false,
+          description: 'Write a published section in the monthly parent newsletter.',
+          whyItMatters: 'Public-facing writing forces clarity — and gets your name in front of parents.',
+          evidenceRequirements: 'Published newsletter section' },
+      ],
+      senior: [
+        { title: 'Lead a Field Trip',                  category: 'EVENT', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Be the lead organiser for an off-campus field trip — logistics, safety plan, parent comms.',
+          whyItMatters: 'Off-site responsibility is a step up in trust. Doing one cleanly is hard evidence of operational maturity.',
+          evidenceRequirements: 'Trip plan\nRisk assessment\nPost-trip debrief' },
+        { title: 'Manage Class Substitution',          category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: false,
+          description: 'Cover another teacher\'s class for one full week without disruption to learning.',
+          whyItMatters: 'Substitution requires holding the room with no ramp-up time — a real test of preparedness.',
+          evidenceRequirements: 'Sub plan\nDaily handover notes\nSupervisor sign-off' },
+        { title: 'Conduct a Peer Skill Workshop',      category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Design and run a 30-minute skill workshop for the teaching team.',
+          whyItMatters: 'Teaching adults is a leadership skill. A workshop is the smallest version of leading the team.',
+          evidenceRequirements: 'Workshop deck\nAttendance + feedback' },
+        { title: 'Author a Best-Practice Guide',       category: 'SOP', difficulty: 'INTERMEDIATE', required: false, highPriority: false, requiresApproval: true,
+          description: 'Write a one-page best-practice guide adopted by the team.',
+          whyItMatters: 'Codifying knowledge moves you from "operator" to "system builder".',
+          evidenceRequirements: 'Published guide\nAdoption sign-off' },
+        { title: 'Coach a Difficult Behaviour Case',   category: 'CLASSROOM', difficulty: 'ADVANCED', required: false, highPriority: false, requiresApproval: true,
+          description: 'Lead a behaviour intervention plan for a complex case with measurable progress.',
+          whyItMatters: 'Hard behaviour cases are what separate good teachers from leaders. Closing one is the strongest possible signal.',
+          evidenceRequirements: 'Intervention plan\nProgress metrics\nSupervisor review' },
+      ],
+      supervisor: [
+        { title: 'Run Recruitment Screening',     category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Screen and shortlist candidates for an open teaching role.',
+          whyItMatters: 'Hiring is the highest-leverage activity in a school. Getting reps as a screener prepares you to own the call later.',
+          evidenceRequirements: 'Screening rubric\nShortlist memo' },
+        { title: 'Plan Term Curriculum',          category: 'CLASSROOM', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Design the curriculum arc for one full term across multiple classes.',
+          whyItMatters: 'Cross-class planning is what unlocks Shadow Principal — it\'s the first time you optimise across, not within, a class.',
+          evidenceRequirements: 'Curriculum plan\nClass-team review notes' },
+        { title: 'Coach Two Mentees Concurrently', category: 'LEADERSHIP', difficulty: 'ADVANCED', required: false, highPriority: false, requiresApproval: true,
+          description: 'Mentor two junior teachers in parallel for one term.',
+          whyItMatters: 'Parallel mentorship tests your ability to scale your influence — exactly what the next stage demands.',
+          evidenceRequirements: 'Mentee plans\nWeekly 1:1 logs\nMentee outcomes' },
+        { title: 'Build a Department KPI Report', category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: false, highPriority: false, requiresApproval: true,
+          description: 'Define department KPIs and produce a quarterly report.',
+          whyItMatters: 'What gets measured gets managed. Defining the measures is half the leadership.',
+          evidenceRequirements: 'KPI definition doc\nQ-end report' },
+      ],
+      shadow: [
+        { title: 'Cover Principal Absence',         category: 'LEADERSHIP', difficulty: 'ADVANCED', required: true, highPriority: true, requiresApproval: true,
+          description: 'Be the named cover when the principal is away (planned absence ≥ 3 days).',
+          whyItMatters: 'Cover is the rehearsal for the actual seat. Closing one cleanly is the strongest possible promotion signal.',
+          evidenceRequirements: 'Cover handover doc\nIssue resolution log\nPrincipal sign-off' },
+        { title: 'Lead a Crisis Response',          category: 'SOP', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
+          description: 'Lead the response to a real or simulated crisis (safety, parent, operational).',
+          whyItMatters: 'Crisis leadership is what parents remember. Doing one well is what makes principal succession credible.',
+          evidenceRequirements: 'Incident timeline\nResponse decisions\nPost-incident review' },
+        { title: 'Build the Annual Calendar',       category: 'EVENT', difficulty: 'ADVANCED', required: false, highPriority: false, requiresApproval: true,
+          description: 'Design the school\'s full annual event + academic calendar.',
+          whyItMatters: 'Annual planning is a Principal-level deliverable. Ship one to remove ambiguity about your readiness.',
+          evidenceRequirements: 'Annual calendar published\nLeadership sign-off' },
+        { title: 'Run a Parent Town Hall',          category: 'PARENT', difficulty: 'ADVANCED', required: false, highPriority: false, requiresApproval: true,
+          description: 'Host a parent town hall covering school direction, Q&A, and feedback collection.',
+          whyItMatters: 'Town halls are the principal\'s most public moment. Practicing once removes the fear when it matters.',
+          evidenceRequirements: 'Town hall agenda\nQ&A summary\nFollow-up actions' },
+        { title: 'Negotiate a Vendor Contract',     category: 'LEADERSHIP', difficulty: 'INTERMEDIATE', required: false, highPriority: false, requiresApproval: true,
+          description: 'Negotiate or renew a vendor contract for the school.',
+          whyItMatters: 'Commercial confidence rounds out the operator. Principals own these calls — get reps now.',
+          evidenceRequirements: 'Negotiated terms\nFinance sign-off' },
+      ],
+      generic: [],
+    };
+    function pickTier(positionName: string): keyof typeof TIERS | null {
+      const n = positionName.toLowerCase();
+      // Final stage — no missions seeded.
+      if (/principal/.test(n) && !/shadow/.test(n)) return null;
+      if (/shadow\s*principal/.test(n)) return 'shadow';
+      if (/supervisor/.test(n)) return 'supervisor';
+      if (/senior/.test(n)) return 'senior';
+      if (/junior|staff/.test(n)) return 'junior';
+      if (/assistant|trainee|intern/.test(n)) return 'entry';
+      return 'generic';
+    }
+    const [allPositionRows] = await conn.execute<any[]>(
+      `SELECT positionId, name FROM \`Position\``,
+    );
+    let seededMissionCount = 0;
+    for (const p of allPositionRows) {
+      // Count includes soft-deleted rows so admin deletions are sticky.
+      const [[{ cnt: existing }]] = await conn.execute(
+        `SELECT COUNT(*) AS cnt FROM \`CareerMission\` WHERE positionId = ?`,
+        [p.positionId],
+      ) as any;
+      if (Number(existing) > 0) continue;
+      const tierKey = pickTier(p.name);
+      if (!tierKey) continue;
+      const tier = TIERS[tierKey];
+      for (let i = 0; i < tier.length; i++) {
+        const m = tier[i];
+        const id = randomUUID();
+        await conn.execute(
+          `INSERT INTO \`CareerMission\`
+            (id, positionId, title, category, description, whyItMatters, difficulty, evidenceRequirements,
+             required, highPriority, requiresApproval, displayOrder, deletedAt, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW(3), NOW(3))`,
+          [id, p.positionId, m.title, m.category, m.description, m.whyItMatters, m.difficulty, m.evidenceRequirements,
+           m.required ? 1 : 0, m.highPriority ? 1 : 0, m.requiresApproval ? 1 : 0, i],
+        );
+        seededMissionCount++;
+      }
+    }
+    if (seededMissionCount > 0) {
+      console.log(`[migrate] Seeded ${seededMissionCount} default CareerMission(s) across ${allPositionRows.length} position(s)`);
+    }
+
+    // Top-up: insert TIER_EXTRAS missions with deterministic IDs. INSERT
+    // IGNORE means re-runs are no-ops, and admin deletions stay sticky
+    // because the soft-deleted row keeps the PK occupied.
+    let topUpCount = 0;
+    for (const p of allPositionRows) {
+      const tierKey = pickTier(p.name);
+      if (!tierKey) continue;
+      const extras = TIER_EXTRAS[tierKey];
+      if (!extras || extras.length === 0) continue;
+      const baseOrder = TIERS[tierKey].length;
+      for (let i = 0; i < extras.length; i++) {
+        const m = extras[i];
+        const id = `mx-${p.positionId}-${i}`;
+        const [res] = await conn.execute<any>(
+          `INSERT IGNORE INTO \`CareerMission\`
+            (id, positionId, title, category, description, whyItMatters, difficulty, evidenceRequirements,
+             required, highPriority, requiresApproval, displayOrder, deletedAt, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW(3), NOW(3))`,
+          [id, p.positionId, m.title, m.category, m.description, m.whyItMatters, m.difficulty, m.evidenceRequirements,
+           m.required ? 1 : 0, m.highPriority ? 1 : 0, m.requiresApproval ? 1 : 0, baseOrder + i],
+        );
+        if (res?.affectedRows > 0) topUpCount++;
+      }
+    }
+    if (topUpCount > 0) {
+      console.log(`[migrate] Topped up ${topUpCount} extra CareerMission(s) across positions`);
+    }
+
     // Phase 5: reconcile pre-existing lost-reason strings with the current
     // system-pinned labels. Each mapping rewrites historical strings — on any
     // fresh deployment the UPDATE is a no-op.
@@ -728,6 +1171,19 @@ app.get('/api/events', (req, res) => {
   sseClients.add(res);
   req.on('close', () => sseClients.delete(res));
 });
+
+// ── Static: uploaded files (badge images, etc.) ──
+// Override helmet's default `same-origin` CORP so the SPA on a different
+// origin (e.g. localhost:5173) can load these images via <img>.
+import { UPLOAD_ROOT } from './routes/upload.routes.js';
+app.use(
+  '/uploads',
+  (_req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  },
+  express.static(UPLOAD_ROOT, { maxAge: '7d', fallthrough: false }),
+);
 
 // ── Routes ──
 app.use('/api', router);
