@@ -168,7 +168,8 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
   const { childName, parentPhone, childDob, enrolmentYear, company,
           relationship, programme, preferredAppointmentTime, addressLocation,
-          needsTransport, howDidYouKnow, ctaSource, utmSource, submittedAt: submittedAtRaw } = parsed.data;
+          needsTransport, howDidYouKnow, ctaSource, utmSource, submittedAt: submittedAtRaw,
+          notes } = parsed.data;
   if (company) {
     res.status(400).json({ message: 'Bad request' });
     return;
@@ -199,6 +200,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     id, childName: normalizeName(childName), parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,
     needsTransport, howDidYouKnow, ctaSource, utmSource, leadTemperature: getLeadTemperature(ctaSource), submittedAt,
+    notes,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
 

@@ -17,6 +17,11 @@ export const createLeadSchema = z.object({
   ctaSource: z.string().optional(),
   utmSource: z.string().optional(),
   submittedAt: z.string().optional(),
+  // Public enquiry form embeds the referrer's child name in `notes` as
+  // `朋友介绍 — 朋友的孩子：{name}，请确认...` so the leads table can
+  // surface who connected each Friend Referral lead. Without this entry
+  // the Zod validator strips the field before it reaches the DB.
+  notes: z.string().optional(),
 });
 
 export const updateLeadSchema = z.object({
