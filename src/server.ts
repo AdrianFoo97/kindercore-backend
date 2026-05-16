@@ -100,9 +100,23 @@ async function runMigrations() {
       \`onboardingCompleted\` TINYINT(1) NOT NULL DEFAULT 0,
       \`withdrawnAt\` DATETIME(3),
       \`withdrawReason\` VARCHAR(191),
+      \`rfid\` VARCHAR(50),
       \`createdAt\` DATETIME(3) NOT NULL,
-      PRIMARY KEY (\`id\`)
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`Student_rfid_uq\` (\`rfid\`)
     )`,
+    // Attendance log — one row per RFID scan (or manual entry).
+    `CREATE TABLE IF NOT EXISTS \`StudentAttendance\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`studentId\` VARCHAR(36) NOT NULL,
+      \`scannedAt\` DATETIME(3) NOT NULL,
+      \`source\` VARCHAR(20) NOT NULL DEFAULT 'rfid',
+      \`notes\` TEXT,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`StudentAttendance_studentId_idx\` (\`studentId\`),
+      INDEX \`StudentAttendance_scannedAt_idx\` (\`scannedAt\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     // Per-period enrollment history. Each row owns the package + monthly fee
     // for a contiguous period of the student's life. The row with
     // `endDate IS NULL` is the current enrollment.
@@ -385,6 +399,27 @@ async function runMigrations() {
     `ALTER TABLE \`Position\` ADD COLUMN \`starColor\` VARCHAR(20) NULL`,
     `ALTER TABLE \`CareerMission\` ADD COLUMN \`whyItMatters\` TEXT`,
     `ALTER TABLE \`CareerMission\` ADD COLUMN \`highPriority\` TINYINT(1) NOT NULL DEFAULT 0`,
+    // Mission target — teacher-pinned focus flag for the Career page's
+    // "Current Targets" list. Independent of status.
+    `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,
+    // RFID + attendance — added later, top up older databases.
+    `ALTER TABLE \`Student\` ADD COLUMN \`rfid\` VARCHAR(50) NULL`,
+    `ALTER TABLE \`Student\` ADD UNIQUE KEY \`Student_rfid_uq\` (\`rfid\`)`,
+    // AllowanceType — admin-configurable icon and guarantee status.
+    // Drives the Compensation page's per-card icon + status badge.
+    `ALTER TABLE \`AllowanceType\` ADD COLUMN \`icon\` VARCHAR(50) NOT NULL DEFAULT 'gift'`,
+    `ALTER TABLE \`AllowanceType\` ADD COLUMN \`isGuaranteed\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // Hierarchy — parent allowance type (null = top-level). Used to
+    // group sub-types like Training Completion under Other Allowance.
+    `ALTER TABLE \`AllowanceType\` ADD COLUMN \`parentId\` VARCHAR(36) NULL`,
+    // Position description — free-form text shown on the position edit
+    // page and on the teacher-facing career journey to explain what the
+    // rank represents.
+    `ALTER TABLE \`Position\` ADD COLUMN \`description\` TEXT NULL`,
+    // Position role focus — short headline (e.g. "Overall School
+    // Management") that captures the rank's main responsibility.
+    // Shown bolded above the description on the teacher career page.
+    `ALTER TABLE \`Position\` ADD COLUMN \`roleFocus\` VARCHAR(191) NULL`,
   ];
 
   const conn = await pool.getConnection();
@@ -400,9 +435,13 @@ async function runMigrations() {
       try {
         await conn.execute(sql);
         const col = sql.match(/ADD COLUMN `(\w+)`/)?.[1];
+        const key = sql.match(/ADD (?:UNIQUE )?(?:KEY|INDEX) `(\w+)`/)?.[1];
         if (col) console.log(`[migrate] Added column: ${col}`);
+        else if (key) console.log(`[migrate] Added index: ${key}`);
       } catch (e: any) {
-        if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+        // ER_DUP_FIELDNAME = column already exists
+        // ER_DUP_KEYNAME    = index/key already exists
+        if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_DUP_KEYNAME') throw e;
       }
     }
 
@@ -681,6 +720,63 @@ async function runMigrations() {
       console.log(`[migrate] Seeded ${seededCategoryCount} default MissionCategory row(s)`);
     }
 
+    // Phase 4a-2: seed system-managed allowance types. The Compensation
+    // page maps each per-teacher allowance row to a card by name and
+    // uses the icon + isGuaranteed columns to drive the visual style.
+    // Idempotent: lookup by name, only insert if missing.
+    type AllowanceSeed = { name: string; icon: string; isGuaranteed: boolean; parentName?: string };
+    const DEFAULT_ALLOWANCE_TYPES: AllowanceSeed[] = [
+      { name: 'Attendance Allowance',          icon: 'calendar-check', isGuaranteed: false },
+      { name: 'KPI Allowance',                 icon: 'gauge-high',     isGuaranteed: false },
+      { name: 'Level Allowance',               icon: 'award',          isGuaranteed: true  },
+      // Other Allowance is a category container; sub-types nest under
+      // it via parentId. Listed before its children so the parent row
+      // always exists when the child seed resolves the parent ID.
+      { name: 'Other Allowance',               icon: 'gift',           isGuaranteed: true  },
+      // Children of Other Allowance — these are system-managed (cannot
+      // be deleted from the UI) but live under the Other category.
+      { name: 'Qualification Allowance',       icon: 'graduation-cap', isGuaranteed: true,  parentName: 'Other Allowance' },
+      { name: 'Training Completion Allowance', icon: 'book-open',      isGuaranteed: false, parentName: 'Other Allowance' },
+    ];
+    let seededAllowanceCount = 0;
+    for (let i = 0; i < DEFAULT_ALLOWANCE_TYPES.length; i++) {
+      const t = DEFAULT_ALLOWANCE_TYPES[i];
+      // Resolve parentId (if this seed entry declares a parentName).
+      let parentId: string | null = null;
+      if (t.parentName) {
+        const [parentRows] = await conn.execute<any>(
+          'SELECT id FROM `AllowanceType` WHERE name = ? LIMIT 1',
+          [t.parentName],
+        );
+        if (Array.isArray(parentRows) && parentRows.length > 0) {
+          parentId = parentRows[0].id;
+        }
+      }
+      const [existing] = await conn.execute<any>(
+        'SELECT id FROM `AllowanceType` WHERE name = ? LIMIT 1',
+        [t.name],
+      );
+      if (Array.isArray(existing) && existing.length === 0) {
+        await conn.execute(
+          'INSERT INTO `AllowanceType` (`id`, `name`, `isDefault`, `sortOrder`, `icon`, `isGuaranteed`, `parentId`, `createdAt`) VALUES (?, ?, 1, ?, ?, ?, ?, NOW(3))',
+          [randomUUID(), t.name, i, t.icon, t.isGuaranteed ? 1 : 0, parentId],
+        );
+        seededAllowanceCount++;
+      } else {
+        // Existing row — refresh sortOrder + isDefault, and link
+        // parentId if it's still null (avoids overwriting a manual
+        // re-parent). icon/isGuaranteed only update if still at
+        // column-default 'gift' (admin hasn't customized).
+        await conn.execute(
+          'UPDATE `AllowanceType` SET `isDefault` = 1, `sortOrder` = ?, `icon` = IF(`icon` = \'gift\' OR `icon` IS NULL, ?, `icon`), `isGuaranteed` = IF(`icon` = \'gift\' OR `icon` IS NULL, ?, `isGuaranteed`), `parentId` = COALESCE(`parentId`, ?) WHERE name = ?',
+          [i, t.icon, t.isGuaranteed ? 1 : 0, parentId, t.name],
+        );
+      }
+    }
+    if (seededAllowanceCount > 0) {
+      console.log(`[migrate] Seeded ${seededAllowanceCount} default AllowanceType row(s)`);
+    }
+
     // Phase 4b: seed default career missions for each position. Idempotent:
     // we only seed a position if it has zero CareerMission rows (including
     // soft-deleted), so admin-deleted defaults won't reappear. The tier is
@@ -877,6 +973,29 @@ async function runMigrations() {
           description: 'Write a published section in the monthly parent newsletter.',
           whyItMatters: 'Public-facing writing forces clarity — and gets your name in front of parents.',
           evidenceRequirements: 'Published newsletter section' },
+        // — Required mission top-up (index 5 onward). Lifts the
+        // junior tier above 4 required missions so the Mission Board
+        // pagination (pageSize: 4) actually shows multiple pages.
+        { title: 'Run a Parent Conference',         category: 'PARENT', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Lead a one-on-one parent conference covering a student\'s progress and next steps.',
+          whyItMatters: 'Parent conferences expose every gap in your observation + communication craft. Doing one well is the strongest single signal of senior readiness.',
+          evidenceRequirements: 'Pre-meeting prep notes\nConference summary\nParent feedback' },
+        { title: 'Lead a Themed Week',              category: 'CLASSROOM', difficulty: 'INTERMEDIATE', required: true, highPriority: false, requiresApproval: true,
+          description: 'Plan and run a full themed week across all daily lessons and activities.',
+          whyItMatters: 'A themed week stretches you from single-lesson delivery to a coherent narrative across five days — the building block of senior planning.',
+          evidenceRequirements: 'Theme plan\nDaily activity log\nReflection on what worked' },
+        { title: 'Maintain Daily Class Routine',    category: 'SOP', difficulty: 'BASIC', required: true, highPriority: false, requiresApproval: false,
+          description: 'Run the full daily class routine (arrival, transitions, dismissal) without supervisor prompts for two weeks.',
+          whyItMatters: 'Routine discipline is invisible when it works and obvious when it breaks. Owning it lifts the whole class\'s baseline.',
+          evidenceRequirements: 'Routine checklist\nSupervisor observation' },
+        { title: 'Run a Safety Drill',              category: 'SOP', difficulty: 'BASIC', required: true, highPriority: false, requiresApproval: true,
+          description: 'Lead a fire / lockdown / emergency drill for your class.',
+          whyItMatters: 'Calm leadership under simulated stress is the rehearsal for the real moment. Junior teachers earn trust by owning these drills.',
+          evidenceRequirements: 'Drill plan\nIncident-style debrief\nSupervisor sign-off' },
+        { title: 'Submit a Class Reflection',       category: 'CLASSROOM', difficulty: 'BASIC', required: true, highPriority: false, requiresApproval: false,
+          description: 'Write a monthly class reflection covering wins, struggles, and one change you\'ll try next month.',
+          whyItMatters: 'Reflection turns experience into skill. Senior teachers do this instinctively; juniors build the habit.',
+          evidenceRequirements: 'Monthly reflection document\nSupervisor 1:1 discussion' },
       ],
       senior: [
         { title: 'Lead a Field Trip',                  category: 'EVENT', difficulty: 'ADVANCED', required: true, highPriority: false, requiresApproval: true,
@@ -1011,6 +1130,128 @@ async function runMigrations() {
     }
     if (topUpCount > 0) {
       console.log(`[migrate] Topped up ${topUpCount} extra CareerMission(s) across positions`);
+    }
+
+    // Phase 4c: seed Position roleFocus + description from the org-
+    // chart job scope, written as the abilities a teacher unlocks at
+    // each rank — first-person framing ("Set the school's strategic
+    // direction…") so the description reads naturally regardless of
+    // whether the rank is locked or earned. No UI prelude needed.
+    //
+    // The seed only fills rows where the column IS NULL so admin
+    // edits are never overwritten. We ALSO unconditionally upgrade
+    // legacy seed copy (matched by exact text) to the new wording so
+    // users don't get stuck on the old, less-evocative descriptions.
+    const POSITION_DESCRIPTIONS: { match: string[]; roleFocus: string; description: string; legacyDescriptions?: string[] }[] = [
+      {
+        match: ['principal'],
+        roleFocus: 'Overall School Management',
+        description: 'Set the school\'s strategic direction, define the policies that shape day-to-day practice, and keep every operation aligned with the school\'s vision and goals.',
+        legacyDescriptions: [
+          'Oversee all school operations, make strategic decisions, set policies, and ensure alignment with the school\'s vision and goals.',
+        ],
+      },
+      {
+        match: ['shadow principal'],
+        roleFocus: 'School Management Support',
+        description: 'Stand in for the Principal on significant decisions, consult on major strategic moves, and drive the implementation of school-wide policies.',
+        legacyDescriptions: [
+          'Assist the Principal, handle significant decisions, consult the principal for major strategic issues, and support policy implementation.',
+        ],
+      },
+      {
+        match: ['supervisor'],
+        roleFocus: 'Daily Operations Oversight',
+        description: 'Run daily school operations end to end, make calls on operational issues and staff management, and keep the Principal or Shadow Principal informed of anything significant.',
+        legacyDescriptions: [
+          'Manage daily school operations, make decisions on operational issues and staff management, and inform the Principal or Shadow Principal about significant actions.',
+        ],
+      },
+      {
+        match: ['senior teacher', 'senior ei'],
+        roleFocus: 'Instructional Leadership',
+        description: 'Set the bar for instructional practice, lead lesson planning and curriculum decisions, and keep your classroom aligned with school standards.',
+        legacyDescriptions: [
+          'Lead instructional practices, make decisions on lesson planning and curriculum, and ensure alignment with school standards.',
+        ],
+      },
+      {
+        match: ['junior teacher', 'junior ei'],
+        roleFocus: 'Classroom Instruction',
+        description: 'Own daily classroom instruction, escalate significant decisions to your Supervisor or Principal, and confidently put approved teaching strategies into practice.',
+        legacyDescriptions: [
+          'Handle classroom instruction, seek approval from Supervisor or Principal for significant decisions, and implement approved strategies.',
+        ],
+      },
+      {
+        match: ['assistant teacher', 'assistant ei'],
+        roleFocus: 'Classroom Support',
+        description: 'Support daily classroom activities, partner with the Junior Teacher to keep the room running, and seek approval before changing classroom operations.',
+        legacyDescriptions: [
+          'Support classroom activities, follow authority structure of Junior Teacher, and require approval for actions affecting classroom operations.',
+        ],
+      },
+    ];
+    let posFieldSeeded = 0;
+    let posDescUpgraded = 0;
+    for (const entry of POSITION_DESCRIPTIONS) {
+      const placeholders = entry.match.map(() => '?').join(', ');
+      // roleFocus — only fill when empty.
+      const [rfRes] = await conn.execute<any>(
+        `UPDATE \`Position\`
+           SET roleFocus = ?
+         WHERE roleFocus IS NULL
+           AND LOWER(name) IN (${placeholders})`,
+        [entry.roleFocus, ...entry.match],
+      );
+      if (rfRes?.affectedRows > 0) posFieldSeeded += rfRes.affectedRows;
+      // description — only fill when empty.
+      const [dRes] = await conn.execute<any>(
+        `UPDATE \`Position\`
+           SET description = ?
+         WHERE description IS NULL
+           AND LOWER(name) IN (${placeholders})`,
+        [entry.description, ...entry.match],
+      );
+      if (dRes?.affectedRows > 0) posFieldSeeded += dRes.affectedRows;
+      // Upgrade legacy seed copy → ability-flavoured wording. Only
+      // touches rows whose description exactly matches a previous
+      // seed string, so any admin-edited row is left alone.
+      if (entry.legacyDescriptions && entry.legacyDescriptions.length > 0) {
+        const legacyPlaceholders = entry.legacyDescriptions.map(() => '?').join(', ');
+        const [upRes] = await conn.execute<any>(
+          `UPDATE \`Position\`
+             SET description = ?
+           WHERE LOWER(name) IN (${placeholders})
+             AND description IN (${legacyPlaceholders})`,
+          [entry.description, ...entry.match, ...entry.legacyDescriptions],
+        );
+        if (upRes?.affectedRows > 0) posDescUpgraded += upRes.affectedRows;
+      }
+    }
+    if (posDescUpgraded > 0) {
+      console.log(`[migrate] Upgraded ${posDescUpgraded} Position description(s) to ability-style wording`);
+    }
+    // Earlier auto-migrate (pre-split) put the headline inside
+    // description with a "\n" separator. Migrate those to the new
+    // roleFocus column so the form shows them in the right field.
+    try {
+      const [splitRes] = await conn.execute<any>(
+        `UPDATE \`Position\`
+           SET roleFocus  = SUBSTRING_INDEX(description, '\\n', 1),
+               description = TRIM(SUBSTRING(description, LENGTH(SUBSTRING_INDEX(description, '\\n', 1)) + 2))
+         WHERE roleFocus IS NULL
+           AND description IS NOT NULL
+           AND description LIKE '%\\n%'`,
+      );
+      if (splitRes?.affectedRows > 0) {
+        console.log(`[migrate] Split legacy combined description into roleFocus on ${splitRes.affectedRows} Position row(s)`);
+      }
+    } catch (e: any) {
+      console.warn('[migrate] Position description split skipped:', e.message);
+    }
+    if (posFieldSeeded > 0) {
+      console.log(`[migrate] Seeded roleFocus / description on ${posFieldSeeded} Position field(s)`);
     }
 
     // Phase 5: reconcile pre-existing lost-reason strings with the current

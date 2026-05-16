@@ -112,6 +112,25 @@ export const students = mysqlTable('Student', {
   onboardingCompleted: boolean('onboardingCompleted').notNull().default(false),
   withdrawnAt: datetime('withdrawnAt', { mode: 'date', fsp: 3 }),
   withdrawReason: varchar('withdrawReason', { length: 191 }),
+  // RFID card identifier — when a student taps their card on a reader, the
+  // server looks up the student by this value and records an attendance row.
+  // Unique across active rows (NULL allowed for unassigned cards).
+  rfid: varchar('rfid', { length: 50 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Attendance log. Created when a student taps their RFID card on a
+// physical reader (POST /api/attendance/scan) — one row per unique tap.
+// Same-card double-taps within a short window are de-duplicated by the
+// scan controller so a single tap doesn't accidentally produce duplicates.
+export const studentAttendance = mysqlTable('StudentAttendance', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  studentId: varchar('studentId', { length: 36 }).notNull(),
+  scannedAt: datetime('scannedAt', { mode: 'date', fsp: 3 }).notNull(),
+  // 'rfid' for card taps, 'manual' for admin entries.
+  source: varchar('source', { length: 20 }).notNull().default('rfid'),
+  // Optional human note (e.g. "card found", "manual entry — bus")
+  notes: text('notes'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
@@ -155,6 +174,14 @@ export const positions = mysqlTable('Position', {
   // this position, the achievement is rendered with a star in this color.
   // Lets each tier feel distinct (silver → gold → blue → ...).
   starColor: varchar('starColor', { length: 20 }),
+  // Short headline that names what this rank is mainly responsible for
+  // (e.g. "Overall School Management", "Classroom Instruction"). Shown
+  // as a bold lead above the description on the teacher career page.
+  roleFocus: varchar('roleFocus', { length: 191 }),
+  // Free-form description shown on the position edit page and (later)
+  // on the teacher-facing career journey to explain what the rank
+  // represents. Plain text, multi-line, optional.
+  description: text('description'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -201,6 +228,17 @@ export const allowanceTypes = mysqlTable('AllowanceType', {
   name: varchar('name', { length: 191 }).notNull(),
   isDefault: boolean('isDefault').notNull().default(false),
   sortOrder: int('sortOrder').notNull().default(0),
+  // FontAwesome icon name (without the `fa` prefix), e.g. 'gift',
+  // 'gauge-high'. Drives the card icon on the Compensation page.
+  icon: varchar('icon', { length: 50 }).notNull().default('gift'),
+  // True = always paid once configured (Guaranteed badge on comp
+  // page). False = conditional/confirmed-when-met (primary-blue
+  // badge).
+  isGuaranteed: boolean('isGuaranteed').notNull().default(true),
+  // Parent allowance type's id — null for top-level types. Used to
+  // group sub-types under a category (e.g. Training Completion is a
+  // child of Other Allowance). Parent's amount = sum of children.
+  parentId: varchar('parentId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
@@ -292,6 +330,10 @@ export const teacherMissionProgress = mysqlTable('TeacherMissionProgress', {
   status: mysqlEnum('status', ['PENDING', 'IN_PROGRESS', 'UNDER_REVIEW', 'COMPLETED']).notNull().default('PENDING'),
   evidenceCount: int('evidenceCount').notNull().default(0),
   evidenceTotal: int('evidenceTotal').notNull().default(0),
+  // Teacher-pinned focus flag — when true the mission appears in the
+  // Career page's "Current Targets" list. Independent of status: a
+  // target can be Not Started, In Progress, or Awaiting Review.
+  isTargeted: boolean('isTargeted').notNull().default(false),
   notes: text('notes'),
   startedAt: datetime('startedAt', { mode: 'date', fsp: 3 }),
   submittedAt: datetime('submittedAt', { mode: 'date', fsp: 3 }),

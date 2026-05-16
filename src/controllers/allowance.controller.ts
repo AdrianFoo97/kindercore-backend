@@ -16,13 +16,25 @@ const typeSchema = z.object({
   name: z.string().min(1),
   isDefault: z.boolean().optional(),
   sortOrder: z.number().int().min(0).optional(),
+  icon: z.string().min(1).max(50).optional(),
+  isGuaranteed: z.boolean().optional(),
+  parentId: z.string().nullable().optional(),
 });
 
 export async function createAllowanceType(req: Request, res: Response): Promise<void> {
   const parsed = typeSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ message: 'Validation error' }); return; }
   const id = randomUUID();
-  await db.insert(allowanceTypes).values({ id, name: parsed.data.name, isDefault: parsed.data.isDefault ?? false, sortOrder: parsed.data.sortOrder ?? 0, createdAt: new Date() });
+  await db.insert(allowanceTypes).values({
+    id,
+    name: parsed.data.name,
+    isDefault: parsed.data.isDefault ?? false,
+    sortOrder: parsed.data.sortOrder ?? 0,
+    icon: parsed.data.icon ?? 'gift',
+    isGuaranteed: parsed.data.isGuaranteed ?? true,
+    parentId: parsed.data.parentId ?? null,
+    createdAt: new Date(),
+  });
   const [created] = await db.select().from(allowanceTypes).where(eq(allowanceTypes.id, id));
   res.status(201).json(created);
 }
