@@ -54,11 +54,11 @@ function effectiveChildDob(row: any): Date | null {
   return row.studentChildDob ?? row.leadChildDob ?? null;
 }
 
-function computeStatus(row: any): 'enrolled' | 'active' | 'graduated' | 'withdrawn' {
+function computeStatus(row: any, startDate: Date | string | null): 'enrolled' | 'active' | 'graduated' | 'withdrawn' {
   if (row.withdrawnAt) return 'withdrawn';
   // Not yet started — startDate is null or in the future
-  if (row.startDate) {
-    const start = new Date(row.startDate);
+  if (startDate) {
+    const start = new Date(startDate);
     if (start > new Date()) return 'enrolled';
   } else {
     return 'enrolled';
@@ -75,7 +75,15 @@ function computeStatus(row: any): 'enrolled' | 'active' | 'graduated' | 'withdra
 
 interface SiblingRef { id: string; childName: string }
 
-function reshape(row: typeof studentSelect extends Record<string, any> ? any : never, siblings: SiblingRef[] = []) {
+// `startDate` is intentionally a derived value: the earliest enrolment's
+// startDate, not `students.startDate` (which can drift when an enrolment
+// is edited — see loadEarliestStartDateMap). Callers that already have it
+// pass it in; otherwise we fall back to the column.
+function reshape(
+  row: typeof studentSelect extends Record<string, any> ? any : never,
+  siblings: SiblingRef[] = [],
+  effectiveStartDate: Date | string | null = row.startDate ?? null,
+) {
   return {
     id: row.id,
     leadId: row.leadId,
@@ -83,7 +91,7 @@ function reshape(row: typeof studentSelect extends Record<string, any> ? any : n
     enrolmentMonth: row.enrolmentMonth,
     packageId: row.packageId,
     enrolledAt: row.enrolledAt,
-    startDate: row.startDate ?? null,
+    startDate: effectiveStartDate,
     notes: row.notes,
     monthlyFee: row.monthlyFee,
     feeOverridden: row.feeOverridden,
@@ -94,7 +102,7 @@ function reshape(row: typeof studentSelect extends Record<string, any> ? any : n
     withdrawReason: row.withdrawReason,
     rfid: row.rfid ?? null,
     createdAt: row.createdAt,
-    status: computeStatus(row),
+    status: computeStatus(row, effectiveStartDate),
     siblings,
     lead: {
       childName: effectiveChildName(row),
@@ -141,12 +149,36 @@ async function loadSiblingsMap(leadIds: string[]): Promise<Map<string, SiblingRe
   return map;
 }
 
+// Earliest-enrolment startDate per student. This is the single source of
+// truth for "first day at school" — `students.startDate` is left behind
+// when an enrolment row's startDate is edited, so we derive instead.
+async function loadEarliestStartDateMap(studentIds: string[]): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>();
+  if (studentIds.length === 0) return map;
+  const rows = await db
+    .select({
+      studentId: studentEnrollments.studentId,
+      startDate: studentEnrollments.startDate,
+    })
+    .from(studentEnrollments);
+  const wanted = new Set(studentIds);
+  for (const r of rows) {
+    if (!wanted.has(r.studentId)) continue;
+    const existing = map.get(r.studentId);
+    if (!existing || r.startDate < existing) map.set(r.studentId, r.startDate);
+  }
+  return map;
+}
+
 // Convenience for single-student responses
 async function reshapeOne(row: any) {
-  const map = await loadSiblingsMap([row.leadId]);
-  const allInLead = map.get(row.leadId) ?? [];
+  const [sibMap, startMap] = await Promise.all([
+    loadSiblingsMap([row.leadId]),
+    loadEarliestStartDateMap([row.id]),
+  ]);
+  const allInLead = sibMap.get(row.leadId) ?? [];
   const otherSiblings = allInLead.filter(s => s.id !== row.id);
-  return reshape(row, otherSiblings);
+  return reshape(row, otherSiblings, startMap.get(row.id) ?? row.startDate ?? null);
 }
 
 // ── List students (with filtering, search, pagination) ───────────────────────
@@ -161,19 +193,24 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
   const sortBy = (req.query.sortBy as string) || 'enrolledAt';
   const sortOrder = (req.query.sortOrder as string) === 'asc' ? 'asc' : 'desc';
   const onboardingStatusFilter = req.query.onboardingStatus as string | undefined; // notStarted, inProgress, readyToComplete
+  const startMonthFilter = req.query.startMonth as string | undefined; // 'YYYY-MM' | 'overdue' | 'noDate'
 
-  // Fetch all rows (with optional SQL-level year filter)
-  let query = queryStudents();
-  if (yearFilter) query = query.where(eq(students.enrolmentYear, yearFilter)) as any;
-  const rows = await query.orderBy(desc(students.enrolledAt));
+  // Fetch all rows — year is filtered in JS so `availableYears` (computed
+  // below from `all`) stays complete even when the user picks one year.
+  const rows = await queryStudents().orderBy(desc(students.enrolledAt));
 
-  // Build sibling map across all leadIds in the current result set
+  // Build sibling map across all leadIds in the current result set, plus
+  // the earliest-enrolment startDate per student (truer than the column).
   const leadIds = [...new Set(rows.map(r => r.leadId))];
-  const siblingsMap = await loadSiblingsMap(leadIds);
+  const studentIds = rows.map(r => r.id);
+  const [siblingsMap, startMap] = await Promise.all([
+    loadSiblingsMap(leadIds),
+    loadEarliestStartDateMap(studentIds),
+  ]);
   const all = rows.map(r => {
     const groupSiblings = siblingsMap.get(r.leadId) ?? [];
     const others = groupSiblings.filter(s => s.id !== r.id);
-    return reshape(r, others);
+    return reshape(r, others, startMap.get(r.id) ?? r.startDate ?? null);
   });
 
   // Compute counts across ALL students (for status tabs)
@@ -185,12 +222,21 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
   if (statusFilter) filtered = filtered.filter(s => s.status === statusFilter);
   if (onboardingFilter === 'pending') filtered = filtered.filter(s => !s.onboardingCompleted && s.status !== 'withdrawn');
   else if (onboardingFilter === 'completed') filtered = filtered.filter(s => s.onboardingCompleted);
+  if (yearFilter) filtered = filtered.filter(s => s.enrolmentYear === yearFilter);
   if (search) filtered = filtered.filter(s => s.lead.childName.toLowerCase().includes(search));
+
+  // MySQL JSON columns sometimes round-trip as strings — parse defensively
+  // so the counters/filter see the same shape the frontend's `getProgress` does.
+  const parseTasks = (raw: unknown): { done: boolean }[] => {
+    if (Array.isArray(raw)) return raw as { done: boolean }[];
+    if (typeof raw === 'string') { try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch { return []; } }
+    return [];
+  };
 
   // Compute onboarding counts (over filtered set, before pagination)
   const onboardingCounts = { total: filtered.length, notStarted: 0, inProgress: 0, readyToComplete: 0 };
   for (const s of filtered) {
-    const tasks: { done: boolean }[] = Array.isArray(s.onboardingProgress) ? s.onboardingProgress : [];
+    const tasks = parseTasks(s.onboardingProgress);
     const total = tasks.length;
     const done = tasks.filter(t => t.done).length;
     if (total === 0 || done === 0) onboardingCounts.notStarted++;
@@ -198,16 +244,48 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
     else onboardingCounts.inProgress++;
   }
 
+  // Monthly start-date breakdown (computed from `filtered` before the chip
+  // filters apply, so the strip shows what's available to click).
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const monthMap = new Map<string, number>();
+  let overdueCount = 0;
+  let noDateCount = 0;
+  for (const s of filtered) {
+    if (!s.startDate) { noDateCount++; continue; }
+    const sd = new Date(s.startDate);
+    if (sd < todayMidnight) { overdueCount++; continue; }
+    const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, '0')}`;
+    monthMap.set(key, (monthMap.get(key) ?? 0) + 1);
+  }
+  const monthlyBreakdown = {
+    months: [...monthMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count })),
+    overdue: overdueCount,
+    noDate: noDateCount,
+  };
+
   // Filter by onboarding status (after counts so counts reflect all)
   if (onboardingStatusFilter) {
     filtered = filtered.filter(s => {
-      const tasks: { done: boolean }[] = Array.isArray(s.onboardingProgress) ? s.onboardingProgress : [];
+      const tasks = parseTasks(s.onboardingProgress);
       const total = tasks.length;
-      const done = tasks.filter((t: { done: boolean }) => t.done).length;
+      const done = tasks.filter(t => t.done).length;
       if (onboardingStatusFilter === 'notStarted') return total === 0 || done === 0;
       if (onboardingStatusFilter === 'inProgress') return total > 0 && done > 0 && done < total;
       if (onboardingStatusFilter === 'readyToComplete') return total > 0 && done === total;
       return true;
+    });
+  }
+
+  // Filter by start month / overdue / noDate (after breakdown so chip counts reflect all)
+  if (startMonthFilter) {
+    filtered = filtered.filter(s => {
+      if (startMonthFilter === 'noDate') return !s.startDate;
+      if (!s.startDate) return false;
+      const sd = new Date(s.startDate);
+      if (startMonthFilter === 'overdue') return sd < todayMidnight;
+      if (sd < todayMidnight) return false;
+      const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, '0')}`;
+      return key === startMonthFilter;
     });
   }
 
@@ -229,10 +307,23 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
   const total = filtered.length;
   const items = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  // Collect available years (from all pending students)
-  const availableYears = [...new Set(all.filter(s => !s.onboardingCompleted && s.status !== 'withdrawn').map(s => s.enrolmentYear))].sort((a, b) => b - a);
+  // Collect available years (from all pending students). Sort: current year
+  // first, then future years ascending, then past years descending — so the
+  // dropdown opens to "now → what's coming" and pushes archival years down.
+  const currentYear = new Date().getFullYear();
+  const availableYears = [...new Set(
+    all.filter(s => !s.onboardingCompleted && s.status !== 'withdrawn').map(s => s.enrolmentYear),
+  )].sort((a, b) => {
+    if (a === currentYear) return -1;
+    if (b === currentYear) return 1;
+    const aFuture = a > currentYear;
+    const bFuture = b > currentYear;
+    if (aFuture && bFuture) return a - b;
+    if (!aFuture && !bFuture) return b - a;
+    return aFuture ? -1 : 1;
+  });
 
-  res.json({ items, total, page, pageSize, statusCounts, onboardingCounts, availableYears });
+  res.json({ items, total, page, pageSize, statusCounts, onboardingCounts, monthlyBreakdown, availableYears });
 }
 
 // ── Create student (enrol a lead) ─────────────────────────────────────────────
@@ -253,7 +344,7 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
-  const { leadId, enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes } = parsed.data;
+  const { leadId, enrolmentYear: inputYear, enrolmentMonth: inputMonth, packageId, enrolledAt, startDate, notes } = parsed.data;
 
   const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
   if (!lead) { res.status(404).json({ message: 'Lead not found' }); return; }
@@ -271,6 +362,11 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
 
   const now = new Date();
   const newId = randomUUID();
+  // enrolmentYear/Month are derived from startDate when provided so they
+  // can't diverge from "when the student actually starts".
+  const startDateObj = startDate ? new Date(startDate) : null;
+  const enrolmentYear = startDateObj ? startDateObj.getFullYear() : inputYear;
+  const enrolmentMonth = startDateObj ? startDateObj.getMonth() + 1 : inputMonth;
 
   await db.transaction(async (tx) => {
     await tx.insert(students).values({
@@ -343,7 +439,7 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
   }
   const {
     childName, parentPhone, childDob, howDidYouKnow, programme, submittedAt,
-    enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes,
+    enrolmentYear: inputYear, enrolmentMonth: inputMonth, packageId, enrolledAt, startDate, notes,
     monthlyFee, feeOverridden,
   } = parsed.data;
 
@@ -359,6 +455,10 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
   const submittedAtDate = submittedAt ? new Date(submittedAt) : now;
   const newLeadId = randomUUID();
   const newStudentId = randomUUID();
+  // enrolmentYear/Month derive from startDate so they can't diverge.
+  const startDateObj = startDate ? new Date(startDate) : null;
+  const enrolmentYear = startDateObj ? startDateObj.getFullYear() : inputYear;
+  const enrolmentMonth = startDateObj ? startDateObj.getMonth() + 1 : inputMonth;
 
   await db.transaction(async (tx) => {
     await tx.insert(leads).values({
@@ -433,7 +533,7 @@ export async function createSibling(req: Request, res: Response): Promise<void> 
   }
   const {
     leadId, childName, childDob,
-    enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes,
+    enrolmentYear: inputYear, enrolmentMonth: inputMonth, packageId, enrolledAt, startDate, notes,
     monthlyFee, feeOverridden,
   } = parsed.data;
 
@@ -451,6 +551,10 @@ export async function createSibling(req: Request, res: Response): Promise<void> 
   const now = new Date();
   const newId = randomUUID();
   const initialFee = feeOverridden ? (monthlyFee ?? pkg.price ?? 0) : (pkg.price ?? 0);
+  // enrolmentYear/Month derive from startDate so they can't diverge.
+  const startDateObj = startDate ? new Date(startDate) : null;
+  const enrolmentYear = startDateObj ? startDateObj.getFullYear() : inputYear;
+  const enrolmentMonth = startDateObj ? startDateObj.getMonth() + 1 : inputMonth;
 
   await db.transaction(async (tx) => {
     await tx.insert(students).values({
@@ -538,10 +642,17 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
     if (childDob !== undefined) leadUpdate.childDob = new Date(childDob);
   }
 
+  // If the caller is changing startDate, enrolmentYear/Month derive from it
+  // (single source of truth — the input values are ignored when startDate
+  // is present so the two can't be passed in conflicting).
+  const newStartDateObj = startDate !== undefined && startDate ? new Date(startDate) : null;
+  const derivedYear = newStartDateObj ? newStartDateObj.getFullYear() : enrolmentYear;
+  const derivedMonth = newStartDateObj ? newStartDateObj.getMonth() + 1 : enrolmentMonth;
+
   await db.transaction(async (tx) => {
     await tx.update(students).set({
-      ...(enrolmentYear !== undefined ? { enrolmentYear } : {}),
-      ...(enrolmentMonth !== undefined ? { enrolmentMonth } : {}),
+      ...(derivedYear !== undefined ? { enrolmentYear: derivedYear } : {}),
+      ...(derivedMonth !== undefined ? { enrolmentMonth: derivedMonth } : {}),
       ...(packageId !== undefined ? { packageId } : {}),
       ...(enrolledAt !== undefined ? { enrolledAt: new Date(enrolledAt) } : {}),
       ...(startDate !== undefined ? { startDate: startDate ? new Date(startDate) : null } : {}),
@@ -573,6 +684,23 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
       )).limit(1);
       if (currentEnr) {
         await tx.update(studentEnrollments).set(enrollmentPatch).where(eq(studentEnrollments.id, currentEnr.id));
+      }
+    }
+
+    // If startDate moved, propagate to the EARLIEST enrolment row so the
+    // derived "first day" stays consistent with what the admin set here.
+    if (newStartDateObj) {
+      const enrRows = await tx.select({ id: studentEnrollments.id, startDate: studentEnrollments.startDate })
+        .from(studentEnrollments)
+        .where(eq(studentEnrollments.studentId, id));
+      const earliest = enrRows.reduce<{ id: string; startDate: Date } | null>(
+        (min, r) => (!min || r.startDate < min.startDate) ? r : min,
+        null,
+      );
+      if (earliest && earliest.startDate.getTime() !== newStartDateObj.getTime()) {
+        await tx.update(studentEnrollments)
+          .set({ startDate: newStartDateObj })
+          .where(eq(studentEnrollments.id, earliest.id));
       }
     }
   });
