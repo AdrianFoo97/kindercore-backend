@@ -868,7 +868,12 @@ export async function updateOnboardingProgress(req: Request, res: Response): Pro
   const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
-  await db.update(students).set({ onboardingProgress: parsed.data.progress as any }).where(eq(students.id, id));
+  // Reset onboardingCompleted on every progress patch — any edit means the
+  // student is back in (or starting) the onboarding flow. The explicit
+  // /complete-onboarding endpoint is the only thing that should set it true.
+  await db.update(students)
+    .set({ onboardingProgress: parsed.data.progress as any, onboardingCompleted: false })
+    .where(eq(students.id, id));
   const [row] = await queryStudents().where(eq(students.id, id));
   res.json(await reshapeOne(row));
 }
