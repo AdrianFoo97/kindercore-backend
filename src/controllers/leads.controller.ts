@@ -1013,9 +1013,16 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const selectedYear = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
   const prevYear = selectedYear - 1;
 
+  // Sales analytics bucket by CLOSE DATE — the month the deal was won or
+  // lost — so this month's bar shows decisions made this month, not
+  // enquiries that came in this month. `statusChangedAt` is set whenever
+  // the lead's status flips (same transaction that creates the Student
+  // row on enrolment), so it's the natural proxy for "payment / closure
+  // date". Old rows without statusChangedAt fall back to submittedAt.
+  const closeDateExpr = sql<Date>`COALESCE(${leads.statusChangedAt}, ${leads.submittedAt})`;
   const closedWhere = (year: number) => and(
-    gte(leads.submittedAt, new Date(`${year}-01-01T00:00:00.000Z`)),
-    lt(leads.submittedAt, new Date(`${year + 1}-01-01T00:00:00.000Z`)),
+    gte(closeDateExpr, new Date(`${year}-01-01T00:00:00.000Z`)),
+    lt(closeDateExpr,  new Date(`${year + 1}-01-01T00:00:00.000Z`)),
     sql`deletedAt IS NULL`,
     or(
       eq(leads.status, 'ENROLLED'),
@@ -1027,11 +1034,15 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
     db.select({
       id: leads.id, childName: leads.childName, notes: leads.notes, lostReason: leads.lostReason,
       addressLocation: leads.addressLocation, howDidYouKnow: leads.howDidYouKnow,
-      childDob: leads.childDob, submittedAt: leads.submittedAt, status: leads.status, enrolmentYear: leads.enrolmentYear,
+      childDob: leads.childDob, submittedAt: leads.submittedAt, statusChangedAt: leads.statusChangedAt,
+      status: leads.status, enrolmentYear: leads.enrolmentYear,
       attended: leads.attended,
       visitOutcome: leads.visitOutcome,
     }).from(leads).where(closedWhere(selectedYear)).orderBy(asc(leads.submittedAt)),
-    db.select({ submittedAt: leads.submittedAt, status: leads.status, visitOutcome: leads.visitOutcome }).from(leads).where(closedWhere(prevYear)),
+    db.select({
+      submittedAt: leads.submittedAt, statusChangedAt: leads.statusChangedAt,
+      status: leads.status, visitOutcome: leads.visitOutcome,
+    }).from(leads).where(closedWhere(prevYear)),
   ]);
 
   // Sales talks = visits that happened. Read the explicit visitOutcome
@@ -1042,10 +1053,13 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const lostLeads = salesLeads.filter(l => l.status === 'LOST').length;
   const closingRate = totalLeads > 0 ? enrolledLeads / totalLeads : 0;
 
+  const closeDateOf = (l: { statusChangedAt: Date | null; submittedAt: Date }): Date =>
+    l.statusChangedAt ?? l.submittedAt;
+
   const enrolledMonthly = new Array(12).fill(0);
   const lostMonthly = new Array(12).fill(0);
   for (const l of salesLeads) {
-    const m = l.submittedAt.getMonth();
+    const m = closeDateOf(l).getMonth();
     if (l.status === 'ENROLLED') enrolledMonthly[m]++;
     else if (l.status === 'LOST') lostMonthly[m]++;
   }
@@ -1053,8 +1067,9 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
   const prevMonthlyLost = new Array(12).fill(0);
   for (const l of prevLeads) {
     if (l.visitOutcome === 'ATTENDED') {
-      if (l.status === 'ENROLLED') prevMonthlyEnrolled[l.submittedAt.getMonth()]++;
-      else if (l.status === 'LOST') prevMonthlyLost[l.submittedAt.getMonth()]++;
+      const m = closeDateOf(l).getMonth();
+      if (l.status === 'ENROLLED') prevMonthlyEnrolled[m]++;
+      else if (l.status === 'LOST') prevMonthlyLost[m]++;
     }
   }
   const monthlyComparison = MONTH_LABELS.map((label, i) => ({
@@ -1065,7 +1080,7 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
 
   const monthMap = new Map<string, Record<string, number>>();
   for (const lead of closedLeads) {
-    const monthLabel = MONTH_LABELS[lead.submittedAt.getMonth()];
+    const monthLabel = MONTH_LABELS[closeDateOf(lead).getMonth()];
     const birthYear = lead.childDob.getFullYear();
     const age = lead.enrolmentYear - birthYear;
     const ageKey = age < 2 ? 'Below 2' : age >= 2 && age <= 7 ? String(age) : 'Above 7';
@@ -1101,11 +1116,15 @@ export async function getSalesAnalytics(req: Request, res: Response): Promise<vo
       howDidYouKnow: lead.howDidYouKnow,
       age: Math.floor(ageMs / (365.25 * 24 * 3600 * 1000)),
       submittedAt: lead.submittedAt,
+      // Close date = when the deal was won/lost. Bucketing (chart + month
+      // filter on the frontend) uses this, not submittedAt.
+      closedAt: closeDateOf(lead),
     };
   });
 
+  // availableYears: years in which closures (or fallbacks) happened.
   const [yearRows] = await pool.query<RowDataPacket[]>(
-    'SELECT DISTINCT YEAR(submittedAt) AS year FROM `Lead` ORDER BY year DESC',
+    'SELECT DISTINCT YEAR(COALESCE(statusChangedAt, submittedAt)) AS year FROM `Lead` WHERE deletedAt IS NULL ORDER BY year DESC',
   ) as any;
   const availableYears = (yearRows as any[]).map((r: any) => Number(r.year));
 

@@ -405,11 +405,15 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
     });
     // Enrollment implies a visit took place and the lead is qualified —
     // set every analytics column explicitly so the classifier agrees.
+    // statusChangedAt mirrors the Student's enrolledAt (the payment date
+    // the admin typed) so the lead row carries the same close-date the
+    // Sales Analysis page buckets on.
     await tx.update(leads).set({
       status: 'ENROLLED',
       attended: true,
       isQualified: true,
       visitOutcome: 'ATTENDED',
+      statusChangedAt: enrolledAt ? new Date(enrolledAt) : now,
     }).where(eq(leads.id, leadId));
   });
 
