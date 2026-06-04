@@ -244,11 +244,14 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
     else onboardingCounts.inProgress++;
   }
 
-  // Monthly start-date breakdown (computed from `filtered` before the chip
-  // filters apply, so the strip shows what's available to click).
+  // Priority + monthly start-date breakdown — computed from `filtered`
+  // before the chip filters apply, so each chip's count reflects "what
+  // would I see if I clicked this from the current view".
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const soonCutoff = new Date(todayMidnight); soonCutoff.setDate(soonCutoff.getDate() + 30);
   const monthMap = new Map<string, number>();
   let overdueCount = 0;
+  let startingSoonCount = 0;
   let noDateCount = 0;
   for (const s of filtered) {
     if (!s.startDate) { noDateCount++; continue; }
@@ -256,10 +259,12 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
     if (sd < todayMidnight) { overdueCount++; continue; }
     const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, '0')}`;
     monthMap.set(key, (monthMap.get(key) ?? 0) + 1);
+    if (sd <= soonCutoff) startingSoonCount++;
   }
   const monthlyBreakdown = {
     months: [...monthMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({ month, count })),
     overdue: overdueCount,
+    startingSoon: startingSoonCount,
     noDate: noDateCount,
   };
 
@@ -276,7 +281,8 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
     });
   }
 
-  // Filter by start month / overdue / noDate (after breakdown so chip counts reflect all)
+  // Filter by start month / overdue / soon / noDate (after breakdown so
+  // chip counts reflect all available options).
   if (startMonthFilter) {
     filtered = filtered.filter(s => {
       if (startMonthFilter === 'noDate') return !s.startDate;
@@ -284,6 +290,7 @@ export async function getStudents(req: Request, res: Response): Promise<void> {
       const sd = new Date(s.startDate);
       if (startMonthFilter === 'overdue') return sd < todayMidnight;
       if (sd < todayMidnight) return false;
+      if (startMonthFilter === 'soon') return sd <= soonCutoff;
       const key = `${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, '0')}`;
       return key === startMonthFilter;
     });
