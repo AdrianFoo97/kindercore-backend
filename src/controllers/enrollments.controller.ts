@@ -201,6 +201,25 @@ export async function updateEnrollment(req: Request, res: Response): Promise<voi
         await tx.update(students).set(cacheUpdates).where(eq(students.id, existing.studentId));
       }
     }
+    // Keep students.startDate / enrolmentYear / enrolmentMonth in sync with
+    // the earliest enrolment's startDate. Single source of truth: the
+    // earliest enrolment row decides when the student starts and therefore
+    // which year/month they belong to.
+    if (updates.startDate !== undefined) {
+      const allRows = await tx.select({ startDate: studentEnrollments.startDate })
+        .from(studentEnrollments)
+        .where(eq(studentEnrollments.studentId, existing.studentId));
+      const earliest = allRows
+        .map(r => r.startDate)
+        .reduce<Date | null>((min, d) => (!min || d < min) ? d : min, null);
+      if (earliest) {
+        await tx.update(students).set({
+          startDate: earliest,
+          enrolmentYear: earliest.getFullYear(),
+          enrolmentMonth: earliest.getMonth() + 1,
+        }).where(eq(students.id, existing.studentId));
+      }
+    }
   });
 
   const [row] = await queryEnrollments().where(eq(studentEnrollments.id, enrollmentId));

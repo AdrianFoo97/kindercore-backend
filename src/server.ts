@@ -565,6 +565,32 @@ async function runMigrations() {
       console.log(`[migrate] Backfilled ${enrollmentBackfill.affectedRows} StudentEnrollment row(s) from existing Student(s)`);
     }
 
+    // Reconcile Student.startDate / enrolmentYear / enrolmentMonth with the
+    // earliest StudentEnrollment row. The enrolment timeline is the single
+    // source of truth for "when does this student actually start"; the
+    // Student-row columns are a denormalized cache that legacy readers
+    // (and the year dropdown filter) still depend on. Idempotent — only
+    // rows that are out of sync get touched.
+    const [studentDateSync] = await conn.execute<any>(
+      `UPDATE \`Student\` s
+       JOIN (
+         SELECT \`studentId\`, MIN(\`startDate\`) AS earliest
+         FROM \`StudentEnrollment\`
+         GROUP BY \`studentId\`
+       ) e ON e.\`studentId\` = s.\`id\`
+       SET
+         s.\`startDate\`      = e.earliest,
+         s.\`enrolmentYear\`  = YEAR(e.earliest),
+         s.\`enrolmentMonth\` = MONTH(e.earliest)
+       WHERE s.\`startDate\` IS NULL
+          OR s.\`startDate\`      <> e.earliest
+          OR s.\`enrolmentYear\`  <> YEAR(e.earliest)
+          OR s.\`enrolmentMonth\` <> MONTH(e.earliest)`,
+    );
+    if (studentDateSync?.affectedRows > 0) {
+      console.log(`[migrate] Synced startDate/enrolmentYear/enrolmentMonth on ${studentDateSync.affectedRows} Student row(s) to match earliest enrolment`);
+    }
+
     // Phase 3: seed default category groups & categories if none exist
     const [[{ cnt }]] = await conn.execute(`SELECT COUNT(*) AS cnt FROM \`OperatingCostCategoryGroup\``) as any;
     if (Number(cnt) === 0) {
