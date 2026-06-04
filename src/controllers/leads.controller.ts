@@ -531,13 +531,28 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   const derivedIsQualified = deriveIsQualified(nextStatus, nextLostReason);
   const derivedVisitOutcome = deriveVisitOutcome(nextStatus, nextAttended, nextLostReason);
 
+  // Default close date for transitions to LOST/REJECTED: if the parent
+  // already attended a visit, the decision was effectively made then —
+  // use the visit date instead of "now". This avoids bulk-marking
+  // sessions from clustering every lead on the click date in analytics.
+  // Admin can still override by passing statusChangedAt explicitly.
+  const now = new Date();
+  const transitioningToTerminal = statusChanged && (rest.status === 'LOST' || rest.status === 'REJECTED');
+  const pastVisit = existing.appointmentStart && new Date(existing.appointmentStart) < now
+    ? new Date(existing.appointmentStart) : null;
+  const resolvedStatusChangedAt = statusChangedAt
+    ? new Date(statusChangedAt)
+    : statusChanged
+      ? (transitioningToTerminal && pastVisit ? pastVisit : now)
+      : undefined;
+
   await db.update(leads).set({
     ...rest,
     ...(childName ? { childName: normalizeName(childName) } : {}),
     ...(childDob ? { childDob: new Date(childDob) } : {}),
     ...(appointmentStart ? { appointmentStart: new Date(appointmentStart) } : {}),
     ...(appointmentEnd ? { appointmentEnd: new Date(appointmentEnd) } : {}),
-    ...(statusChangedAt ? { statusChangedAt: new Date(statusChangedAt) } : statusChanged ? { statusChangedAt: new Date() } : {}),
+    ...(resolvedStatusChangedAt ? { statusChangedAt: resolvedStatusChangedAt } : {}),
     ...(clearLostReason ? { lostReason: null } : {}),
     isQualified: derivedIsQualified,
     visitOutcome: derivedVisitOutcome,
