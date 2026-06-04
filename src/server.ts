@@ -591,6 +591,23 @@ async function runMigrations() {
       console.log(`[migrate] Synced startDate/enrolmentYear/enrolmentMonth on ${studentDateSync.affectedRows} Student row(s) to match earliest enrolment`);
     }
 
+    // Backfill Lead.statusChangedAt for ENROLLED leads using their
+    // matching Student.enrolledAt (the "payment date" the admin entered).
+    // createStudent used to flip the status without setting statusChangedAt,
+    // so legacy enrolled leads have NULL there. Sales Analysis buckets by
+    // statusChangedAt; without this, all old enrolments appear in their
+    // enquiry month instead of their payment month. Idempotent.
+    const [paymentDateSync] = await conn.execute<any>(
+      `UPDATE \`Lead\` l
+       JOIN \`Student\` s ON s.\`leadId\` = l.\`id\`
+       SET l.\`statusChangedAt\` = s.\`enrolledAt\`
+       WHERE l.\`status\` = 'ENROLLED'
+         AND (l.\`statusChangedAt\` IS NULL OR l.\`statusChangedAt\` <> s.\`enrolledAt\`)`,
+    );
+    if (paymentDateSync?.affectedRows > 0) {
+      console.log(`[migrate] Backfilled Lead.statusChangedAt from Student.enrolledAt on ${paymentDateSync.affectedRows} ENROLLED lead(s)`);
+    }
+
     // Phase 3: seed default category groups & categories if none exist
     const [[{ cnt }]] = await conn.execute(`SELECT COUNT(*) AS cnt FROM \`OperatingCostCategoryGroup\``) as any;
     if (Number(cnt) === 0) {
