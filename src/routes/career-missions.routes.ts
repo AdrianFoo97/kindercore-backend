@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   listMissions, createMission, updateMission, deleteMission, reorderMissions,
-  getTeacherCareer, upsertTeacherMissionProgress,
+  getTeacherCareer, upsertTeacherMissionProgress, setMissionTarget,
 } from '../controllers/career-missions.controller.js';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -16,3 +16,4 @@ careerMissionsRouter.post('/career-missions/reorder', authMiddleware, asyncHandl
 
 careerMissionsRouter.get('/teachers/:teacherId/career-page', authMiddleware, asyncHandler(getTeacherCareer));
 careerMissionsRouter.put('/teachers/:teacherId/missions/:missionId/progress', authMiddleware, asyncHandler(upsertTeacherMissionProgress));
+careerMissionsRouter.put('/teachers/:teacherId/missions/:missionId/target', authMiddleware, asyncHandler(setMissionTarget));

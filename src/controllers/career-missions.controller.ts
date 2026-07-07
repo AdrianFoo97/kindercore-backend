@@ -356,13 +356,29 @@ export async function upsertTeacherMissionProgress(req: Request, res: Response):
   const [existing] = await db.select().from(teacherMissionProgress)
     .where(and(eq(teacherMissionProgress.teacherId, teacherId), eq(teacherMissionProgress.missionId, missionId)));
 
+  // Coherence guard — status must agree with evidence count for
+  // missions that track evidence:
+  //   • PENDING       + count > 0  → promote to IN_PROGRESS
+  //   • IN_PROGRESS   + count = 0  → revert to PENDING
+  // UNDER_REVIEW and COMPLETED are deliberate forward transitions and
+  // are never auto-reverted.
+  const effectiveCount = parsed.data.evidenceCount ?? existing?.evidenceCount ?? 0;
+  const effectiveTotal = parsed.data.evidenceTotal ?? existing?.evidenceTotal ?? 0;
+  const incomingStatus = parsed.data.status ?? existing?.status ?? 'PENDING';
+  let coherentStatus: typeof STATUSES[number] | undefined = parsed.data.status;
+  if (incomingStatus === 'PENDING' && effectiveCount > 0) {
+    coherentStatus = 'IN_PROGRESS';
+  } else if (incomingStatus === 'IN_PROGRESS' && effectiveCount === 0 && effectiveTotal > 0) {
+    coherentStatus = 'PENDING';
+  }
+
   if (existing) {
     const update: Record<string, unknown> = { updatedAt: now };
-    if (parsed.data.status !== undefined) {
-      update.status = parsed.data.status;
-      if (parsed.data.status === 'IN_PROGRESS' && !existing.startedAt) update.startedAt = now;
-      if (parsed.data.status === 'UNDER_REVIEW') update.submittedAt = now;
-      if (parsed.data.status === 'COMPLETED' && !existing.approvedAt) update.approvedAt = now;
+    if (coherentStatus !== undefined) {
+      update.status = coherentStatus;
+      if (coherentStatus === 'IN_PROGRESS' && !existing.startedAt) update.startedAt = now;
+      if (coherentStatus === 'UNDER_REVIEW') update.submittedAt = now;
+      if (coherentStatus === 'COMPLETED' && !existing.approvedAt) update.approvedAt = now;
     }
     if (parsed.data.evidenceCount !== undefined) update.evidenceCount = parsed.data.evidenceCount;
     if (parsed.data.evidenceTotal !== undefined) update.evidenceTotal = parsed.data.evidenceTotal;
@@ -371,7 +387,7 @@ export async function upsertTeacherMissionProgress(req: Request, res: Response):
       .where(eq(teacherMissionProgress.id, existing.id));
   } else {
     const id = randomUUID();
-    const status = parsed.data.status ?? 'PENDING';
+    const status = coherentStatus ?? 'PENDING';
     await db.insert(teacherMissionProgress).values({
       id,
       teacherId,
@@ -383,6 +399,57 @@ export async function upsertTeacherMissionProgress(req: Request, res: Response):
       startedAt: status === 'IN_PROGRESS' ? now : null,
       submittedAt: status === 'UNDER_REVIEW' ? now : null,
       approvedAt: status === 'COMPLETED' ? now : null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  const [row] = await db.select().from(teacherMissionProgress)
+    .where(and(eq(teacherMissionProgress.teacherId, teacherId), eq(teacherMissionProgress.missionId, missionId)));
+  res.json(row);
+}
+
+const setTargetSchema = z.object({
+  isTargeted: z.boolean(),
+});
+
+// Toggle the teacher's "Current Targets" pin on a mission. Creates the
+// progress row if it doesn't exist (so the teacher can pin a mission
+// they haven't started yet). Independent of status — pinning never
+// changes the mission's lifecycle state.
+export async function setMissionTarget(req: Request, res: Response): Promise<void> {
+  const { teacherId, missionId } = req.params;
+  const parsed = setTargetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
+    return;
+  }
+  const [mission] = await db.select().from(careerMissions).where(eq(careerMissions.id, missionId));
+  if (!mission) { res.status(404).json({ message: 'Mission not found' }); return; }
+  const [teacher] = await db.select().from(teachers).where(eq(teachers.id, teacherId));
+  if (!teacher) { res.status(404).json({ message: 'Teacher not found' }); return; }
+
+  const now = new Date();
+  const [existing] = await db.select().from(teacherMissionProgress)
+    .where(and(eq(teacherMissionProgress.teacherId, teacherId), eq(teacherMissionProgress.missionId, missionId)));
+
+  if (existing) {
+    await db.update(teacherMissionProgress)
+      .set({ isTargeted: parsed.data.isTargeted, updatedAt: now })
+      .where(eq(teacherMissionProgress.id, existing.id));
+  } else {
+    await db.insert(teacherMissionProgress).values({
+      id: randomUUID(),
+      teacherId,
+      missionId,
+      status: 'PENDING',
+      evidenceCount: 0,
+      evidenceTotal: 0,
+      isTargeted: parsed.data.isTargeted,
+      notes: null,
+      startedAt: null,
+      submittedAt: null,
+      approvedAt: null,
       createdAt: now,
       updatedAt: now,
     });

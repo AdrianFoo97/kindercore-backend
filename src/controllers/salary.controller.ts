@@ -30,6 +30,8 @@ const upsertPositionSchema = z.object({
   inCareerProgression: z.boolean().optional(),
   badgeUrl: z.string().max(500).nullable().optional(),
   starColor: z.string().max(20).nullable().optional(),
+  description: z.string().nullable().optional(),
+  roleFocus: z.string().max(191).nullable().optional(),
 });
 
 export async function upsertPosition(req: Request, res: Response): Promise<void> {
@@ -58,6 +60,8 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
       inCareerProgression: parsed.data.inCareerProgression ?? true,
       badgeUrl: parsed.data.badgeUrl ?? null,
       starColor: parsed.data.starColor ?? null,
+      description: parsed.data.description ?? null,
+      roleFocus: parsed.data.roleFocus ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -295,12 +299,22 @@ export async function getTeachersWithSalary(_req: Request, res: Response): Promi
     return null;
   };
 
-  // Group allowances by teacher
-  const teacherAllowanceMap = new Map<string, Array<{ typeId: string; typeName: string; amount: number }>>();
+  // Group allowances by teacher. Carry icon + isGuaranteed + parentId
+  // through so the Compensation page can render each card using the
+  // admin-configured visuals and roll children up under their parent
+  // category.
+  const teacherAllowanceMap = new Map<string, Array<{ typeId: string; typeName: string; amount: number; icon: string; isGuaranteed: boolean; parentId: string | null }>>();
   for (const a of allAllowances) {
     const list = teacherAllowanceMap.get(a.teacherId) ?? [];
-    const typeName = typeMap.get(a.allowanceTypeId)?.name ?? 'Unknown';
-    list.push({ typeId: a.allowanceTypeId, typeName, amount: a.amount });
+    const type = typeMap.get(a.allowanceTypeId);
+    list.push({
+      typeId: a.allowanceTypeId,
+      typeName: type?.name ?? 'Unknown',
+      amount: a.amount,
+      icon: type?.icon ?? 'gift',
+      isGuaranteed: type?.isGuaranteed ?? true,
+      parentId: type?.parentId ?? null,
+    });
     teacherAllowanceMap.set(a.teacherId, list);
   }
 

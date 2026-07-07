@@ -25,6 +25,7 @@ const studentSelect = {
   onboardingCompleted: students.onboardingCompleted,
   withdrawnAt: students.withdrawnAt,
   withdrawReason: students.withdrawReason,
+  rfid: students.rfid,
   createdAt: students.createdAt,
   leadChildName: leads.childName,
   leadChildDob: leads.childDob,
@@ -99,6 +100,7 @@ function reshape(
     onboardingCompleted: row.onboardingCompleted,
     withdrawnAt: row.withdrawnAt,
     withdrawReason: row.withdrawReason,
+    rfid: row.rfid ?? null,
     createdAt: row.createdAt,
     status: computeStatus(row, effectiveStartDate),
     siblings,
@@ -615,6 +617,8 @@ const updateSchema = z.object({
   childDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').optional(),
   childName: z.string().min(1).optional(),
   parentPhone: z.string().min(1).optional(),
+  // RFID card identifier — empty string clears the assignment.
+  rfid: z.string().max(50).nullable().optional(),
 });
 
 export async function updateStudent(req: Request, res: Response): Promise<void> {
@@ -628,7 +632,7 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
   const [existing] = await db.select().from(students).where(eq(students.id, id)).limit(1);
   if (!existing) { res.status(404).json({ message: 'Student not found' }); return; }
 
-  const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, monthlyFee, feeOverridden, ageOffset, childDob, childName, parentPhone } = parsed.data;
+  const { enrolmentYear, enrolmentMonth, packageId, enrolledAt, startDate, notes, monthlyFee, feeOverridden, ageOffset, childDob, childName, parentPhone, rfid } = parsed.data;
 
   // Decide where childName/childDob writes go: if this student shares a Lead
   // with siblings (or already has its own override), write to Student.
@@ -667,6 +671,8 @@ export async function updateStudent(req: Request, res: Response): Promise<void> 
       ...(monthlyFee !== undefined ? { monthlyFee } : {}),
       ...(feeOverridden !== undefined ? { feeOverridden } : {}),
       ...(ageOffset !== undefined ? { ageOffset } : {}),
+      // Empty-string clears the RFID; explicit null also clears.
+      ...(rfid !== undefined ? { rfid: rfid && rfid.trim() ? rfid.trim() : null } : {}),
       ...studentChildUpdate,
     }).where(eq(students.id, id));
 
