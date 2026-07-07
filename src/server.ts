@@ -450,6 +450,11 @@ async function runMigrations() {
     `ALTER TABLE \`Candidate\` ADD COLUMN \`whyKindergartenTeacher\` TEXT NULL`,
     `ALTER TABLE \`Candidate\` ADD COLUMN \`salaryJustification\` TEXT NULL`,
     `ALTER TABLE \`Candidate\` ADD COLUMN \`isShortlisted\` TINYINT(1) NOT NULL DEFAULT 0`,
+    // Google Calendar bookkeeping — added later; older test/prod DBs
+    // don't have them so INSERT/SELECT would fail without these.
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`interviewEventId\` VARCHAR(191) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`interviewEventLink\` TEXT NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`interviewCalendarId\` VARCHAR(191) NULL`,
     // Mission target — teacher-pinned focus flag for the Career page's
     // "Current Targets" list. Independent of status.
     `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,
