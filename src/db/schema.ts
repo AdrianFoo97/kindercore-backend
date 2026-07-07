@@ -522,5 +522,10 @@ export const candidates = mysqlTable('Candidate', {
   // the candidate. Not visible to the candidate. Editable from the
   // row's kebab menu.
   adminNotes: text('adminNotes'),
+  // Which channel the application arrived through. `apply_form` is the
+  // native /apply flow; `google_form` is the Apps Script bridge from
+  // an external Google Form. Null on legacy rows — treated as apply_form
+  // for display purposes.
+  submissionSource: varchar('submissionSource', { length: 32 }),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
 });

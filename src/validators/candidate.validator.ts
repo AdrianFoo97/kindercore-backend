@@ -30,6 +30,10 @@ export const createCandidateSchema = z.object({
   howDidYouKnow: z.string().min(1),
   /** The only optional free-text field on the form. */
   notes: z.string().optional(),
+  /** Which channel the application came through. Native /apply omits
+   *  this (server defaults to 'apply_form'); the Google Form → Apps
+   *  Script bridge sets 'google_form'. */
+  submissionSource: z.enum(['apply_form', 'google_form']).optional(),
   /** Public-form honeypot — bots fill this; legit users don't. */
   company: z.string().max(0, 'Honeypot triggered').optional(),
 }).refine(

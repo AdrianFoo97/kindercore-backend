@@ -164,6 +164,7 @@ export async function createCandidate(req: Request, res: Response): Promise<void
     whyKindergartenTeacher: data.whyKindergartenTeacher.trim(),
     howDidYouKnow: data.howDidYouKnow?.trim() || null,
     notes: data.notes?.trim() || null,
+    submissionSource: data.submissionSource ?? 'apply_form',
     status: 'NEW',
     statusChangedAt: now,
   });

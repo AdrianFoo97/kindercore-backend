@@ -458,6 +458,9 @@ async function runMigrations() {
     // Admin's private notes — separate from the candidate-visible
     // `notes` field. Also missed the initial CREATE TABLE.
     `ALTER TABLE \`Candidate\` ADD COLUMN \`adminNotes\` TEXT NULL`,
+    // Which channel the application arrived through
+    // (apply_form / google_form / null-legacy).
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`submissionSource\` VARCHAR(32) NULL`,
     // Mission target — teacher-pinned focus flag for the Career page's
     // "Current Targets" list. Independent of status.
     `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,
