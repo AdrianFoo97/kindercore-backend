@@ -455,6 +455,9 @@ async function runMigrations() {
     `ALTER TABLE \`Candidate\` ADD COLUMN \`interviewEventId\` VARCHAR(191) NULL`,
     `ALTER TABLE \`Candidate\` ADD COLUMN \`interviewEventLink\` TEXT NULL`,
     `ALTER TABLE \`Candidate\` ADD COLUMN \`interviewCalendarId\` VARCHAR(191) NULL`,
+    // Admin's private notes — separate from the candidate-visible
+    // `notes` field. Also missed the initial CREATE TABLE.
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`adminNotes\` TEXT NULL`,
     // Mission target — teacher-pinned focus flag for the Career page's
     // "Current Targets" list. Independent of status.
     `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,
@@ -516,6 +519,21 @@ async function runMigrations() {
       console.log('[migrate] Verified Lead.status enum includes all 7 values');
     } catch (e: any) {
       console.warn('[migrate] Failed to enforce Lead.status enum:', e.message);
+    }
+
+    // Same pattern for Candidate.status — CREATE TABLE went out with an
+    // older 5-value enum (NEW/CONTACTED/INTERVIEWING/HIRED/REJECTED).
+    // Newer pipeline stages PENDING_DECISION + OFFER_SENT would silently
+    // land as empty string under non-strict sql_mode without this.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`Candidate\` MODIFY \`status\`
+         ENUM('NEW','CONTACTED','INTERVIEWING','PENDING_DECISION','OFFER_SENT','HIRED','REJECTED')
+         NOT NULL DEFAULT 'NEW'`,
+      );
+      console.log('[migrate] Verified Candidate.status enum includes all 7 values');
+    } catch (e: any) {
+      console.warn('[migrate] Failed to enforce Candidate.status enum:', e.message);
     }
     const [statusRepair] = await conn.execute<any>(
       `UPDATE \`Lead\`
