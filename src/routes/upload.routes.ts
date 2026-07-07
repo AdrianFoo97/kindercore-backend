@@ -14,7 +14,14 @@ export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || path.resolve(
  *  OUTSIDE your app deploy directory so files survive deploys. If your
  *  host swaps the app folder on each deploy (as most CI-driven hosts
  *  do), the default cwd-relative path will be wiped every time and
- *  previously-uploaded resumes will physically disappear from disk. */
+ *  previously-uploaded resumes will physically disappear from disk.
+ *
+ *  → Deploy-persistence probe: this comment intentionally exists as a
+ *    trivial no-op change so pushing this commit forces a backend
+ *    redeploy. The point is to verify whether files uploaded before
+ *    the redeploy still exist on disk afterwards (with the env var
+ *    pointing at a persistent path, they should). Safe to remove or
+ *    tweak later. */
 export const PRIVATE_UPLOAD_ROOT = path.resolve(process.env.PRIVATE_UPLOAD_ROOT || path.resolve(process.cwd(), 'private-uploads'));
 const BADGES_DIR = path.join(UPLOAD_ROOT, 'badges');
 
