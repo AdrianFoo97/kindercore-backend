@@ -44,10 +44,13 @@ export const createCandidateSchema = z.object({
        || (typeof data.qualificationOther === 'string' && data.qualificationOther.trim().length > 0),
   { message: 'Please describe your qualification.', path: ['qualificationOther'] },
 ).refine(
-  // Applicants must be at least 18. The apply-form UI enforces this
-  // via the input's max attribute + inline validation; this refine is
-  // the safety net for hand-crafted POSTs (Apps Script bridge, etc.).
+  // Applicants must be at least 18 when submitting via the public
+  // /apply flow. The Google Form bridge (submissionSource: 'google_form')
+  // is an admin-controlled intake channel — we'd rather have the row
+  // land and let the admin decide what to do with an under-age
+  // applicant than silently reject the submission and lose the data.
   data => {
+    if (data.submissionSource === 'google_form') return true;
     const dob = new Date(data.dob);
     if (isNaN(dob.getTime())) return true; // let the earlier regex catch bad formats
     const eighteenAgo = new Date();
@@ -56,8 +59,11 @@ export const createCandidateSchema = z.object({
   },
   { message: 'Applicants must be at least 18 years old.', path: ['dob'] },
 ).refine(
-  // Earliest start date can't be in the past.
+  // Earliest start date can't be in the past. Same rationale as
+  // above — enforced for the public form, relaxed for the Google
+  // Form bridge so back-dated / same-day submissions still land.
   data => {
+    if (data.submissionSource === 'google_form') return true;
     const d = new Date(data.availableFrom);
     if (isNaN(d.getTime())) return true;
     const today = new Date();
@@ -66,8 +72,8 @@ export const createCandidateSchema = z.object({
   },
   { message: "Earliest start date can't be in the past.", path: ['availableFrom'] },
 ).refine(
-  // Preferred start date can't be in the past.
   data => {
+    if (data.submissionSource === 'google_form') return true;
     const d = new Date(data.preferredStartDate);
     if (isNaN(d.getTime())) return true;
     const today = new Date();
