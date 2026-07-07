@@ -461,6 +461,8 @@ async function runMigrations() {
     // Which channel the application arrived through
     // (apply_form / google_form / null-legacy).
     `ALTER TABLE \`Candidate\` ADD COLUMN \`submissionSource\` VARCHAR(32) NULL`,
+    // Marketing attribution — utm_source from the apply URL query.
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`utmSource\` VARCHAR(191) NULL`,
     // Mission target — teacher-pinned focus flag for the Career page's
     // "Current Targets" list. Independent of status.
     `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,

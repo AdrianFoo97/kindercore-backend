@@ -527,5 +527,11 @@ export const candidates = mysqlTable('Candidate', {
   // an external Google Form. Null on legacy rows — treated as apply_form
   // for display purposes.
   submissionSource: varchar('submissionSource', { length: 32 }),
+  // Marketing attribution — captured from ?utm_source= on the apply URL.
+  // Distinct from `howDidYouKnow` (what the applicant self-reports);
+  // this is the source of truth for which job-board link they clicked
+  // (e.g. 'jobstreet', 'indeed', 'maukerja'). Null when the URL had
+  // no utm_source param.
+  utmSource: varchar('utmSource', { length: 191 }),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
 });

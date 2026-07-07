@@ -13,6 +13,20 @@ import { PRIVATE_UPLOAD_ROOT } from '../routes/upload.routes.js';
 const RESUMES_DIR = path.join(PRIVATE_UPLOAD_ROOT, 'resumes');
 fs.mkdirSync(RESUMES_DIR, { recursive: true });
 
+/** Capitalises the first letter of every whitespace-separated block in
+ *  a candidate's name. "adrian foo jun wei" → "Adrian Foo Jun Wei",
+ *  "test" → "Test". Leaves already-capitalised chars alone so
+ *  "McArthur" survives. Non-Latin scripts (CJK etc.) pass through
+ *  unchanged. */
+function titleCaseName(raw: string): string {
+  return raw.split(/(\s+)/).map(seg => {
+    if (!seg.trim()) return seg;
+    const first = seg.charAt(0);
+    const upper = first.toUpperCase();
+    return upper === first ? seg : upper + seg.slice(1);
+  }).join('');
+}
+
 /** Window after candidate creation during which the public upload route
  *  will accept a resume. Keeps the public endpoint from being usable as a
  *  general-purpose drop for any candidate id at any time. */
@@ -147,7 +161,7 @@ export async function createCandidate(req: Request, res: Response): Promise<void
   await db.insert(candidates).values({
     id,
     submittedAt: now,
-    fullName: data.fullName.trim(),
+    fullName: titleCaseName(data.fullName.trim()),
     phone: data.phone.trim(),
     dob: parseDate(data.dob) ?? null,
     addressLocation: data.addressLocation?.trim() || null,
@@ -165,6 +179,7 @@ export async function createCandidate(req: Request, res: Response): Promise<void
     howDidYouKnow: data.howDidYouKnow?.trim() || null,
     notes: data.notes?.trim() || null,
     submissionSource: data.submissionSource ?? 'apply_form',
+    utmSource: data.utmSource?.trim() || null,
     status: 'NEW',
     statusChangedAt: now,
   });
@@ -495,7 +510,7 @@ export async function updateCandidate(req: Request, res: Response): Promise<void
   const assign = (key: keyof typeof data, transform?: (v: any) => any) => {
     if (key in data) patch[key as string] = transform ? transform(data[key]) : data[key];
   };
-  assign('fullName', v => v?.trim());
+  assign('fullName', v => v == null ? null : titleCaseName(v.trim()));
   assign('phone', v => v?.trim());
   assign('addressLocation', v => (v == null ? null : v.trim() || null));
   assign('commuteTime');
