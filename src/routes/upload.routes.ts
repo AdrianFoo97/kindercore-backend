@@ -5,14 +5,21 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 
-export const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
+export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || path.resolve(process.cwd(), 'uploads'));
 /** Private upload root — NOT served by the static `/uploads` route. Used
  *  for files that should only flow through authenticated download
- *  endpoints (currently: candidate resumes). */
-export const PRIVATE_UPLOAD_ROOT = path.resolve(process.cwd(), 'private-uploads');
+ *  endpoints (currently: candidate resumes).
+ *
+ *  Configurable via `PRIVATE_UPLOAD_ROOT` env var — set it to a path
+ *  OUTSIDE your app deploy directory so files survive deploys. If your
+ *  host swaps the app folder on each deploy (as most CI-driven hosts
+ *  do), the default cwd-relative path will be wiped every time and
+ *  previously-uploaded resumes will physically disappear from disk. */
+export const PRIVATE_UPLOAD_ROOT = path.resolve(process.env.PRIVATE_UPLOAD_ROOT || path.resolve(process.cwd(), 'private-uploads'));
 const BADGES_DIR = path.join(UPLOAD_ROOT, 'badges');
 
 // Ensure folders exist at boot
+fs.mkdirSync(PRIVATE_UPLOAD_ROOT, { recursive: true });
 fs.mkdirSync(BADGES_DIR, { recursive: true });
 
 const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
