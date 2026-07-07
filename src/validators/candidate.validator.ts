@@ -55,6 +55,26 @@ export const createCandidateSchema = z.object({
     return dob <= eighteenAgo;
   },
   { message: 'Applicants must be at least 18 years old.', path: ['dob'] },
+).refine(
+  // Earliest start date can't be in the past.
+  data => {
+    const d = new Date(data.availableFrom);
+    if (isNaN(d.getTime())) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return d >= today;
+  },
+  { message: "Earliest start date can't be in the past.", path: ['availableFrom'] },
+).refine(
+  // Preferred start date can't be in the past.
+  data => {
+    const d = new Date(data.preferredStartDate);
+    if (isNaN(d.getTime())) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return d >= today;
+  },
+  { message: "Preferred start date can't be in the past.", path: ['preferredStartDate'] },
 );
 
 export const updateCandidateSchema = z.object({
