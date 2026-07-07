@@ -40,6 +40,18 @@ export const createCandidateSchema = z.object({
   data => data.qualification.toLowerCase() !== 'others'
        || (typeof data.qualificationOther === 'string' && data.qualificationOther.trim().length > 0),
   { message: 'Please describe your qualification.', path: ['qualificationOther'] },
+).refine(
+  // Applicants must be at least 18. The apply-form UI enforces this
+  // via the input's max attribute + inline validation; this refine is
+  // the safety net for hand-crafted POSTs (Apps Script bridge, etc.).
+  data => {
+    const dob = new Date(data.dob);
+    if (isNaN(dob.getTime())) return true; // let the earlier regex catch bad formats
+    const eighteenAgo = new Date();
+    eighteenAgo.setFullYear(eighteenAgo.getFullYear() - 18);
+    return dob <= eighteenAgo;
+  },
+  { message: 'Applicants must be at least 18 years old.', path: ['dob'] },
 );
 
 export const updateCandidateSchema = z.object({
