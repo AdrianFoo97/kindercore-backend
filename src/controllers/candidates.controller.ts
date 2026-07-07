@@ -73,6 +73,7 @@ const DEFAULT_QUALIFICATIONS = [
   'Others',
 ];
 const DEFAULT_EXPERIENCE_RANGES = [
+  'No experience',
   'Less than 1 year',
   '1 – 2 years',
   '3 – 5 years',
@@ -839,7 +840,7 @@ const SEED_ADDRESSES = [
 const SEED_COMMUTES = ['UNDER_15', 'MIN_15_30', 'MIN_30_45', 'MIN_45_60', 'OVER_60', 'WILL_MOVE'] as const;
 const SEED_POSITIONS = ['Assistant Teacher', 'Junior Teacher', 'Senior Teacher', 'Kindergarten Helper'];
 const SEED_QUALIFICATIONS = ['SPM / O Level', 'Diploma / STPM / UEC / A Level', "Bachelor's degree", 'Others'];
-const SEED_EXPERIENCE = ['Less than 1 year', '1 – 2 years', '3 – 5 years', 'More than 5 years'];
+const SEED_EXPERIENCE = ['No experience', 'Less than 1 year', '1 – 2 years', '3 – 5 years', 'More than 5 years'];
 const SEED_REFERRALS = ['Transfer from other Ten Toes branch', 'JobStreet', 'Indeed', 'Maukerja', 'Facebook Group', 'Facebook Ads', 'MyFuture Job', 'Other'];
 const SEED_STATUSES = [
   'NEW', 'NEW', 'NEW', 'NEW', 'NEW', 'NEW', 'NEW', 'NEW',        // 8 in inbox
