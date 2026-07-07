@@ -6,6 +6,10 @@ import { randomUUID } from 'crypto';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 export const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads');
+/** Private upload root — NOT served by the static `/uploads` route. Used
+ *  for files that should only flow through authenticated download
+ *  endpoints (currently: candidate resumes). */
+export const PRIVATE_UPLOAD_ROOT = path.resolve(process.cwd(), 'private-uploads');
 const BADGES_DIR = path.join(UPLOAD_ROOT, 'badges');
 
 // Ensure folders exist at boot

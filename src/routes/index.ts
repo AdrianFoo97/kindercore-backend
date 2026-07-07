@@ -17,6 +17,7 @@ import { allowanceRouter } from './allowance.routes.js';
 import { financeRouter } from './finance.routes.js';
 import { operatingCostRouter } from './operatingCost.routes.js';
 import { uploadRouter } from './upload.routes.js';
+import { candidatesRouter } from './candidates.routes.js';
 
 export const router = Router();
 
@@ -75,6 +76,7 @@ router.use('/salary', salaryRouter);
 router.use('/finance', financeRouter);
 router.use('/operating-cost', operatingCostRouter);
 router.use('/upload', uploadRouter);
+router.use('/candidates', candidatesRouter);
 router.use('/', careerRouter);
 router.use('/', careerMissionsRouter);
 router.use('/', missionCategoriesRouter);

@@ -16,7 +16,10 @@ function getOAuth2Client() {
 
 export async function getStatus(_req: Request, res: Response): Promise<void> {
   const [connection] = await db.select().from(googleConnections).limit(1);
-  if (!connection) { res.json({ connected: false, email: null, calendarName: null, calendarId: null }); return; }
+  if (!connection) {
+    res.json({ connected: false, email: null, calendarName: null, calendarId: null, interviewCalendarId: null, interviewCalendarName: null });
+    return;
+  }
 
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
@@ -31,26 +34,36 @@ export async function getStatus(_req: Request, res: Response): Promise<void> {
   } catch (err: any) {
     const msg = String(err?.response?.data?.error ?? err?.message ?? '');
     if (msg.includes('invalid_grant') || msg.includes('Token has been expired or revoked')) {
-      res.json({ connected: false, email: null, calendarName: null, calendarId: null });
+      res.json({ connected: false, email: null, calendarName: null, calendarId: null, interviewCalendarId: null, interviewCalendarName: null });
       return;
     }
   }
 
+  const strip = (raw: string | null | undefined) => raw ? String(raw).replace(/^"|"$/g, '') : null;
+
+  const [calSetting, ivCalSetting] = await Promise.all([
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1).then(r => r[0]),
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'interview_calendar_id')).limit(1).then(r => r[0]),
+  ]);
+  const calendarId = strip(calSetting?.value as string | undefined) ?? 'primary';
+  const interviewCalendarId = strip(ivCalSetting?.value as string | undefined); // null → falls back to calendarId
+
   try {
-    const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-    const calendarId = String(calSetting?.value ?? 'primary').replace(/^"|"$/g, '');
-    const [userInfoResult, calendarResult] = await Promise.allSettled([
+    const cal = google.calendar({ version: 'v3', auth: oauth2Client });
+    const [userInfoResult, calendarResult, interviewCalResult] = await Promise.allSettled([
       google.oauth2({ version: 'v2', auth: oauth2Client }).userinfo.get(),
-      google.calendar({ version: 'v3', auth: oauth2Client }).calendars.get({ calendarId }),
+      cal.calendars.get({ calendarId }),
+      interviewCalendarId ? cal.calendars.get({ calendarId: interviewCalendarId }) : Promise.resolve(null),
     ]);
 
     const email = userInfoResult.status === 'fulfilled' ? (userInfoResult.value.data.email ?? null) : null;
     const calendarName = calendarResult.status === 'fulfilled' ? (calendarResult.value.data.summary ?? null) : null;
+    const interviewCalendarName = interviewCalResult.status === 'fulfilled' && interviewCalResult.value
+      ? (interviewCalResult.value.data.summary ?? null) : null;
 
-    res.json({ connected: true, email, calendarName, calendarId });
+    res.json({ connected: true, email, calendarName, calendarId, interviewCalendarId, interviewCalendarName });
   } catch {
-    const [calSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'shared_calendar_id')).limit(1);
-    res.json({ connected: true, email: null, calendarName: null, calendarId: calSetting ? String(calSetting.value).replace(/^"|"$/g, '') : null });
+    res.json({ connected: true, email: null, calendarName: null, calendarId, interviewCalendarId, interviewCalendarName: null });
   }
 }
 
@@ -118,6 +131,28 @@ export async function setCalendar(req: Request, res: Response): Promise<void> {
     await db.update(systemSettings).set({ value: calendarId, updatedAt: now }).where(eq(systemSettings.key, 'shared_calendar_id'));
   } else {
     await db.insert(systemSettings).values({ id: randomUUID(), key: 'shared_calendar_id', value: calendarId, updatedAt: now });
+  }
+  res.json({ calendarId });
+}
+
+// Separate setting for candidate interviews so admins can route them to
+// a different calendar (e.g. HR-only) from the general appointments feed.
+// An empty string clears the setting → interviews fall back to shared_calendar_id.
+export async function setInterviewCalendar(req: Request, res: Response): Promise<void> {
+  const { calendarId } = req.body as { calendarId: string };
+  const now = new Date();
+  const [existing] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'interview_calendar_id')).limit(1);
+  if (!calendarId) {
+    if (existing) {
+      await db.delete(systemSettings).where(eq(systemSettings.key, 'interview_calendar_id'));
+    }
+    res.json({ calendarId: null });
+    return;
+  }
+  if (existing) {
+    await db.update(systemSettings).set({ value: calendarId, updatedAt: now }).where(eq(systemSettings.key, 'interview_calendar_id'));
+  } else {
+    await db.insert(systemSettings).values({ id: randomUUID(), key: 'interview_calendar_id', value: calendarId, updatedAt: now });
   }
   res.json({ calendarId });
 }

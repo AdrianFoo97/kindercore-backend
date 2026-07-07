@@ -93,6 +93,8 @@ async function run() {
     ['whatsapp_template_zh',          JSON.stringify('您好，这是Ten Toes Preschool。感谢您对{{childName}}的询问。您想安排参观学校吗？'), 'WhatsApp Chinese template.'],
     ['whatsapp_followup_template',    JSON.stringify('Hi, just following up on your enquiry for {{childName}}. Are you still interested?'), 'Follow-up WhatsApp template.'],
     ['whatsapp_followup_template_zh', JSON.stringify('您好，我想跟进一下您对{{childName}}的询问。您还有兴趣吗？'), 'Follow-up Chinese template.'],
+    ['interview_wa_template',         JSON.stringify('Hi {{firstName}}, thank you for applying{{positionSuffix}} at our kindergarten.\n\nWe would like to invite you for an interview:\n\nDate: {{interviewDay}}, {{interviewDate}}\nTime: {{interviewTime}} – {{interviewEndTime}}\n\nPlease reply to confirm, or let us know if you need to reschedule.\n\nThank you!'), 'Interview invitation WhatsApp template (English).'],
+    ['interview_wa_template_zh',      JSON.stringify('您好{{firstName}}，感谢您申请我们幼儿园的{{position}}职位。\n\n我们诚意邀请您前来面试：\n\n日期：{{interviewDay}}，{{interviewDate}}\n时间：{{interviewTime}} – {{interviewEndTime}}\n\n请回复确认，如需改期请告知我们。\n\n谢谢！'), 'Interview invitation WhatsApp template (Chinese).'],
     ['appointment_duration_minutes',  '30',  'Default appointment duration in minutes.'],
     ['appointment_lead_time_hours',   '2',   'Hours ahead to schedule appointment from now.'],
     ['kinder_address',                JSON.stringify('Bukit Indah, Johor Bahru'), 'Kindergarten address.'],

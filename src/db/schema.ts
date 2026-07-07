@@ -386,3 +386,99 @@ export const savedTimetables = mysqlTable('SavedTimetable', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
+
+/** Job candidates / recruitment pipeline. Same flavour as `leads`: a public
+ *  form posts a row in NEW, admin works it through CONTACTED → INTERVIEWING
+ *  → HIRED/REJECTED. positionId is nullable so a candidate can express open
+ *  interest without picking a specific rank. */
+export const candidates = mysqlTable('Candidate', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  submittedAt: datetime('submittedAt', { mode: 'date', fsp: 3 }).notNull(),
+  fullName: varchar('fullName', { length: 191 }).notNull(),
+  phone: varchar('phone', { length: 50 }).notNull(),
+  dob: datetime('dob', { mode: 'date', fsp: 3 }),
+  /** Where the candidate plans to stay while working with us. Free text
+   *  (e.g. "Bukit Indah") — paired with commuteTime as self-reported
+   *  context for the admin reviewing the application. */
+  addressLocation: varchar('addressLocation', { length: 191 }),
+  /** Self-reported one-way commute time from where they'll stay to our
+   *  school. Coarse buckets so the admin can quickly filter for short
+   *  commutes without needing geocoding / distance APIs. */
+  commuteTime: mysqlEnum('commuteTime', [
+    'UNDER_15', 'MIN_15_30', 'MIN_30_45', 'MIN_45_60', 'OVER_60', 'WILL_MOVE',
+  ]),
+  /** Role the candidate is applying for — free-text name pulled from the
+   *  admin-curated `recruitment_positions` setting (intentionally NOT a FK
+   *  to Position so the public list can differ from internal career-path
+   *  ranks like "Shadow Principal"). */
+  desiredPosition: varchar('desiredPosition', { length: 191 }),
+  expectedSalary: float('expectedSalary'),
+  /** Earliest date the candidate can start. */
+  availableFrom: datetime('availableFrom', { mode: 'date', fsp: 3 }),
+  /** Preferred start date — separate from `availableFrom` (the absolute
+   *  earliest). This is the date the candidate would *prefer* to start. */
+  preferredStartDate: datetime('preferredStartDate', { mode: 'date', fsp: 3 }),
+  /** Experience bucket label from `recruitment_experience_ranges` setting
+   *  (e.g. "1 – 2 years"). String, not number — the admin curates the
+   *  buckets and we don't impose granularity the candidate can't honestly
+   *  give us. */
+  experienceRange: varchar('experienceRange', { length: 191 }),
+  /** Highest qualification — one of `recruitment_qualifications` setting
+   *  values (SPM, Diploma, Bachelor, Others, …). Stored as the bucket
+   *  label so admin filters by "Others" still group correctly. */
+  qualification: varchar('qualification', { length: 191 }),
+  /** Free-text detail used only when `qualification === 'Others'` — what
+   *  the candidate actually wrote when they picked "Others" on the form. */
+  qualificationOther: varchar('qualificationOther', { length: 191 }),
+  /** Follow-up to `expectedSalary` — required when the candidate names
+   *  a number. Filters candidates asking for pay their experience can't
+   *  back up. Free-text, admin reads it against the position's band. */
+  salaryJustification: text('salaryJustification'),
+  /** Screening question 1 — long answer. Required by the form because
+   *  it's the primary signal used to filter out low-effort applicants
+   *  who paste generic phrases instead of writing a specific answer. */
+  careerGoals: text('careerGoals'),
+  /** Screening question 2 — long answer. Required by the form. Filters
+   *  candidates who applied to any teaching job vs. those who chose
+   *  kindergarten-age children on purpose. */
+  whyKindergartenTeacher: text('whyKindergartenTeacher'),
+  /** Path to the resume file under PRIVATE_UPLOAD_ROOT — NOT a URL.
+   *  Resumes are NEVER served by the static `/uploads` route; access goes
+   *  through GET /api/candidates/:id/resume (auth-gated, streamed). */
+  resumePath: varchar('resumePath', { length: 500 }),
+  /** Original filename the candidate uploaded — used as the download
+   *  filename so the admin gets back something readable. */
+  resumeOriginalName: varchar('resumeOriginalName', { length: 255 }),
+  howDidYouKnow: varchar('howDidYouKnow', { length: 191 }),
+  status: mysqlEnum('status', ['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED'])
+    .notNull()
+    .default('NEW'),
+  /** Admin's "worth interviewing" toggle — decoupled from status so
+   *  candidates can be shortlisted from Inbox without pretending they
+   *  were already contacted. */
+  isShortlisted: boolean('isShortlisted').notNull().default(false),
+  statusChangedAt: datetime('statusChangedAt', { mode: 'date', fsp: 3 }),
+  interviewStart: datetime('interviewStart', { mode: 'date', fsp: 3 }),
+  interviewEnd: datetime('interviewEnd', { mode: 'date', fsp: 3 }),
+  interviewLocation: varchar('interviewLocation', { length: 191 }),
+  interviewNotes: text('interviewNotes'),
+  // Google Calendar event bookkeeping — set when the interview is
+  // scheduled via the API, cleared on unschedule. `interviewEventLink`
+  // points at the event in the admin's calendar so HR can click through.
+  interviewEventId: varchar('interviewEventId', { length: 191 }),
+  interviewEventLink: text('interviewEventLink'),
+  // Which Google calendar the event was booked on — the admin picks per
+  // interview, and reschedule/rename/unschedule need this to find the
+  // event again (falling back to shared_calendar_id if null).
+  interviewCalendarId: varchar('interviewCalendarId', { length: 191 }),
+  rejectionReason: text('rejectionReason'),
+  hiredAt: datetime('hiredAt', { mode: 'date', fsp: 3 }),
+  // `notes` — the candidate's own free-text ("Anything else…?" on the
+  // apply form). Read-only from the admin's perspective.
+  notes: text('notes'),
+  // `adminNotes` — private internal notes the HR admin scribbles about
+  // the candidate. Not visible to the candidate. Editable from the
+  // row's kebab menu.
+  adminNotes: text('adminNotes'),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+});

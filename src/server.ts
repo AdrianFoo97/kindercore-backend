@@ -348,6 +348,42 @@ async function runMigrations() {
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`Candidate\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`submittedAt\` DATETIME(3) NOT NULL,
+      \`fullName\` VARCHAR(191) NOT NULL,
+      \`phone\` VARCHAR(50) NOT NULL,
+      \`dob\` DATETIME(3) NULL,
+      \`addressLocation\` VARCHAR(191) NULL,
+      \`commuteTime\` ENUM('UNDER_15','MIN_15_30','MIN_30_45','MIN_45_60','OVER_60','WILL_MOVE') NULL,
+      \`desiredPosition\` VARCHAR(191) NULL,
+      \`expectedSalary\` FLOAT NULL,
+      \`availableFrom\` DATETIME(3) NULL,
+      \`preferredStartDate\` DATETIME(3) NULL,
+      \`experienceRange\` VARCHAR(191) NULL,
+      \`qualification\` VARCHAR(191) NULL,
+      \`qualificationOther\` VARCHAR(191) NULL,
+      \`salaryJustification\` TEXT NULL,
+      \`careerGoals\` TEXT NULL,
+      \`whyKindergartenTeacher\` TEXT NULL,
+      \`resumePath\` VARCHAR(500) NULL,
+      \`resumeOriginalName\` VARCHAR(255) NULL,
+      \`howDidYouKnow\` VARCHAR(191) NULL,
+      \`status\` ENUM('NEW','CONTACTED','INTERVIEWING','HIRED','REJECTED') NOT NULL DEFAULT 'NEW',
+      \`isShortlisted\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`statusChangedAt\` DATETIME(3) NULL,
+      \`interviewStart\` DATETIME(3) NULL,
+      \`interviewEnd\` DATETIME(3) NULL,
+      \`interviewLocation\` VARCHAR(191) NULL,
+      \`interviewNotes\` TEXT NULL,
+      \`rejectionReason\` TEXT NULL,
+      \`hiredAt\` DATETIME(3) NULL,
+      \`notes\` TEXT NULL,
+      \`deletedAt\` DATETIME(3) NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`idx_candidate_status\` (\`status\`),
+      INDEX \`idx_candidate_desiredPosition\` (\`desiredPosition\`)
+    )`,
   ];
 
   const addColumns = [
@@ -385,6 +421,21 @@ async function runMigrations() {
     `ALTER TABLE \`Position\` ADD COLUMN \`starColor\` VARCHAR(20) NULL`,
     `ALTER TABLE \`CareerMission\` ADD COLUMN \`whyItMatters\` TEXT`,
     `ALTER TABLE \`CareerMission\` ADD COLUMN \`highPriority\` TINYINT(1) NOT NULL DEFAULT 0`,
+    // Candidate — columns added AFTER the initial CREATE TABLE. CREATE TABLE
+    // IF NOT EXISTS is a no-op if the table is already there, so any DB that
+    // ran an earlier version of this branch is missing these. Each ADD is
+    // idempotent via the ER_DUP_FIELDNAME catch below.
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`commuteTime\` ENUM('UNDER_15','MIN_15_30','MIN_30_45','MIN_45_60','OVER_60','WILL_MOVE') NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`desiredPosition\` VARCHAR(191) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`preferredStartDate\` DATETIME(3) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`experienceRange\` VARCHAR(191) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`qualificationOther\` VARCHAR(191) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`resumePath\` VARCHAR(500) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`resumeOriginalName\` VARCHAR(255) NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`careerGoals\` TEXT NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`whyKindergartenTeacher\` TEXT NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`salaryJustification\` TEXT NULL`,
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`isShortlisted\` TINYINT(1) NOT NULL DEFAULT 0`,
   ];
 
   const conn = await pool.getConnection();
@@ -1178,6 +1229,24 @@ const leadCreateLimiter = rateLimit({
 app.use('/api/leads', (req, _res, next) => {
   // Only rate-limit unauthenticated POST (public enquiry form); skip for logged-in users (imports)
   if (req.method === 'POST' && req.path === '/' && !req.headers.authorization) return leadCreateLimiter(req, _res, next);
+  next();
+});
+
+// Public-form candidate intake + resume upload. Both routes are unauth so
+// they must be rate-limited; the form-options GET is read-only and cheap so
+// we skip it. Body parsing for /resume happens via multer (multipart) so
+// the global express.json() doesn't touch it.
+const candidatePublicLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: { message: 'Too many submissions. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/candidates', (req, _res, next) => {
+  if (req.headers.authorization) return next();           // admin: skip
+  if (req.method === 'GET' && req.path === '/form-options') return next();
+  if (req.method === 'POST') return candidatePublicLimiter(req, _res, next);
   next();
 });
 
