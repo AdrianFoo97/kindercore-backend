@@ -463,6 +463,9 @@ async function runMigrations() {
     `ALTER TABLE \`Candidate\` ADD COLUMN \`submissionSource\` VARCHAR(32) NULL`,
     // Marketing attribution — utm_source from the apply URL query.
     `ALTER TABLE \`Candidate\` ADD COLUMN \`utmSource\` VARCHAR(191) NULL`,
+    // External resume URL — populated by the Google Form / Apps Script
+    // bridge because Drive-hosted resumes can't live in resumePath.
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`resumeUrl\` TEXT NULL`,
     // Mission target — teacher-pinned focus flag for the Career page's
     // "Current Targets" list. Independent of status.
     `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,

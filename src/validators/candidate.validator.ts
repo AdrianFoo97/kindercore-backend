@@ -37,6 +37,11 @@ export const createCandidateSchema = z.object({
   /** utm_source parameter from the apply URL — the job-board / channel
    *  the applicant clicked from. e.g. 'jobstreet', 'indeed', 'maukerja'. */
   utmSource: z.string().max(191).optional(),
+  /** External resume URL — populated by the Apps Script bridge when
+   *  the applicant uploaded a resume through Google Forms (lives in
+   *  Drive). Ignored by the public /apply flow which uses a separate
+   *  file-upload endpoint. */
+  resumeUrl: z.string().url().optional(),
   /** Public-form honeypot — bots fill this; legit users don't. */
   company: z.string().max(0, 'Honeypot triggered').optional(),
 }).refine(

@@ -181,6 +181,7 @@ export async function createCandidate(req: Request, res: Response): Promise<void
     notes: data.notes?.trim() || null,
     submissionSource: data.submissionSource ?? 'apply_form',
     utmSource: data.utmSource?.trim() || null,
+    resumeUrl: data.resumeUrl?.trim() || null,
     status: 'NEW',
     statusChangedAt: now,
   });

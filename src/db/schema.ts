@@ -491,6 +491,13 @@ export const candidates = mysqlTable('Candidate', {
   /** Original filename the candidate uploaded — used as the download
    *  filename so the admin gets back something readable. */
   resumeOriginalName: varchar('resumeOriginalName', { length: 255 }),
+  /** External URL to the resume — populated by the Google Form / Apps
+   *  Script bridge because Forms uploads land in Drive, not our
+   *  `PRIVATE_UPLOAD_ROOT`. When set, the admin's "Open Resume"
+   *  button opens this URL directly in a new tab (auth-gated
+   *  fetch is skipped). Mutually exclusive with `resumePath`
+   *  in practice; if both are set, `resumeUrl` wins. */
+  resumeUrl: text('resumeUrl'),
   howDidYouKnow: varchar('howDidYouKnow', { length: 191 }),
   status: mysqlEnum('status', ['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED'])
     .notNull()
