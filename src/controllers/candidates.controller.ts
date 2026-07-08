@@ -270,6 +270,14 @@ export async function importCandidates(req: Request, res: Response): Promise<voi
         status: data.status ?? 'NEW',
         rejectionReason: data.rejectionReason?.trim() || null,
         hiredAt: data.status === 'HIRED' ? now : null,
+        // Interview datetime preserved from the source sheet's
+        // Appointment column. Unparseable value → null (row still
+        // lands, just without a scheduled slot).
+        interviewStart: (() => {
+          if (!data.interviewStart) return null;
+          const d = new Date(data.interviewStart);
+          return isNaN(d.getTime()) ? null : d;
+        })(),
         statusChangedAt: now,
       });
       inserted++;

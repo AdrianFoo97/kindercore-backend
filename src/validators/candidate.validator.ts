@@ -58,6 +58,12 @@ export const createCandidateSchema = z.object({
    *  chronological order. Accepts anything Date() can parse (ISO,
    *  M/D/YYYY H:MM:SS, etc.). Public /apply always sets `now`. */
   submittedAt: z.string().optional(),
+  /** Interview appointment datetime — populated from the import path
+   *  when the source sheet has an "Appointment" column. Any date form
+   *  Date() can parse is accepted. Absence means no interview was
+   *  scheduled. Pairs with a status of INTERVIEWING (the importer
+   *  auto-promotes rows carrying a value here). */
+  interviewStart: z.string().optional(),
   /** Public-form honeypot — bots fill this; legit users don't. */
   company: z.string().max(0, 'Honeypot triggered').optional(),
 }).refine(
