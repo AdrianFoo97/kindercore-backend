@@ -21,7 +21,13 @@ export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || path.resolve(
  *    redeploy. The point is to verify whether files uploaded before
  *    the redeploy still exist on disk afterwards (with the env var
  *    pointing at a persistent path, they should). Safe to remove or
- *    tweak later. */
+ *    tweak later.
+ *
+ *  → Production probe (2026-07-08): repeating the persistence test on
+ *    the production environment now that the code + env-var are both
+ *    in place. Uploaded a resume via /apply immediately before this
+ *    push; after redeploy the file should still be at the configured
+ *    PRIVATE_UPLOAD_ROOT path. */
 export const PRIVATE_UPLOAD_ROOT = path.resolve(process.env.PRIVATE_UPLOAD_ROOT || path.resolve(process.cwd(), 'private-uploads'));
 const BADGES_DIR = path.join(UPLOAD_ROOT, 'badges');
 
