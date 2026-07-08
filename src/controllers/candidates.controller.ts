@@ -169,6 +169,7 @@ export async function createCandidate(req: Request, res: Response): Promise<void
     commuteTime: data.commuteTime ?? null,
     desiredPosition: data.desiredPosition?.trim() || null,
     expectedSalary: data.expectedSalary ?? null,
+    expectedSalaryMax: data.expectedSalaryMax ?? null,
     availableFrom: parseDate(data.availableFrom) ?? null,
     preferredStartDate: parseDate(data.preferredStartDate) ?? null,
     experienceRange: data.experienceRange?.trim() || null,
@@ -189,9 +190,133 @@ export async function createCandidate(req: Request, res: Response): Promise<void
   res.status(201).json({ id, ok: true });
 }
 
+/** Admin — bulk import a batch of candidates. Same validator as the
+ *  public POST but skips the honeypot, applies to every row in the
+ *  array, and returns per-row success/failure so the frontend import
+ *  UI can show a clean report. Never partial-inserts a batch: each row
+ *  is its own transaction so a bad row doesn't tank the good ones.
+ *
+ *  Body shape: `{ rows: CreateCandidateInput[] }`.
+ *  Response: `{ inserted: N, failed: [{ index, error, row }] }`.
+ *
+ *  Deliberate defaults for imported rows:
+ *  - `submissionSource` defaults to `'imported'` unless a row overrides.
+ *  - Missing optional fields fall back to null / today's date sentinels
+ *    (same as the create path) so legacy exports don't need to be
+ *    scrubbed for every field. */
+export async function importCandidates(req: Request, res: Response): Promise<void> {
+  const { rows } = (req.body ?? {}) as { rows?: unknown[] };
+  if (!Array.isArray(rows)) {
+    res.status(400).json({ error: 'Expected { rows: [...] }' });
+    return;
+  }
+  if (rows.length === 0) {
+    res.status(400).json({ error: 'No rows to import' });
+    return;
+  }
+  if (rows.length > 500) {
+    res.status(400).json({ error: 'Batch too large (max 500 rows per request)' });
+    return;
+  }
+
+  const results: Array<{ index: number; id?: string; error?: string }> = [];
+  let inserted = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const parsed = createCandidateSchema.safeParse(rows[i]);
+    if (!parsed.success) {
+      results.push({
+        index: i,
+        error: JSON.stringify(parsed.error.flatten().fieldErrors),
+      });
+      continue;
+    }
+    const data = parsed.data;
+    const id = randomUUID();
+    const now = new Date();
+    // Preserve the applicant's original submission timestamp when the
+    // import row carries one — historical rows shouldn't all appear
+    // "just submitted now". Unparseable values fall through to `now`.
+    const submittedAt = (() => {
+      if (!data.submittedAt) return now;
+      const parsed = new Date(data.submittedAt);
+      return isNaN(parsed.getTime()) ? now : parsed;
+    })();
+    try {
+      await db.insert(candidates).values({
+        id,
+        submittedAt,
+        fullName: titleCaseName(data.fullName.trim()),
+        phone: data.phone.trim(),
+        dob: parseDate(data.dob) ?? null,
+        addressLocation: data.addressLocation?.trim() || null,
+        commuteTime: data.commuteTime ?? null,
+        desiredPosition: data.desiredPosition?.trim() || null,
+        expectedSalary: data.expectedSalary ?? null,
+    expectedSalaryMax: data.expectedSalaryMax ?? null,
+        availableFrom: parseDate(data.availableFrom) ?? null,
+        preferredStartDate: parseDate(data.preferredStartDate) ?? null,
+        experienceRange: data.experienceRange?.trim() || null,
+        qualification: data.qualification?.trim() || null,
+        qualificationOther: data.qualificationOther?.trim() || null,
+        salaryJustification: data.salaryJustification.trim(),
+        careerGoals: data.careerGoals.trim(),
+        whyKindergartenTeacher: data.whyKindergartenTeacher.trim(),
+        howDidYouKnow: data.howDidYouKnow?.trim() || null,
+        notes: data.notes?.trim() || null,
+        submissionSource: data.submissionSource ?? 'imported',
+        utmSource: data.utmSource?.trim() || null,
+        resumeUrl: data.resumeUrl?.trim() || null,
+        status: data.status ?? 'NEW',
+        rejectionReason: data.rejectionReason?.trim() || null,
+        hiredAt: data.status === 'HIRED' ? now : null,
+        statusChangedAt: now,
+      });
+      inserted++;
+      results.push({ index: i, id });
+    } catch (err: any) {
+      results.push({
+        index: i,
+        error: err?.message ?? 'Insert failed',
+      });
+    }
+  }
+
+  res.json({ inserted, total: rows.length, results });
+}
+
+/** Admin — nukes every candidate row. Intended for import iteration
+ *  where the admin wants a clean slate between attempts. Hard delete,
+ *  not soft: the whole point is to be able to re-import without
+ *  duplicates or leftover soft-deleted rows cluttering the DB. Also
+ *  cleans up the resume files those candidates pointed at so we
+ *  don't leak disk. */
+export async function resetAllCandidates(_req: Request, res: Response): Promise<void> {
+  const all = await db.select().from(candidates);
+  await db.delete(candidates);
+  // Best-effort resume-file cleanup — a missing file isn't fatal.
+  let filesRemoved = 0;
+  for (const c of all) {
+    if (!c.resumePath) continue;
+    try {
+      const abs = path.resolve(PRIVATE_UPLOAD_ROOT, c.resumePath);
+      const rootWithSep = PRIVATE_UPLOAD_ROOT.endsWith(path.sep) ? PRIVATE_UPLOAD_ROOT : PRIVATE_UPLOAD_ROOT + path.sep;
+      if (abs.startsWith(rootWithSep) && fs.existsSync(abs)) {
+        fs.unlinkSync(abs);
+        filesRemoved++;
+      }
+    } catch { /* ignore */ }
+  }
+  res.json({ deleted: all.length, filesRemoved });
+}
+
 export async function getCandidates(req: Request, res: Response): Promise<void> {
   const page = Math.max(1, parseInt((req.query.page as string) ?? '1') || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
+  // Cap generously — the admin list does its filtering / sorting
+  // client-side over the whole dataset, so a fresh mass import (800+
+  // rows) needs to arrive in one page. Guard the ceiling so a bad
+  // caller can't ask for a million.
+  const pageSize = Math.min(2000, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
   const skip = (page - 1) * pageSize;
 
   const { status, desiredPosition, search, sortBy, sortOrder } = req.query as Record<string, string | undefined>;
@@ -208,8 +333,20 @@ export async function getCandidates(req: Request, res: Response): Promise<void> 
     status ? eq(candidates.status, status as any) :
     undefined;
   const positionFilter = desiredPosition ? eq(candidates.desiredPosition, desiredPosition) : undefined;
+  // Phone matching needs to survive format drift — the same person may
+  // land in the DB as `01161788443`, `+60 11-6178 8443`, or
+  // `60 116178 8443` depending on how they typed it in the form. Strip
+  // both the stored value and the query to digits-only, then LIKE.
+  // Falls back to a raw phone LIKE only when the search term itself has
+  // no digits (name-only searches).
+  const searchDigits = searchTerm.replace(/\D/g, '');
   const searchFilter = searchTerm
-    ? or(like(candidates.fullName, `%${searchTerm}%`), like(candidates.phone, `%${searchTerm}%`))
+    ? or(
+        like(candidates.fullName, `%${searchTerm}%`),
+        searchDigits
+          ? sql`REGEXP_REPLACE(${candidates.phone}, '[^0-9]', '') LIKE ${'%' + searchDigits + '%'}`
+          : like(candidates.phone, `%${searchTerm}%`),
+      )
     : undefined;
 
   const whereExpr = and(notDeleted, statusFilter, positionFilter, searchFilter);
@@ -243,6 +380,20 @@ export async function getCandidateStats(_req: Request, res: Response): Promise<v
   for (const g of groups) counts[g.status] = Number(g.count);
 
   res.json({ counts });
+}
+
+// Phone index across ALL non-deleted candidates — used by the admin
+// list to flag repeat applicants regardless of which tab the row lives
+// on. Normalising the phone happens client-side (same canonical form
+// used for search / dedup); this endpoint just streams the raw phone
+// list so the client can build its Map<phoneKey, count>. Cheap enough
+// on typical volumes (~15KB for 1000 rows).
+export async function getCandidatePhoneIndex(_req: Request, res: Response): Promise<void> {
+  const rows = await db
+    .select({ phone: candidates.phone })
+    .from(candidates)
+    .where(isNull(candidates.deletedAt));
+  res.json(rows.map(r => r.phone).filter((p): p is string => !!p));
 }
 
 // Upcoming candidate interviews — used by the scheduling modal to detect

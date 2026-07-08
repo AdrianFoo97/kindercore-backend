@@ -466,6 +466,9 @@ async function runMigrations() {
     // External resume URL — populated by the Google Form / Apps Script
     // bridge because Drive-hosted resumes can't live in resumePath.
     `ALTER TABLE \`Candidate\` ADD COLUMN \`resumeUrl\` TEXT NULL`,
+    // Upper bound of the salary ask — set by the import path when the
+    // applicant answered with a range like "RM 2,500 – RM 2,800".
+    `ALTER TABLE \`Candidate\` ADD COLUMN \`expectedSalaryMax\` FLOAT NULL`,
     // Mission target — teacher-pinned focus flag for the Career page's
     // "Current Targets" list. Independent of status.
     `ALTER TABLE \`TeacherMissionProgress\` ADD COLUMN \`isTargeted\` TINYINT(1) NOT NULL DEFAULT 0`,
@@ -1479,7 +1482,11 @@ app.use(
 );
 
 // ── Body size limit ──
-app.use(express.json({ limit: '1mb' }));
+// 10 MB is the ceiling for the candidate-import endpoint (up to 500
+// rows × text fields ≈ a few MB of JSON). Regular API traffic is
+// nowhere near this — the limit is generous so imports don't fail
+// with "request entity too large" and require a redeploy to unblock.
+app.use(express.json({ limit: '10mb' }));
 
 // ── Rate limiting ──
 const authLimiter = rateLimit({

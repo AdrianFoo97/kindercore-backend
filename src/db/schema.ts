@@ -455,6 +455,11 @@ export const candidates = mysqlTable('Candidate', {
    *  ranks like "Shadow Principal"). */
   desiredPosition: varchar('desiredPosition', { length: 191 }),
   expectedSalary: float('expectedSalary'),
+  /** Upper bound of the salary ask when the applicant gave a range
+   *  (e.g. "RM 2,500 – RM 2,800"). Null when the applicant named a
+   *  single number. Import path sets both min + max; the public
+   *  /apply flow only sets expectedSalary. */
+  expectedSalaryMax: float('expectedSalaryMax'),
   /** Earliest date the candidate can start. */
   availableFrom: datetime('availableFrom', { mode: 'date', fsp: 3 }),
   /** Preferred start date — separate from `availableFrom` (the absolute

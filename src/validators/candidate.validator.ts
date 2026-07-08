@@ -24,6 +24,9 @@ export const createCandidateSchema = z.object({
   qualification: z.string().min(1),
   qualificationOther: z.string().min(1).optional(),
   expectedSalary: z.number().min(0),
+  /** Upper bound when the applicant gave a range. Optional across
+   *  all channels — only meaningful when > expectedSalary. */
+  expectedSalaryMax: z.number().min(0).optional(),
   salaryJustification: z.string().min(1),
   careerGoals: z.string().min(1),
   whyKindergartenTeacher: z.string().min(1),
@@ -32,8 +35,9 @@ export const createCandidateSchema = z.object({
   notes: z.string().optional(),
   /** Which channel the application came through. Native /apply omits
    *  this (server defaults to 'apply_form'); the Google Form → Apps
-   *  Script bridge sets 'google_form'. */
-  submissionSource: z.enum(['apply_form', 'google_form']).optional(),
+   *  Script bridge sets 'google_form'; the admin bulk import endpoint
+   *  sets 'imported'. */
+  submissionSource: z.enum(['apply_form', 'google_form', 'imported']).optional(),
   /** utm_source parameter from the apply URL — the job-board / channel
    *  the applicant clicked from. e.g. 'jobstreet', 'indeed', 'maukerja'. */
   utmSource: z.string().max(191).optional(),
@@ -42,6 +46,18 @@ export const createCandidateSchema = z.object({
    *  Drive). Ignored by the public /apply flow which uses a separate
    *  file-upload endpoint. */
   resumeUrl: z.string().url().optional(),
+  /** Pipeline status — only accepted from the admin import path so
+   *  historical rows can land already-triaged. The public /apply flow
+   *  and Google Form bridge should NOT set this; server defaults to
+   *  'NEW' when omitted. */
+  status: z.enum(['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED']).optional(),
+  /** Free-text reason paired with a REJECTED status. Also import-only. */
+  rejectionReason: z.string().optional(),
+  /** Original submission timestamp — only meaningful from the admin
+   *  import path so historical rows land with their real
+   *  chronological order. Accepts anything Date() can parse (ISO,
+   *  M/D/YYYY H:MM:SS, etc.). Public /apply always sets `now`. */
+  submittedAt: z.string().optional(),
   /** Public-form honeypot — bots fill this; legit users don't. */
   company: z.string().max(0, 'Honeypot triggered').optional(),
 }).refine(
@@ -55,7 +71,7 @@ export const createCandidateSchema = z.object({
   // land and let the admin decide what to do with an under-age
   // applicant than silently reject the submission and lose the data.
   data => {
-    if (data.submissionSource === 'google_form') return true;
+    if (data.submissionSource === 'google_form' || data.submissionSource === 'imported') return true;
     const dob = new Date(data.dob);
     if (isNaN(dob.getTime())) return true; // let the earlier regex catch bad formats
     const eighteenAgo = new Date();
@@ -68,7 +84,7 @@ export const createCandidateSchema = z.object({
   // above — enforced for the public form, relaxed for the Google
   // Form bridge so back-dated / same-day submissions still land.
   data => {
-    if (data.submissionSource === 'google_form') return true;
+    if (data.submissionSource === 'google_form' || data.submissionSource === 'imported') return true;
     const d = new Date(data.availableFrom);
     if (isNaN(d.getTime())) return true;
     const today = new Date();
@@ -78,7 +94,7 @@ export const createCandidateSchema = z.object({
   { message: "Earliest start date can't be in the past.", path: ['availableFrom'] },
 ).refine(
   data => {
-    if (data.submissionSource === 'google_form') return true;
+    if (data.submissionSource === 'google_form' || data.submissionSource === 'imported') return true;
     const d = new Date(data.preferredStartDate);
     if (isNaN(d.getTime())) return true;
     const today = new Date();
