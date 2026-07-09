@@ -404,12 +404,23 @@ export async function getCandidatePhoneIndex(_req: Request, res: Response): Prom
   res.json(rows.map(r => r.phone).filter((p): p is string => !!p));
 }
 
-// Upcoming candidate interviews — used by the scheduling modal to detect
-// clashes when the admin picks a new interview slot. Only rows with a
-// future interviewStart are returned; the modal compares against the
-// leads /upcoming feed too, so both audiences share the same calendar.
+// Upcoming candidate interviews — used by:
+//   1. The scheduling modal to detect clashes when the admin picks a slot.
+//   2. The Candidates page context panel's "Interviews" tab.
+// Only rows whose interview genuinely hasn't happened yet are returned:
+// future interviewStart AND status in {CONTACTED, INTERVIEWING}. A row
+// that's already at PENDING_DECISION / OFFER_SENT / HIRED / REJECTED
+// has an old scheduled slot that's no longer meaningful (data drift
+// from bulk imports where an interviewStart was date-only and status
+// was advanced past interview).
 export async function getUpcomingCandidateInterviews(_req: Request, res: Response): Promise<void> {
-  const now = new Date();
+  // Anchor the "upcoming" cutoff at start-of-today, not "right now",
+  // so today's interviews (including bulk-imported rows stamped at
+  // 00:00) don't drop off the calendar as soon as their hour passes.
+  // The Interview tab in the main list already relies on the row's
+  // status; this endpoint is the calendar-of-scheduled feed.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
   const rows = await db
     .select({
       id: candidates.id,
@@ -419,8 +430,9 @@ export async function getUpcomingCandidateInterviews(_req: Request, res: Respons
     })
     .from(candidates)
     .where(and(
-      gte(candidates.interviewStart, now),
+      gte(candidates.interviewStart, startOfToday),
       isNull(candidates.deletedAt),
+      sql`status IN ('CONTACTED', 'INTERVIEWING')`,
     ))
     .orderBy(asc(candidates.interviewStart));
   res.json(rows);
