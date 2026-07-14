@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { operatingCosts, operatingCostCategories } from '../db/schema.js';
+import { operatingCosts } from '../db/schema.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -27,27 +27,14 @@ export interface MonthlyOperatingCostResult {
 }
 
 export async function computeMonthlyOperatingCost(year: number): Promise<MonthlyOperatingCostResult> {
-  const [rows, cats] = await Promise.all([
-    db.select().from(operatingCosts).where(eq(operatingCosts.year, year)),
-    db.select().from(operatingCostCategories),
-  ]);
+  const rows = await db.select().from(operatingCosts).where(eq(operatingCosts.year, year));
 
-  // Preset-only rows (row.amount exactly matches the category's defaultAmount)
-  // are treated as "visual hint leftovers" rather than real expenses. They're
-  // excluded from totals AND from the has-data check, so a month containing
-  // only preset rows falls through to the forecast projection.
-  const presetMap = new Map<string, number>();
-  for (const c of cats) {
-    if (c.defaultAmount != null && c.defaultAmount > 0) presetMap.set(c.id, c.defaultAmount);
-  }
-  const isPresetOnly = (categoryId: string, amount: number) => {
-    const preset = presetMap.get(categoryId);
-    return preset != null && amount === preset;
-  };
-
+  // Every recorded row is real spend. A row whose amount happens to equal its
+  // category's defaultAmount is not "unconfirmed" — fixed costs (rent, road tax)
+  // legitimately hit the preset value every month. defaultAmount is a prefill for
+  // the entry grid and carries no meaning here.
   const byMonth = new Map<number, number>();
   for (const r of rows) {
-    if (isPresetOnly(r.categoryId, r.amount)) continue;
     byMonth.set(r.month, (byMonth.get(r.month) ?? 0) + r.amount);
   }
 

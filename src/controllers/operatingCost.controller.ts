@@ -175,6 +175,8 @@ export async function createCategory(req: Request, res: Response): Promise<void>
     name: parsed.data.name,
     groupId: parsed.data.groupId,
     sortOrder: parsed.data.sortOrder ?? 0,
+    defaultAmount: parsed.data.defaultAmount ?? null,
+    monthlyBudget: parsed.data.monthlyBudget ?? null,
     createdAt: now,
     updatedAt: now,
   });
