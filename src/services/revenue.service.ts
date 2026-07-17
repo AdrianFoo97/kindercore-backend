@@ -127,7 +127,12 @@ export async function computeMonthlyRevenue(year: number): Promise<MonthlyRevenu
     for (const enrollments of byStudent.values()) {
       const overlapping = enrollments.filter(overlaps);
       if (overlapping.length === 0) continue;
-      const credit = overlapping.find(activeAtCutoff) ?? overlapping[overlapping.length - 1];
+      // Past/current months fall back to the last-closed period so a
+      // mid-month withdrawal doesn't retroactively erase revenue that
+      // already happened. Forecast months have no history to preserve —
+      // if nothing's open through cutoff, the student simply isn't there.
+      const credit = overlapping.find(activeAtCutoff) ?? (isForecast ? null : overlapping[overlapping.length - 1]);
+      if (!credit) continue;
       // Cash-flow accounting: any active enrollment generates revenue at
       // its monthly fee regardless of which year the package is labelled.
       // We don't filter by package.year — a student paying RM 500/month is

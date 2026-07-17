@@ -965,7 +965,12 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
       for (const enrollments of byStudent.values()) {
         const overlapping = enrollments.filter(overlaps);
         if (overlapping.length === 0) continue;
-        const credit = overlapping.find(activeAtCutoff) ?? overlapping[overlapping.length - 1];
+        // Past/current months fall back to the last-closed period so a
+        // mid-month withdrawal doesn't retroactively erase revenue that
+        // already happened. Forecast months have no history to preserve —
+        // if nothing's open through cutoff, the student simply isn't there.
+        const credit = overlapping.find(activeAtCutoff) ?? (isForecast ? null : overlapping[overlapping.length - 1]);
+        if (!credit) continue;
         // Graduated at 7 — student is excluded for the year they turn 7.
         const dob = credit.studentChildDob ?? credit.leadChildDob;
         if (dob) {
