@@ -912,6 +912,8 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
       reason: studentEnrollments.reason,
       studentChildName: students.childName,
       studentChildDob: students.childDob,
+      studentWithdrawnAt: students.withdrawnAt,
+      studentWithdrawReason: students.withdrawReason,
       leadChildName: leads.childName,
       leadChildDob: leads.childDob,
     })
@@ -995,7 +997,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
     studentId: string;
     studentName: string;
     effectiveDate: Date;
-    type: 'new' | 'change';
+    type: 'new' | 'change' | 'withdrawn';
     packageName: string | null;
     programme: string | null;
     packageAge: number | null;
@@ -1003,6 +1005,7 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
     prevPackageName: string | null;
     prevProgramme: string | null;
     prevMonthlyFee: number | null;
+    withdrawReason: string | null;
   };
   const SYSTEM_EVENT_REASONS = new Set(['Year rollover', 'Repair: stuck rollover']);
   const eventsByMonth: Record<number, EnrollmentEvent[]> = {};
@@ -1030,7 +1033,35 @@ export async function getRevenueAnalytics(req: Request, res: Response): Promise<
         prevPackageName: prev?.packageName ?? null,
         prevProgramme: prev?.packageProgramme ?? null,
         prevMonthlyFee: prevFee,
+        withdrawReason: null,
       };
+      if (!eventsByMonth[monthIdx]) eventsByMonth[monthIdx] = [];
+      eventsByMonth[monthIdx].push(event);
+    }
+
+    // Withdrawal event: the student's final enrollment period closes with
+    // no follow-on period, and students.withdrawnAt is set — that's the
+    // withdraw flow (withdrawStudent closes the open period and stamps
+    // withdrawnAt in the same transaction). Reactivation reopens that same
+    // period (endDate back to null), so this naturally clears itself.
+    const last = sorted[sorted.length - 1];
+    if (last?.endDate && last.studentWithdrawnAt && last.endDate.getFullYear() === selectedYear) {
+      const fee = last.feeOverridden ? last.monthlyFee : (last.packagePrice ?? 0);
+      const event: EnrollmentEvent = {
+        studentId: last.studentId,
+        studentName: last.studentChildName ?? last.leadChildName ?? '(unknown)',
+        effectiveDate: last.endDate,
+        type: 'withdrawn',
+        packageName: last.packageName,
+        programme: last.packageProgramme,
+        packageAge: last.packageAge,
+        monthlyFee: fee,
+        prevPackageName: null,
+        prevProgramme: null,
+        prevMonthlyFee: null,
+        withdrawReason: last.studentWithdrawReason ?? null,
+      };
+      const monthIdx = last.endDate.getMonth();
       if (!eventsByMonth[monthIdx]) eventsByMonth[monthIdx] = [];
       eventsByMonth[monthIdx].push(event);
     }
