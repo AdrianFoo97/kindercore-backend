@@ -117,6 +117,20 @@ async function runMigrations() {
       INDEX \`StudentAttendance_studentId_idx\` (\`studentId\`),
       INDEX \`StudentAttendance_scannedAt_idx\` (\`scannedAt\`)
     ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    // Generated attendance-greeting clip — one per student. Regenerating
+    // deletes + re-inserts this row (see speech.controller.ts).
+    `CREATE TABLE IF NOT EXISTS \`SpeechClip\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`studentId\` VARCHAR(36) NOT NULL,
+      \`text\` VARCHAR(500) NOT NULL,
+      \`voiceId\` VARCHAR(100) NOT NULL,
+      \`filePath\` VARCHAR(500) NOT NULL,
+      \`sampleRate\` INT NOT NULL DEFAULT 16000,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`SpeechClip_studentId_uq\` (\`studentId\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     // Per-period enrollment history. Each row owns the package + monthly fee
     // for a contiguous period of the student's life. The row with
     // `endDate IS NULL` is the current enrollment.

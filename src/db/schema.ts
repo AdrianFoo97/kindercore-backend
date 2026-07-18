@@ -134,6 +134,21 @@ export const studentAttendance = mysqlTable('StudentAttendance', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// One generated attendance-greeting clip per student (ElevenLabs TTS,
+// wrapped to a 16kHz mono PCM16 WAV file on disk under UPLOAD_ROOT/speech).
+// Regenerating replaces this row; the RFID scan endpoint reads it to hand
+// the physical reader a speechUrl to fetch and play.
+export const speechClips = mysqlTable('SpeechClip', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  studentId: varchar('studentId', { length: 36 }).notNull(),
+  text: varchar('text', { length: 500 }).notNull(),
+  voiceId: varchar('voiceId', { length: 100 }).notNull(),
+  filePath: varchar('filePath', { length: 500 }).notNull(),
+  sampleRate: int('sampleRate').notNull().default(16000),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 // One package-enrollment period for a student. Multiple rows form a
 // non-overlapping timeline; the row with `endDate=null` is the current
 // enrollment. Past rows are immutable history. Revenue for a given month

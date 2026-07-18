@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, desc, and, gte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { studentAttendance, students, leads } from '../db/schema.js';
+import { studentAttendance, students, leads, speechClips } from '../db/schema.js';
 
 // Same-card double-tap suppression window. If a card was just scanned for
 // this student in the last DEDUPE_WINDOW_MS, a follow-up tap returns the
@@ -26,7 +26,7 @@ const scanSchema = z.object({
  * the reader can show a confirmation ("Welcome, Alicia!").
  *
  * Response shape:
- *   200 { ok: true, deduplicated: boolean, student: {...}, attendance: {...} }
+ *   200 { ok: true, deduplicated: boolean, student: {...}, attendance: {...}, speechUrl: string|null }
  *   404 when no student matches the RFID
  *   400 when the body is invalid
  */
@@ -57,6 +57,14 @@ export async function scanRfid(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // The reader plays this greeting (if one has been generated for the
+  // student) after a successful scan — see speech.controller.ts.
+  const [clip] = await db.select({ filePath: speechClips.filePath })
+    .from(speechClips)
+    .where(eq(speechClips.studentId, student.id))
+    .limit(1);
+  const speechUrl = clip?.filePath ?? null;
+
   // Suppress duplicate scans within DEDUPE_WINDOW_MS — protects against
   // double-beeps from the reader and accidental re-taps.
   const dedupeAfter = new Date(Date.now() - DEDUPE_WINDOW_MS);
@@ -78,6 +86,7 @@ export async function scanRfid(req: Request, res: Response): Promise<void> {
         withdrawn: !!student.withdrawnAt,
       },
       attendance: recent,
+      speechUrl,
     });
     return;
   }
@@ -103,6 +112,7 @@ export async function scanRfid(req: Request, res: Response): Promise<void> {
       withdrawn: !!student.withdrawnAt,
     },
     attendance: created,
+    speechUrl,
   });
 }
 
