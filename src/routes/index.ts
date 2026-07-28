@@ -19,6 +19,7 @@ import { operatingCostRouter } from './operatingCost.routes.js';
 import { uploadRouter } from './upload.routes.js';
 import { candidatesRouter } from './candidates.routes.js';
 import { attendanceRouter } from './attendance.routes.js';
+import { speechRouter } from './speech.routes.js';
 
 export const router = Router();
 
@@ -84,3 +85,4 @@ router.use('/', missionCategoriesRouter);
 router.use('/', teacherAppraisalsRouter);
 router.use('/', allowanceRouter);
 router.use('/', attendanceRouter);
+router.use('/', speechRouter);
