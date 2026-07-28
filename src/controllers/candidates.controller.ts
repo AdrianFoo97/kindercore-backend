@@ -139,13 +139,17 @@ async function readPositionList(fallback: RecruitmentPosition[]): Promise<Recrui
  *  Returns just the two whitelisted recruitment lists, never the full
  *  settings blob. */
 export async function getCandidateFormOptions(_req: Request, res: Response): Promise<void> {
-  const [positions, qualifications, experienceRanges, referralSources] = await Promise.all([
+  const [positions, qualifications, experienceRanges, referralSources, addressSetting] = await Promise.all([
     readPositionList(DEFAULT_POSITIONS),
     readStringArray('recruitment_qualifications', DEFAULT_QUALIFICATIONS),
     readStringArray('recruitment_experience_ranges', DEFAULT_EXPERIENCE_RANGES),
     readStringArray('recruitment_referral_sources', DEFAULT_REFERRAL_SOURCES),
+    db.select().from(systemSettings).where(eq(systemSettings.key, 'kinder_address')).limit(1).then(r => r[0]),
   ]);
-  res.json({ positions, qualifications, experienceRanges, referralSources });
+  // So the "Commute time to our school" question is answerable — applicants
+  // otherwise have no idea where "our school" actually is.
+  const address = (addressSetting?.value as string | undefined) ?? '';
+  res.json({ positions, qualifications, experienceRanges, referralSources, address });
 }
 
 /** Public — anyone with the apply link can POST. No auth. */
@@ -336,7 +340,7 @@ export async function getCandidates(req: Request, res: Response): Promise<void> 
 
   const notDeleted = isNull(candidates.deletedAt);
   const statusFilter =
-    status === 'active' ? sql`status NOT IN ('HIRED','REJECTED')` :
+    status === 'active' ? sql`status NOT IN ('HIRED','REJECTED','TALENT_BANK')` :
     status === 'closed' ? sql`status IN ('HIRED','REJECTED')` :
     status ? eq(candidates.status, status as any) :
     undefined;
@@ -384,7 +388,7 @@ export async function getCandidateStats(_req: Request, res: Response): Promise<v
     .where(isNull(candidates.deletedAt))
     .groupBy(candidates.status);
 
-  const counts: Record<string, number> = { NEW: 0, CONTACTED: 0, INTERVIEWING: 0, PENDING_DECISION: 0, OFFER_SENT: 0, HIRED: 0, REJECTED: 0 };
+  const counts: Record<string, number> = { NEW: 0, CONTACTED: 0, INTERVIEWING: 0, PENDING_DECISION: 0, OFFER_SENT: 0, HIRED: 0, REJECTED: 0, TALENT_BANK: 0 };
   for (const g of groups) counts[g.status] = Number(g.count);
 
   res.json({ counts });
@@ -748,14 +752,14 @@ export async function updateCandidate(req: Request, res: Response): Promise<void
     }
   }
 
-  // If the candidate was just rejected AND has an interview still ahead,
-  // cancel the interview: nuke the calendar event and clear the schedule
-  // fields on the record. Past interviews (already happened) are left
-  // alone — they're history, not something to un-do.
+  // If the candidate was just rejected or talent-banked AND has an
+  // interview still ahead, cancel the interview: nuke the calendar event
+  // and clear the schedule fields on the record. Past interviews (already
+  // happened) are left alone — they're history, not something to un-do.
   if (
     updated
-    && data.status === 'REJECTED'
-    && existing.status !== 'REJECTED'
+    && (data.status === 'REJECTED' || data.status === 'TALENT_BANK')
+    && existing.status !== data.status
     && updated.interviewStart
     && updated.interviewStart.getTime() > Date.now()
   ) {

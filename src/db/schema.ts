@@ -504,7 +504,7 @@ export const candidates = mysqlTable('Candidate', {
    *  in practice; if both are set, `resumeUrl` wins. */
   resumeUrl: text('resumeUrl'),
   howDidYouKnow: varchar('howDidYouKnow', { length: 191 }),
-  status: mysqlEnum('status', ['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED'])
+  status: mysqlEnum('status', ['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED', 'TALENT_BANK'])
     .notNull()
     .default('NEW'),
   /** Admin's "worth interviewing" toggle — decoupled from status so

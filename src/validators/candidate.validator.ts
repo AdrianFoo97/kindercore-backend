@@ -50,7 +50,7 @@ export const createCandidateSchema = z.object({
    *  historical rows can land already-triaged. The public /apply flow
    *  and Google Form bridge should NOT set this; server defaults to
    *  'NEW' when omitted. */
-  status: z.enum(['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED']).optional(),
+  status: z.enum(['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED', 'TALENT_BANK']).optional(),
   /** Free-text reason paired with a REJECTED status. Also import-only. */
   rejectionReason: z.string().optional(),
   /** Original submission timestamp — only meaningful from the admin
@@ -127,7 +127,7 @@ export const updateCandidateSchema = z.object({
   qualification: z.string().min(1).nullable().optional(),
   qualificationOther: z.string().min(1).nullable().optional(),
   howDidYouKnow: z.string().min(1).nullable().optional(),
-  status: z.enum(['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED']).optional(),
+  status: z.enum(['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED', 'TALENT_BANK']).optional(),
   isShortlisted: z.boolean().optional(),
   statusChangedAt: isoOrDateString.nullable().optional(),
   interviewStart: isoOrDateString.nullable().optional(),

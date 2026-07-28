@@ -534,15 +534,16 @@ async function runMigrations() {
 
     // Same pattern for Candidate.status — CREATE TABLE went out with an
     // older 5-value enum (NEW/CONTACTED/INTERVIEWING/HIRED/REJECTED).
-    // Newer pipeline stages PENDING_DECISION + OFFER_SENT would silently
-    // land as empty string under non-strict sql_mode without this.
+    // Newer pipeline stages PENDING_DECISION + OFFER_SENT, and later
+    // TALENT_BANK, would silently land as empty string under non-strict
+    // sql_mode without this.
     try {
       await conn.execute(
         `ALTER TABLE \`Candidate\` MODIFY \`status\`
-         ENUM('NEW','CONTACTED','INTERVIEWING','PENDING_DECISION','OFFER_SENT','HIRED','REJECTED')
+         ENUM('NEW','CONTACTED','INTERVIEWING','PENDING_DECISION','OFFER_SENT','HIRED','REJECTED','TALENT_BANK')
          NOT NULL DEFAULT 'NEW'`,
       );
-      console.log('[migrate] Verified Candidate.status enum includes all 7 values');
+      console.log('[migrate] Verified Candidate.status enum includes all 8 values');
     } catch (e: any) {
       console.warn('[migrate] Failed to enforce Candidate.status enum:', e.message);
     }
