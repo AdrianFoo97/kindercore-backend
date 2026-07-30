@@ -319,7 +319,13 @@ export async function getTeachersWithSalary(_req: Request, res: Response): Promi
   }
 
   const result = allTeachers
-    .filter(isTeacherActiveNow)
+    // Visible = currently employed or scheduled to resign in the future.
+    // Deliberately broader than isTeacherActiveNow: a teacher hired with a
+    // future join date should still show their configured salary (so the
+    // admin can see the hire went through correctly) — they're just not
+    // counted in *this month's* payroll cost yet, which is what
+    // `activeThisMonth` below is for.
+    .filter(t => t.isActive || !!t.resignedAt)
     .map(t => {
       const allowances = teacherAllowanceMap.get(t.id) ?? [];
       const totalAllowances = allowances.reduce((s, a) => s + a.amount, 0);
@@ -362,6 +368,11 @@ export async function getTeachersWithSalary(_req: Request, res: Response): Promi
         position: effectivePositionId ? posMap.get(effectivePositionId) ?? null : null,
         calculatedSalary,
         breakdown,
+        // Whether this teacher counts toward *this* calendar month's actual
+        // payroll (join date has arrived, resignation hasn't). Consumers
+        // that sum calculatedSalary into a real cost total must filter on
+        // this first — calculatedSalary itself is just "what's configured".
+        activeThisMonth: isTeacherActiveNow(t),
       };
     });
 

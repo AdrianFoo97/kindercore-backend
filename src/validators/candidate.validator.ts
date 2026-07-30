@@ -110,6 +110,44 @@ export const createCandidateSchema = z.object({
   { message: "Preferred start date can't be in the past.", path: ['preferredStartDate'] },
 );
 
+// "Accepted" on an OFFER_SENT candidate — confirms the hire details and
+// creates the Teacher record in one step. Deliberately stricter than
+// createTeacherSchema (which allows a mostly-empty teacher row): every
+// payroll-relevant field must be a real, non-placeholder value so a hire
+// never produces a half-configured teacher.
+export const hireCandidateSchema = z.object({
+  phone: z.string().min(1),
+  positionId: z.string().min(1),
+  level: z.number().int().min(0).max(10).default(0),
+  employmentType: z.enum(['full-time', 'part-time']),
+  joinDate: dateString,
+  salaryType: z.enum(['formula', 'fixed', 'hourly']),
+  fixedSalaryAmount: z.number().min(0).optional(),
+  hourlyRate: z.number().min(0).optional(),
+  hasEpf: z.boolean(),
+  hasSocso: z.boolean(),
+  hasEis: z.boolean(),
+  /** Work schedule — same fields Teacher/EditTeacherPage's Operations tab
+   *  uses. Optional: an admin can leave it for later, but it's what
+   *  makes an Hourly salaryType's monthly total computable at all. */
+  workStartMinute: z.number().int().min(0).max(1440).optional(),
+  workEndMinute: z.number().int().min(0).max(1440).optional(),
+  workDays: z.array(z.number().int().min(0).max(4)).optional(),
+  /** Per-type allowance amounts (Attendance, KPI, Other Allowance and its
+   *  children, any custom types the admin has added) — same set EditTeacherPage
+   *  exposes. Zero/omitted entries are simply not stored as TeacherAllowance rows. */
+  allowances: z.array(z.object({
+    allowanceTypeId: z.string().min(1),
+    amount: z.number().min(0),
+  })).optional(),
+}).refine(
+  data => data.salaryType !== 'fixed' || (typeof data.fixedSalaryAmount === 'number' && data.fixedSalaryAmount > 0),
+  { message: 'Enter a fixed salary amount.', path: ['fixedSalaryAmount'] },
+).refine(
+  data => data.salaryType !== 'hourly' || (typeof data.hourlyRate === 'number' && data.hourlyRate > 0),
+  { message: 'Enter an hourly rate.', path: ['hourlyRate'] },
+);
+
 export const updateCandidateSchema = z.object({
   fullName: z.string().min(1).optional(),
   phone: z.string().min(1).optional(),
