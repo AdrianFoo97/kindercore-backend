@@ -9,6 +9,7 @@ import {
   getCandidateStats,
   getCandidateById,
   updateCandidate,
+  hireCandidate,
   deleteCandidate,
   getCandidateFormOptions,
   getUpcomingCandidateInterviews,
@@ -80,6 +81,9 @@ candidatesRouter.get('/upcoming-interviews', authMiddleware, asyncHandler(getUpc
 candidatesRouter.get('/phone-index', authMiddleware, asyncHandler(getCandidatePhoneIndex));
 candidatesRouter.get('/:id', authMiddleware, asyncHandler(getCandidateById));
 candidatesRouter.patch('/:id', authMiddleware, asyncHandler(updateCandidate));
+// Confirms hire details and creates the Teacher record in one step —
+// separate from the generic PATCH because it also writes to Teacher/CareerRecord.
+candidatesRouter.post('/:id/hire', authMiddleware, asyncHandler(hireCandidate));
 candidatesRouter.delete('/:id', authMiddleware, asyncHandler(deleteCandidate));
 candidatesRouter.get('/:id/resume', authMiddleware, asyncHandler(downloadCandidateResume));
 // Interview scheduling with Google Calendar sync. The frontend calls

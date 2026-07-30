@@ -46,6 +46,10 @@ const createTeacherSchema = z.object({
   hasEpf: z.boolean().optional(),
   hasSocso: z.boolean().optional(),
   hasEis: z.boolean().optional(),
+  // Join date — reuses the same field `updateTeacher` already exposes for
+  // editing it later. Defaults to "now" (record creation time) when
+  // omitted, same as before this field existed.
+  createdAt: z.string().nullable().optional(),
 });
 
 export async function createTeacher(req: Request, res: Response): Promise<void> {
@@ -55,6 +59,7 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
     return;
   }
   const now = new Date();
+  const joinDate = parsed.data.createdAt ? new Date(parsed.data.createdAt) : now;
   const id = randomUUID();
   await db.insert(teachers).values({
     id, name: parsed.data.name, color: parsed.data.color,
@@ -75,7 +80,7 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
     hasEpf: parsed.data.hasEpf ?? true,
     hasSocso: parsed.data.hasSocso ?? true,
     hasEis: parsed.data.hasEis ?? true,
-    createdAt: now, updatedAt: now,
+    createdAt: joinDate, updatedAt: now,
   });
   // Seed an initial career record so the teacher's position history starts at
   // their join date. Without this, payroll for pre-first-record months falls
@@ -86,7 +91,7 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
       teacherId: id,
       positionId: parsed.data.positionId,
       level: parsed.data.level ?? 0,
-      effectiveDate: now,
+      effectiveDate: joinDate,
       notes: null,
       createdAt: now,
     });
