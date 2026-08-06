@@ -153,6 +153,15 @@ async function runMigrations() {
       INDEX \`StudentEnrollment_studentId_idx\` (\`studentId\`),
       INDEX \`StudentEnrollment_period_idx\` (\`studentId\`, \`startDate\`, \`endDate\`)
     ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`Department\` (
+      \`departmentId\` VARCHAR(20) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      \`hasCareerPath\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`departmentId\`)
+    )`,
     `CREATE TABLE IF NOT EXISTS \`Position\` (
       \`positionId\` VARCHAR(10) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
@@ -504,6 +513,12 @@ async function runMigrations() {
     // Management") that captures the rank's main responsibility.
     // Shown bolded above the description on the teacher career page.
     `ALTER TABLE \`Position\` ADD COLUMN \`roleFocus\` VARCHAR(191) NULL`,
+    // Department — which department this position belongs to (e.g.
+    // Academic, Admin). Backfilled to 'ACADEMIC' below for existing rows.
+    `ALTER TABLE \`Position\` ADD COLUMN \`departmentId\` VARCHAR(20) NULL`,
+    // Whether this department has a career progression ladder at all.
+    // Defaults true so existing departments (Academic) keep working as-is.
+    `ALTER TABLE \`Department\` ADD COLUMN \`hasCareerPath\` TINYINT(1) NOT NULL DEFAULT 1`,
   ];
 
   const conn = await pool.getConnection();
@@ -527,6 +542,30 @@ async function runMigrations() {
         // ER_DUP_KEYNAME    = index/key already exists
         if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_DUP_KEYNAME') throw e;
       }
+    }
+
+    // Phase 2a: seed the Academic department and backfill every existing
+    // Position onto it — Position.departmentId went out nullable, and
+    // until now every position implicitly meant "Academic".
+    try {
+      const [existingAcademic] = await conn.execute<any>(
+        `SELECT \`departmentId\` FROM \`Department\` WHERE \`name\` = 'Academic' LIMIT 1`,
+      );
+      if (existingAcademic.length === 0) {
+        await conn.execute(
+          `INSERT INTO \`Department\` (\`departmentId\`, \`name\`, \`sortOrder\`, \`createdAt\`, \`updatedAt\`)
+           VALUES ('ACADEMIC', 'Academic', 0, NOW(), NOW())`,
+        );
+        console.log('[migrate] Seeded Academic department');
+      }
+      const [deptBackfill] = await conn.execute<any>(
+        `UPDATE \`Position\` SET \`departmentId\` = 'ACADEMIC' WHERE \`departmentId\` IS NULL`,
+      );
+      if (deptBackfill?.affectedRows > 0) {
+        console.log(`[migrate] Backfilled departmentId='ACADEMIC' on ${deptBackfill.affectedRows} Position row(s)`);
+      }
+    } catch (e: any) {
+      console.warn('[migrate] Department backfill skipped:', e.message);
     }
 
     // Phase 2b: ensure Lead.status enum includes every value the code uses.

@@ -170,8 +170,25 @@ export const studentEnrollments = mysqlTable('StudentEnrollment', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+export const departments = mysqlTable('Department', {
+  departmentId: varchar('departmentId', { length: 20 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  sortOrder: int('sortOrder').notNull().default(0),
+  // Whether positions in this department can be part of a career
+  // progression ladder at all. Off for departments with no promotion
+  // ladder (e.g. a single flat "Admin" role) — new positions created
+  // under such a department default inCareerProgression to false.
+  hasCareerPath: boolean('hasCareerPath').notNull().default(true),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 export const positions = mysqlTable('Position', {
   positionId: varchar('positionId', { length: 10 }).primaryKey(),
+  // References Department.departmentId. Nullable to match the existing
+  // looseness of other FK-ish columns (e.g. teachers.positionId) — every
+  // row is backfilled to 'ACADEMIC' by the migration in server.ts.
+  departmentId: varchar('departmentId', { length: 20 }),
   name: varchar('name', { length: 191 }).notNull(),
   titleWeight: int('titleWeight').notNull().default(0),
   basicSalary: float('basicSalary').notNull().default(0),

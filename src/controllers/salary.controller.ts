@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, pool } from '../db/client.js';
-import { positions, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, careerMissions, systemSettings } from '../db/schema.js';
+import { positions, departments, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, careerMissions, systemSettings } from '../db/schema.js';
 import { computeMonthlyPayroll, computeTeacherWeightsByMonth, isTeacherActiveInMonth } from '../services/payroll.service.js';
 
 // Snapshot helper — "is the teacher active this calendar month?"
@@ -12,6 +12,59 @@ function isTeacherActiveNow(t: { isActive: boolean; createdAt: Date | string | n
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   return isTeacherActiveInMonth(t, startOfMonth, endOfMonth);
+}
+
+// ── Departments ──────────────────────────────────────────────────────────────
+
+export async function getDepartments(_req: Request, res: Response): Promise<void> {
+  const rows = await db.select().from(departments).orderBy(departments.sortOrder);
+  res.json(rows);
+}
+
+const upsertDepartmentSchema = z.object({
+  name: z.string().min(1),
+  sortOrder: z.number().int().min(0).optional(),
+  hasCareerPath: z.boolean().optional(),
+});
+
+export async function upsertDepartment(req: Request, res: Response): Promise<void> {
+  const { departmentId } = req.params;
+  if (!departmentId || departmentId.length > 20) {
+    res.status(400).json({ message: 'Invalid departmentId' });
+    return;
+  }
+  const parsed = upsertDepartmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
+    return;
+  }
+  const now = new Date();
+  const [existing] = await db.select().from(departments).where(eq(departments.departmentId, departmentId));
+  if (existing) {
+    await db.update(departments).set({ ...parsed.data, updatedAt: now }).where(eq(departments.departmentId, departmentId));
+  } else {
+    await db.insert(departments).values({
+      departmentId,
+      name: parsed.data.name,
+      sortOrder: parsed.data.sortOrder ?? 0,
+      hasCareerPath: parsed.data.hasCareerPath ?? true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  const [updated] = await db.select().from(departments).where(eq(departments.departmentId, departmentId));
+  res.json(updated);
+}
+
+export async function deleteDepartment(req: Request, res: Response): Promise<void> {
+  const { departmentId } = req.params;
+  const [usage] = await db.select({ count: sql<number>`COUNT(*)` }).from(positions).where(eq(positions.departmentId, departmentId));
+  if (usage && usage.count > 0) {
+    res.status(409).json({ message: `Cannot delete — ${usage.count} position(s) assigned to this department` });
+    return;
+  }
+  await db.delete(departments).where(eq(departments.departmentId, departmentId));
+  res.json({ ok: true });
 }
 
 // ── Positions ────────────────────────────────────────────────────────────────
@@ -32,6 +85,7 @@ const upsertPositionSchema = z.object({
   starColor: z.string().max(20).nullable().optional(),
   description: z.string().nullable().optional(),
   roleFocus: z.string().max(191).nullable().optional(),
+  departmentId: z.string().max(20).nullable().optional(),
 });
 
 export async function upsertPosition(req: Request, res: Response): Promise<void> {
@@ -62,6 +116,7 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
       starColor: parsed.data.starColor ?? null,
       description: parsed.data.description ?? null,
       roleFocus: parsed.data.roleFocus ?? null,
+      departmentId: parsed.data.departmentId ?? null,
       createdAt: now,
       updatedAt: now,
     });
