@@ -243,6 +243,12 @@ export const teachers = mysqlTable('Teacher', {
   salaryType: varchar('salaryType', { length: 20 }).default('formula'),
   hourlyRate: float('hourlyRate'),
   excludeFromProfitShare: boolean('excludeFromProfitShare').notNull().default(false),
+  // Distinct from excludeFromProfitShare: that only removes the teacher from
+  // the profit-share weight/pool distribution. This removes their salary
+  // (and its employer contributions) from the Staff Cost total that feeds
+  // Finance's profit/margin — e.g. a grant-funded or sponsored role whose
+  // pay shouldn't count against the school's own cost base.
+  excludeFromStaffCost: boolean('excludeFromStaffCost').notNull().default(false),
   overrideProfitShareWeight: boolean('overrideProfitShareWeight').notNull().default(false),
   customProfitShareWeight: float('customProfitShareWeight'),
   hasEpf: boolean('hasEpf').notNull().default(true),

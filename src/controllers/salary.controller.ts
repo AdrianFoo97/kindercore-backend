@@ -203,6 +203,7 @@ export async function getPayrollByMonth(req: Request, res: Response): Promise<vo
     total: Math.round(m.staffCost),
     teacherCount: m.teacherCount,
     isForecast: m.isForecast,
+    byDepartment: m.byDepartment.map(d => ({ ...d, staffCost: Math.round(d.staffCost) })),
   }));
   const annualTotal = months.reduce((sum, m) => sum + m.total, 0);
   const actualTotal = months.filter(m => !m.isForecast).reduce((sum, m) => sum + m.total, 0);

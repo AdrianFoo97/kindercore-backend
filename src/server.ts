@@ -201,6 +201,7 @@ async function runMigrations() {
       \`salaryType\` VARCHAR(20) DEFAULT 'formula',
       \`hourlyRate\` FLOAT,
       \`excludeFromProfitShare\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`excludeFromStaffCost\` TINYINT(1) NOT NULL DEFAULT 0,
       \`overrideProfitShareWeight\` TINYINT(1) NOT NULL DEFAULT 0,
       \`customProfitShareWeight\` FLOAT,
       \`phone\` VARCHAR(50),
@@ -442,6 +443,10 @@ async function runMigrations() {
     `ALTER TABLE \`Teacher\` ADD COLUMN \`hourlyRate\` FLOAT NULL`,
     // Teacher — HR / profit-share fields
     `ALTER TABLE \`Teacher\` ADD COLUMN \`excludeFromProfitShare\` TINYINT(1) NOT NULL DEFAULT 0`,
+    // Excludes the teacher's salary + employer contributions from the Staff
+    // Cost total used for Finance profit/margin — separate from
+    // excludeFromProfitShare, which only affects the profit-share pool.
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`excludeFromStaffCost\` TINYINT(1) NOT NULL DEFAULT 0`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`overrideProfitShareWeight\` TINYINT(1) NOT NULL DEFAULT 0`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`customProfitShareWeight\` FLOAT NULL`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`phone\` VARCHAR(50) NULL`,

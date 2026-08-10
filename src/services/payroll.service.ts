@@ -1,5 +1,5 @@
 import { db } from '../db/client.js';
-import { positions, levelIncentives, teachers, teacherAllowances, careerRecords, systemSettings } from '../db/schema.js';
+import { positions, levelIncentives, teachers, teacherAllowances, careerRecords, systemSettings, departments } from '../db/schema.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -34,6 +34,15 @@ export interface MonthlyPayrollEntry {
   employerContributions: number;
   teacherCount: number;
   isForecast: boolean;
+  /** Salary + employer contributions for teachers flagged
+   *  excludeFromStaffCost — still real headcount, just left out of the
+   *  Staff Cost total (and therefore profit/margin). */
+  excludedStaffCost: number;
+  /** staffCost split by the teacher's effective department that month, sorted
+   *  by Department.sortOrder. Teachers with no resolvable position/department
+   *  land in a trailing "Unassigned" bucket. Excludes excludeFromStaffCost
+   *  teachers, same as staffCost itself. */
+  byDepartment: { departmentId: string; departmentName: string; staffCost: number; teacherCount: number }[];
 }
 
 export interface MonthlyPayrollResult {
@@ -43,14 +52,19 @@ export interface MonthlyPayrollResult {
 }
 
 export async function computeMonthlyPayroll(year: number): Promise<MonthlyPayrollResult> {
-  const [allTeachers, allPositions, allIncentives, allAllowances, allCareerRecords, settingRows] = await Promise.all([
+  const [allTeachers, allPositions, allIncentives, allAllowances, allCareerRecords, settingRows, allDepartments] = await Promise.all([
     db.select().from(teachers),
     db.select().from(positions),
     db.select().from(levelIncentives),
     db.select().from(teacherAllowances),
     db.select().from(careerRecords),
     db.select().from(systemSettings),
+    db.select().from(departments),
   ]);
+
+  const deptMap = new Map(allDepartments.map(d => [d.departmentId, d]));
+  const sortedDeptIds = [...allDepartments].sort((a, b) => a.sortOrder - b.sortOrder).map(d => d.departmentId);
+  const UNASSIGNED = 'UNASSIGNED';
 
   // Parse employer contribution settings
   const settingMap = new Map(settingRows.map(r => [r.key, r.value]));
@@ -138,14 +152,50 @@ export async function computeMonthlyPayroll(year: number): Promise<MonthlyPayrol
     const salaryAsOf = (isCurrent || isForecast) ? now : endOfMonth;
     let staffCost = 0;
     let employerContributions = 0;
+    let excludedStaffCost = 0;
+    const deptTotals = new Map<string, { staffCost: number; teacherCount: number }>();
     for (const t of activeTeachers) {
       const salary = computeTeacherSalary(t, salaryAsOf);
-      staffCost += salary;
-      if (epfEnabled   && (t as any).hasEpf   !== false) employerContributions += salary <= epfThreshold ? salary * epfRateBelow / 100 : salary * epfRateAbove / 100;
-      if (socsoEnabled && (t as any).hasSocso !== false) employerContributions += Math.min(salary, socsoCeiling) * socsoRate / 100;
-      if (eisEnabled   && (t as any).hasEis   !== false) employerContributions += Math.min(salary, eisCeiling)   * eisRate   / 100;
+      let contributions = 0;
+      if (epfEnabled   && (t as any).hasEpf   !== false) contributions += salary <= epfThreshold ? salary * epfRateBelow / 100 : salary * epfRateAbove / 100;
+      if (socsoEnabled && (t as any).hasSocso !== false) contributions += Math.min(salary, socsoCeiling) * socsoRate / 100;
+      if (eisEnabled   && (t as any).hasEis   !== false) contributions += Math.min(salary, eisCeiling)   * eisRate   / 100;
+      // excludeFromStaffCost pulls this teacher's salary + its employer
+      // contributions out of the Staff Cost total entirely — distinct from
+      // excludeFromProfitShare, which only affects the profit-share pool.
+      // They're still active headcount (teacherCount below), just not
+      // counted as a cost.
+      if ((t as any).excludeFromStaffCost) {
+        excludedStaffCost += salary + contributions;
+      } else {
+        staffCost += salary;
+        employerContributions += contributions;
+        // Same effective-position resolution computeTeacherSalary uses for
+        // the formula branch — career record as of this month, falling back
+        // to the teacher's current position. Applied regardless of salary
+        // type so hourly/fixed-salary teachers still land in their department.
+        const career = getEffectiveCareer(t.id, salaryAsOf);
+        const effectivePositionId = career?.positionId ?? t.positionId;
+        const pos = effectivePositionId ? posMap.get(effectivePositionId) : undefined;
+        const deptId = (pos?.departmentId && deptMap.has(pos.departmentId)) ? pos.departmentId : UNASSIGNED;
+        // salary only (no employer contributions) — matches the `staffCost`
+        // total this same loop accumulates, which is what getPayrollByMonth
+        // exposes as the chart's bar total.
+        const bucket = deptTotals.get(deptId) ?? { staffCost: 0, teacherCount: 0 };
+        bucket.staffCost += salary;
+        bucket.teacherCount += 1;
+        deptTotals.set(deptId, bucket);
+      }
     }
-    return { monthIdx: i, month, staffCost, employerContributions, teacherCount: activeTeachers.length, isForecast };
+    const byDepartment = [
+      ...sortedDeptIds
+        .filter(id => deptTotals.has(id))
+        .map(id => ({ departmentId: id, departmentName: deptMap.get(id)!.name, ...deptTotals.get(id)! })),
+      ...(deptTotals.has(UNASSIGNED)
+        ? [{ departmentId: UNASSIGNED, departmentName: 'Unassigned', ...deptTotals.get(UNASSIGNED)! }]
+        : []),
+    ];
+    return { monthIdx: i, month, staffCost, employerContributions, teacherCount: activeTeachers.length, isForecast, excludedStaffCost, byDepartment };
   });
 
   return { year, currentMonthIdx, months };

@@ -19,6 +19,9 @@ export interface FinanceMonth {
   /** Recorded spend under categories/groups flagged out of the operating
    *  cost sum (e.g. HR Benefits) — doesn't count toward operatingCost/profit. */
   excludedOperatingCost: number;
+  /** Salary + employer contributions for teachers flagged
+   *  excludeFromStaffCost — doesn't count toward staffCost/profit. */
+  excludedStaffCost: number;
 }
 
 export async function getFinanceSummary(req: Request, res: Response): Promise<void> {
@@ -53,6 +56,7 @@ export async function getFinanceSummary(req: Request, res: Response): Promise<vo
       isForecast: r.isForecast,
       operatingIsProjected: o.isProjected,
       excludedOperatingCost: Math.round(o.excludedCost),
+      excludedStaffCost: Math.round(p.excludedStaffCost),
     };
   });
 
@@ -65,12 +69,14 @@ export async function getFinanceSummary(req: Request, res: Response): Promise<vo
     operatingCost: sum(m => m.operatingCost),
     profit: sum(m => m.profit),
     excludedOperatingCost: sum(m => m.excludedOperatingCost),
+    excludedStaffCost: sum(m => m.excludedStaffCost),
     actual: {
       revenue: sum(m => m.revenue, m => !m.isForecast),
       staffCost: sum(m => m.staffCost, m => !m.isForecast),
       operatingCost: sum(m => m.operatingCost, m => !m.isForecast),
       profit: sum(m => m.profit, m => !m.isForecast),
       excludedOperatingCost: sum(m => m.excludedOperatingCost, m => !m.isForecast),
+      excludedStaffCost: sum(m => m.excludedStaffCost, m => !m.isForecast),
     },
     forecast: {
       revenue: sum(m => m.revenue, m => m.isForecast),
@@ -78,6 +84,7 @@ export async function getFinanceSummary(req: Request, res: Response): Promise<vo
       operatingCost: sum(m => m.operatingCost, m => m.isForecast),
       profit: sum(m => m.profit, m => m.isForecast),
       excludedOperatingCost: sum(m => m.excludedOperatingCost, m => m.isForecast),
+      excludedStaffCost: sum(m => m.excludedStaffCost, m => m.isForecast),
     },
   };
 
