@@ -304,6 +304,7 @@ async function runMigrations() {
       \`name\` VARCHAR(191) NOT NULL,
       \`sortOrder\` INT NOT NULL DEFAULT 0,
       \`isProtected\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1,
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
@@ -315,6 +316,7 @@ async function runMigrations() {
       \`sortOrder\` INT NOT NULL DEFAULT 0,
       \`defaultAmount\` FLOAT,
       \`monthlyBudget\` FLOAT,
+      \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1,
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
@@ -326,6 +328,7 @@ async function runMigrations() {
       \`categoryId\` VARCHAR(36) NOT NULL,
       \`amount\` FLOAT NOT NULL DEFAULT 0,
       \`notes\` TEXT,
+      \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1,
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
@@ -519,6 +522,16 @@ async function runMigrations() {
     // Whether this department has a career progression ladder at all.
     // Defaults true so existing departments (Academic) keep working as-is.
     `ALTER TABLE \`Department\` ADD COLUMN \`hasCareerPath\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // Whether this category's entries count toward the monthly operating
+    // cost total used for the Expense Ratio Target / profit-share
+    // eligibility. Defaults true so existing categories keep working as-is.
+    `ALTER TABLE \`OperatingCostCategory\` ADD COLUMN \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // Group-level override for the same flag — off cascades to every
+    // category under the group (see computeMonthlyOperatingCost).
+    `ALTER TABLE \`OperatingCostCategoryGroup\` ADD COLUMN \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // Entry-level override — excludes one specific (category, month) row
+    // from the sum without touching the category/group flag.
+    `ALTER TABLE \`OperatingCost\` ADD COLUMN \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1`,
   ];
 
   const conn = await pool.getConnection();

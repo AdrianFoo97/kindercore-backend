@@ -18,6 +18,7 @@ export async function listGroups(_req: Request, res: Response): Promise<void> {
 const upsertGroupSchema = z.object({
   name: z.string().min(1).max(191),
   sortOrder: z.number().int().min(0).optional(),
+  includeInOperatingCostSum: z.boolean().optional(),
 });
 
 export async function createGroup(req: Request, res: Response): Promise<void> {
@@ -36,7 +37,9 @@ export async function createGroup(req: Request, res: Response): Promise<void> {
   }
   try {
     await db.insert(operatingCostCategoryGroups).values({
-      id, name: parsed.data.name, sortOrder, createdAt: now, updatedAt: now,
+      id, name: parsed.data.name, sortOrder,
+      includeInOperatingCostSum: parsed.data.includeInOperatingCostSum ?? true,
+      createdAt: now, updatedAt: now,
     });
   } catch (err: any) {
     if (err.code === 'ER_DUP_ENTRY') {
@@ -119,6 +122,7 @@ export async function listCategories(_req: Request, res: Response): Promise<void
       sortOrder: operatingCostCategories.sortOrder,
       defaultAmount: operatingCostCategories.defaultAmount,
       monthlyBudget: operatingCostCategories.monthlyBudget,
+      includeInOperatingCostSum: operatingCostCategories.includeInOperatingCostSum,
       createdAt: operatingCostCategories.createdAt,
       updatedAt: operatingCostCategories.updatedAt,
       entryCount: sql<number>`COUNT(${operatingCosts.id})`,
@@ -136,6 +140,7 @@ export async function listCategories(_req: Request, res: Response): Promise<void
       operatingCostCategories.sortOrder,
       operatingCostCategories.defaultAmount,
       operatingCostCategories.monthlyBudget,
+      operatingCostCategories.includeInOperatingCostSum,
       operatingCostCategories.createdAt,
       operatingCostCategories.updatedAt,
     )
@@ -154,6 +159,7 @@ const upsertCategorySchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
   defaultAmount: z.number().min(0).nullable().optional(),
   monthlyBudget: z.number().min(0).nullable().optional(),
+  includeInOperatingCostSum: z.boolean().optional(),
 });
 
 export async function createCategory(req: Request, res: Response): Promise<void> {
@@ -177,6 +183,7 @@ export async function createCategory(req: Request, res: Response): Promise<void>
     sortOrder: parsed.data.sortOrder ?? 0,
     defaultAmount: parsed.data.defaultAmount ?? null,
     monthlyBudget: parsed.data.monthlyBudget ?? null,
+    includeInOperatingCostSum: parsed.data.includeInOperatingCostSum ?? true,
     createdAt: now,
     updatedAt: now,
   });
@@ -236,6 +243,10 @@ const bulkEntrySchema = z.object({
     month: z.number().int().min(0).max(11),
     amount: z.number().min(0),
     notes: z.string().nullable().optional(),
+    // Per-entry override — excludes this specific (category, month) row from
+    // the operating cost sum without touching the category/group flag.
+    // Defaults true (included) when omitted.
+    includeInOperatingCostSum: z.boolean().optional(),
   })),
 });
 
@@ -254,6 +265,7 @@ export async function bulkUpsertEntries(req: Request, res: Response): Promise<vo
   for (const entry of rows) {
     const key = `${entry.categoryId}|${entry.month}`;
     const ex = existingMap.get(key);
+    const include = entry.includeInOperatingCostSum ?? true;
     if (entry.amount === 0 && !entry.notes) {
       if (ex) {
         await db.delete(operatingCosts).where(eq(operatingCosts.id, ex.id));
@@ -262,10 +274,10 @@ export async function bulkUpsertEntries(req: Request, res: Response): Promise<vo
       continue;
     }
     if (ex) {
-      if (ex.amount !== entry.amount || (ex.notes ?? null) !== (entry.notes ?? null)) {
+      if (ex.amount !== entry.amount || (ex.notes ?? null) !== (entry.notes ?? null) || ex.includeInOperatingCostSum !== include) {
         await db
           .update(operatingCosts)
-          .set({ amount: entry.amount, notes: entry.notes ?? null, updatedAt: now })
+          .set({ amount: entry.amount, notes: entry.notes ?? null, includeInOperatingCostSum: include, updatedAt: now })
           .where(eq(operatingCosts.id, ex.id));
       }
     } else {
@@ -276,6 +288,7 @@ export async function bulkUpsertEntries(req: Request, res: Response): Promise<vo
         categoryId: entry.categoryId,
         amount: entry.amount,
         notes: entry.notes ?? null,
+        includeInOperatingCostSum: include,
         createdAt: now,
         updatedAt: now,
       });

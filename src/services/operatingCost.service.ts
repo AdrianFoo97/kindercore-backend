@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { operatingCosts } from '../db/schema.js';
+import { operatingCosts, operatingCostCategories, operatingCostCategoryGroups } from '../db/schema.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -18,6 +18,9 @@ export interface MonthlyOperatingCostEntry {
   isForecast: boolean;
   /** true when `projected` was substituted because the month has zero entries. */
   isProjected: boolean;
+  /** Raw total for the month from categories/groups flagged out of the sum
+   *  (e.g. HR Benefits) — recorded spend that doesn't count toward the ratio. */
+  excludedCost: number;
 }
 
 export interface MonthlyOperatingCostResult {
@@ -27,15 +30,34 @@ export interface MonthlyOperatingCostResult {
 }
 
 export async function computeMonthlyOperatingCost(year: number): Promise<MonthlyOperatingCostResult> {
-  const rows = await db.select().from(operatingCosts).where(eq(operatingCosts.year, year));
+  // Effective inclusion is (group.include AND category.include AND
+  // entry.include) — a group or category marked out cascades to every entry
+  // under it regardless of the entry's own flag, and an entry can only ever
+  // narrow inclusion further, never override an excluded category/group.
+  // Fetch every entry once and bucket by that effective flag rather than
+  // querying twice.
+  const rows = await db
+    .select({
+      month: operatingCosts.month,
+      amount: operatingCosts.amount,
+      entryInclude: operatingCosts.includeInOperatingCostSum,
+      catInclude: operatingCostCategories.includeInOperatingCostSum,
+      groupInclude: operatingCostCategoryGroups.includeInOperatingCostSum,
+    })
+    .from(operatingCosts)
+    .innerJoin(operatingCostCategories, eq(operatingCosts.categoryId, operatingCostCategories.id))
+    .innerJoin(operatingCostCategoryGroups, eq(operatingCostCategories.groupId, operatingCostCategoryGroups.id))
+    .where(eq(operatingCosts.year, year));
 
   // Every recorded row is real spend. A row whose amount happens to equal its
   // category's defaultAmount is not "unconfirmed" — fixed costs (rent, road tax)
   // legitimately hit the preset value every month. defaultAmount is a prefill for
   // the entry grid and carries no meaning here.
   const byMonth = new Map<number, number>();
+  const excludedByMonth = new Map<number, number>();
   for (const r of rows) {
-    byMonth.set(r.month, (byMonth.get(r.month) ?? 0) + r.amount);
+    const target = (r.catInclude && r.groupInclude && r.entryInclude) ? byMonth : excludedByMonth;
+    target.set(r.month, (target.get(r.month) ?? 0) + r.amount);
   }
 
   const now = new Date();
@@ -67,7 +89,8 @@ export async function computeMonthlyOperatingCost(year: number): Promise<Monthly
     const hasData = byMonth.has(i);
     const isProjected = !hasData && forecastValue !== null;
     const projected = isProjected ? forecastValue! : actual;
-    return { monthIdx: i, month, operatingCost: actual, projected, isForecast, isProjected };
+    const excludedCost = excludedByMonth.get(i) ?? 0;
+    return { monthIdx: i, month, operatingCost: actual, projected, isForecast, isProjected, excludedCost };
   });
 
   return { year, currentMonthIdx, months };

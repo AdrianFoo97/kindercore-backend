@@ -380,6 +380,10 @@ export const operatingCostCategoryGroups = mysqlTable('OperatingCostCategoryGrou
   name: varchar('name', { length: 191 }).notNull(),
   sortOrder: int('sortOrder').notNull().default(0),
   isProtected: boolean('isProtected').notNull().default(false),
+  // Group-level override: when false, every category under this group is
+  // excluded from the operating cost sum regardless of its own flag — the
+  // effective inclusion is (group.include AND category.include).
+  includeInOperatingCostSum: boolean('includeInOperatingCostSum').notNull().default(true),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -391,6 +395,12 @@ export const operatingCostCategories = mysqlTable('OperatingCostCategory', {
   sortOrder: int('sortOrder').notNull().default(0),
   defaultAmount: float('defaultAmount'),
   monthlyBudget: float('monthlyBudget'),
+  // Whether entries under this category count toward the monthly operating
+  // cost total that feeds the Expense Ratio Target (Finance settings) and
+  // therefore profit-share/bonus-pool eligibility. Defaults true so existing
+  // categories keep today's behavior; admins flip specific line items (e.g.
+  // one-off HR benefits) out of the ratio without losing the record itself.
+  includeInOperatingCostSum: boolean('includeInOperatingCostSum').notNull().default(true),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -402,6 +412,12 @@ export const operatingCosts = mysqlTable('OperatingCost', {
   categoryId: varchar('categoryId', { length: 36 }).notNull(),
   amount: float('amount').notNull().default(0),
   notes: text('notes'),
+  // Per-entry override: when false, this specific (category, month) entry is
+  // excluded from the operating cost sum even though its category/group are
+  // otherwise included — e.g. a one-off spend that shouldn't count against
+  // that month's ratio. Effective inclusion = group.include AND
+  // category.include AND entry.include.
+  includeInOperatingCostSum: boolean('includeInOperatingCostSum').notNull().default(true),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
