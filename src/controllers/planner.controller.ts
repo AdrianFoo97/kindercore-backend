@@ -30,6 +30,7 @@ const createTeacherSchema = z.object({
   name: z.string().min(1),
   color: z.string().min(1).max(7),
   phone: z.string().nullable().optional(),
+  dob: z.string().nullable().optional(),
   employmentType: z.string().nullable().optional(),
   allowedSubjectIds: z.array(z.string()).optional(),
   allowedClassroomIds: z.array(z.string()).optional(),
@@ -65,6 +66,7 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
   await db.insert(teachers).values({
     id, name: parsed.data.name, color: parsed.data.color,
     phone: parsed.data.phone ?? null,
+    dob: parsed.data.dob ? new Date(parsed.data.dob) : null,
     employmentType: parsed.data.employmentType ?? 'full-time',
     allowedSubjectIds: parsed.data.allowedSubjectIds || null,
     allowedClassroomIds: parsed.data.allowedClassroomIds || null,
@@ -106,6 +108,7 @@ const updateTeacherSchema = z.object({
   name: z.string().min(1).optional(),
   color: z.string().min(1).max(7).optional(),
   phone: z.string().nullable().optional(),
+  dob: z.string().nullable().optional(),
   employmentType: z.string().nullable().optional(),
   allowedSubjectIds: z.array(z.string()).nullable().optional(),
   allowedClassroomIds: z.array(z.string()).nullable().optional(),
@@ -140,10 +143,11 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
   const [existing] = await db.select().from(teachers).where(eq(teachers.id, id));
   if (!existing) { res.status(404).json({ message: 'Teacher not found' }); return; }
 
-  const { resignedAt, createdAt, ...rest } = parsed.data;
+  const { resignedAt, createdAt, dob, ...rest } = parsed.data;
   const setData: any = { ...rest, updatedAt: new Date() };
   if (resignedAt !== undefined) setData.resignedAt = resignedAt ? new Date(resignedAt) : null;
   if (createdAt !== undefined && createdAt) setData.createdAt = new Date(createdAt);
+  if (dob !== undefined) setData.dob = dob ? new Date(dob) : null;
   await db.update(teachers).set(setData).where(eq(teachers.id, id));
   const [updated] = await db.select().from(teachers).where(eq(teachers.id, id));
   res.json(normalizeTeacher(updated));

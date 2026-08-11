@@ -205,6 +205,7 @@ async function runMigrations() {
       \`overrideProfitShareWeight\` TINYINT(1) NOT NULL DEFAULT 0,
       \`customProfitShareWeight\` FLOAT,
       \`phone\` VARCHAR(50),
+      \`dob\` DATETIME(3),
       \`employmentType\` VARCHAR(20) DEFAULT 'full-time',
       \`resignedAt\` DATETIME(3),
       \`createdAt\` DATETIME(3) NOT NULL,
@@ -450,6 +451,10 @@ async function runMigrations() {
     `ALTER TABLE \`Teacher\` ADD COLUMN \`overrideProfitShareWeight\` TINYINT(1) NOT NULL DEFAULT 0`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`customProfitShareWeight\` FLOAT NULL`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`phone\` VARCHAR(50) NULL`,
+    // Date of birth — optional, used to flag birthdays falling in the
+    // current month on the Staff list. Nothing back-fills this for
+    // existing teachers; it stays NULL until an admin fills it in.
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`dob\` DATETIME(3) NULL`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`employmentType\` VARCHAR(20) NULL DEFAULT 'full-time'`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`resignedAt\` DATETIME(3) NULL`,
     // OperatingCostCategoryGroup

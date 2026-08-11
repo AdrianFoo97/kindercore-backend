@@ -870,6 +870,23 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   ]);
 
   const totalLeads = currentLeads.length;
+
+  // Year-to-date comparison total: when selectedYear is still in progress,
+  // "totalLeads" is necessarily a partial year (nothing submitted after
+  // today), so comparing it against a FULL previous year would always look
+  // like a decline. Cap the previous year's comparison total to the same
+  // month/day cutoff as today instead — leads-so-far vs leads-by-the-same-
+  // point-last-year. A fully elapsed selectedYear (a past year already
+  // viewed in full) needs no cap; its own total is already complete.
+  const now = new Date();
+  const isYearInProgress = selectedYear === now.getFullYear();
+  const prevYearToDateTotal = isYearInProgress
+    ? prevLeads.filter(l =>
+        l.submittedAt.getMonth() < now.getMonth()
+        || (l.submittedAt.getMonth() === now.getMonth() && l.submittedAt.getDate() <= now.getDate())
+      ).length
+    : prevLeads.length;
+
   const totalAppointments = currentLeads.filter(l => l.appointmentStart !== null).length;
   const completedLeads = currentLeads.filter(l => l.status === 'ENROLLED' || l.status === 'LOST' || l.status === 'REJECTED');
 
@@ -878,7 +895,6 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
   // deriveIsQualified / deriveVisitOutcome). The classifier is a pure read
   // with one small derivation: NO_SHOW is computed from time so a past
   // appointment rolls over automatically with no cron job.
-  const now = new Date();
   const isAttended = (l: { visitOutcome: string | null }) => l.visitOutcome === 'ATTENDED';
   const isNoShow = (l: { visitOutcome: string | null; appointmentStart: Date | null; status: string }) => {
     if (isAttended(l)) return false;
@@ -1015,7 +1031,7 @@ export async function getAnalytics(req: Request, res: Response): Promise<void> {
 
   res.json({
     selectedYear, prevYear,
-    totalLeads, totalAppointments, completedLeads: completedLeads.length,
+    totalLeads, prevYearToDateTotal, totalAppointments, completedLeads: completedLeads.length,
     attendedAppointments, noShowLeads, appointmentRate, pendingLeads, rejectedLeads,
     qualifiedLeads, unqualifiedLeads, openLeads, leadQualityRate,
     monthlyComparison, monthlyByAge,

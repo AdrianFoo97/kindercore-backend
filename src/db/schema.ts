@@ -255,6 +255,7 @@ export const teachers = mysqlTable('Teacher', {
   hasSocso: boolean('hasSocso').notNull().default(true),
   hasEis: boolean('hasEis').notNull().default(true),
   phone: varchar('phone', { length: 50 }),
+  dob: datetime('dob', { mode: 'date', fsp: 3 }),
   employmentType: varchar('employmentType', { length: 20 }).default('full-time'),
   resignedAt: datetime('resignedAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
