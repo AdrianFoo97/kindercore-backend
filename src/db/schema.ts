@@ -344,6 +344,75 @@ export const careerMissions = mysqlTable('CareerMission', {
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// SOP (standard operating procedure) template — a flat, organization-wide
+// library (not scoped per position: many SOPs apply to everyone). Mirrors
+// the careerMissions loose-FK/soft-delete conventions above.
+export const sopTemplates = mysqlTable('SopTemplate', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  title: varchar('title', { length: 191 }).notNull(),
+  goal: text('goal'),
+  displayOrder: int('displayOrder').notNull().default(0),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Steps within one SOP template. `section` is a free-typed grouping label
+// (e.g. "Pre-shift Prep", "Main Process") local to this one document — not a
+// cross-document taxonomy, so unlike missionCategories it isn't a separate
+// admin-managed lookup table.
+export const sopSteps = mysqlTable('SopStep', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  sopTemplateId: varchar('sopTemplateId', { length: 36 }).notNull(),
+  section: varchar('section', { length: 100 }).notNull(),
+  title: varchar('title', { length: 191 }).notNull(),
+  detail: text('detail'),
+  displayOrder: int('displayOrder').notNull().default(0),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// One real observation of a teacher performing a SOP. Status advances
+// sequentially through 5 sign-off stages (trainee self-completion → trainer
+// observation → assessor certification → two follow-up spot-checks), each
+// recording who signed and when. Terminal state is CERTIFIED.
+export const sopObservations = mysqlTable('SopObservation', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  sopTemplateId: varchar('sopTemplateId', { length: 36 }).notNull(),
+  status: mysqlEnum('status', [
+    'PENDING_TRAINEE', 'PENDING_TRAINER', 'PENDING_ASSESSOR',
+    'PENDING_FOLLOWUP_1', 'PENDING_FOLLOWUP_2', 'CERTIFIED',
+  ]).notNull().default('PENDING_TRAINEE'),
+  completedByName: varchar('completedByName', { length: 191 }),
+  completedAt: datetime('completedAt', { mode: 'date', fsp: 3 }),
+  trainerName: varchar('trainerName', { length: 191 }),
+  trainerAt: datetime('trainerAt', { mode: 'date', fsp: 3 }),
+  assessorName: varchar('assessorName', { length: 191 }),
+  assessorAt: datetime('assessorAt', { mode: 'date', fsp: 3 }),
+  followUp1Name: varchar('followUp1Name', { length: 191 }),
+  followUp1At: datetime('followUp1At', { mode: 'date', fsp: 3 }),
+  followUp2Name: varchar('followUp2Name', { length: 191 }),
+  followUp2At: datetime('followUp2At', { mode: 'date', fsp: 3 }),
+  notes: text('notes'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Per-step checklist result for one observation. Pre-created (status NA) for
+// every active step when the observation is created, then filled in by the
+// trainer at the PENDING_TRAINER stage.
+export const sopObservationStepResults = mysqlTable('SopObservationStepResult', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  observationId: varchar('observationId', { length: 36 }).notNull(),
+  sopStepId: varchar('sopStepId', { length: 36 }).notNull(),
+  passed: mysqlEnum('passed', ['PASS', 'FAIL', 'NA']).notNull().default('NA'),
+  note: text('note'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 // Monthly appraisal score per teacher. Average of recent months drives the
 // "Average appraisal > 75%" promotion gate on the Teacher Career Page.
 // One row per (teacherId, year, month) pair; month is 0–11 to match JS.
