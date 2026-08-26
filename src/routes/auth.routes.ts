@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { login, createInvite, verifyInvite, activateAccount, listUsers, deleteUser } from '../controllers/auth.controller.js';
+import { login, createInvite, verifyInvite, activateAccount, listUsers, deleteUser, updateUserTeacher } from '../controllers/auth.controller.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { authMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 
 export const authRouter = Router();
 
@@ -11,3 +11,4 @@ authRouter.get('/invite/:token', asyncHandler(verifyInvite));
 authRouter.post('/activate', asyncHandler(activateAccount));
 authRouter.get('/users', authMiddleware, asyncHandler(listUsers));
 authRouter.delete('/users/:id', authMiddleware, asyncHandler(deleteUser));
+authRouter.patch('/users/:id/teacher', authMiddleware, adminMiddleware, asyncHandler(updateUserTeacher));

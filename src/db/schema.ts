@@ -16,10 +16,15 @@ export const users = mysqlTable('User', {
   email: varchar('email', { length: 191 }).notNull(),
   name: varchar('name', { length: 191 }).notNull(),
   passwordHash: varchar('passwordHash', { length: 191 }).notNull(),
-  role: mysqlEnum('role', ['SUPERADMIN', 'ADMIN', 'STAFF']).notNull().default('STAFF'),
+  role: mysqlEnum('role', ['SUPERADMIN', 'ADMIN', 'USER']).notNull().default('USER'),
   inviteToken: varchar('inviteToken', { length: 191 }),
   inviteExpiresAt: datetime('inviteExpiresAt', { mode: 'date', fsp: 3 }),
   activated: boolean('activated').notNull().default(false),
+  // Links this login identity to its HR/career profile (Teacher). Nullable
+  // — an admin-only login may have no Teacher record — and unique at the
+  // DB level (see server.ts migration) so one Teacher can't be claimed by
+  // two Users.
+  teacherId: varchar('teacherId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -214,8 +219,49 @@ export const positions = mysqlTable('Position', {
   // on the teacher-facing career journey to explain what the rank
   // represents. Plain text, multi-line, optional.
   description: text('description'),
+  // Which AuthRole (access-control tier) teachers holding this position
+  // get — separate from the career-ladder meaning of Position itself.
+  // Nullable, matching the existing looseness of departmentId above; a
+  // freshly created Position with no AuthRole assigned yet fails closed
+  // (no module access) until an admin assigns one. Every *existing*
+  // Position gets backfilled onto a seeded "All Access" AuthRole by the
+  // migration in server.ts, so nothing loses access on rollout.
+  authRoleId: varchar('authRoleId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// ── Access control ──────────────────────────────────────────────────────────
+// AuthRole answers "what can you access" — a separate axis from Position
+// ("what job do you do"). Positions get assigned one AuthRole (see
+// positions.authRoleId above); an AuthRole is granted a set of Modules
+// (top-level nav sections) and, within those, a set of finer-grained Views
+// (specific gated actions). See kindercore-backend/src/constants/authModules.ts
+// for the fixed Module/View catalog these join tables reference by key.
+export const authRoles = mysqlTable('AuthRole', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  description: text('description'),
+  sortOrder: int('sortOrder').notNull().default(0),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// `module` is a fixed code-level constant key (ModuleKey), not a row in
+// any table — this join table just records which AuthRoles have which
+// modules turned on. Modeled on the SopTemplateCategory join-table idiom.
+export const authRoleModules = mysqlTable('AuthRoleModule', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  authRoleId: varchar('authRoleId', { length: 36 }).notNull(),
+  module: varchar('module', { length: 50 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const authRoleViews = mysqlTable('AuthRoleView', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  authRoleId: varchar('authRoleId', { length: 36 }).notNull(),
+  view: varchar('view', { length: 50 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 export const levelIncentives = mysqlTable('LevelIncentive', {
@@ -351,10 +397,98 @@ export const sopTemplates = mysqlTable('SopTemplate', {
   id: varchar('id', { length: 36 }).primaryKey(),
   title: varchar('title', { length: 191 }).notNull(),
   goal: text('goal'),
+  // External link (YouTube/Vimeo/Drive/etc.) — deliberately a URL, not an
+  // uploaded file. Self-hosting video means owning storage, bandwidth, and
+  // re-encoding, which is a lot of infra for a training library at this
+  // scale; linking out keeps that cost with the hosting provider instead.
+  videoUrl: varchar('videoUrl', { length: 500 }),
+  // Bumped only when a revision is approved (see sopTemplateRevisions) —
+  // never on a direct admin edit, since a direct edit isn't a versioned
+  // change, it's just correcting the current version in place.
+  currentVersion: int('currentVersion').notNull().default(1),
+  // FA icon name (with the `fa` prefix, e.g. 'faClipboardCheck') — see
+  // ALLOWED_ICONS in sop-templates.controller.ts for the picker allow-list.
+  icon: varchar('icon', { length: 50 }).notNull().default('faClipboardCheck'),
   displayOrder: int('displayOrder').notNull().default(0),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// A teacher-proposed (or admin-proposed) change to a SOP — either editing
+// an existing one (sopTemplateId set) or drafting a brand-new one
+// (sopTemplateId null, since there's no live template to attach to until
+// approved). Stores a full content snapshot rather than a diff — steps
+// live in their own table for the *live* document, but a pending proposal
+// isn't live yet, so its steps are just a JSON array here until approval
+// promotes them into real SopStep rows. Approving one is what actually
+// creates/updates the live SopTemplate + SopStep rows and bumps
+// currentVersion; this row itself is never mutated afterward except to
+// flip status and stamp reviewer info — it's the permanent version record.
+export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  sopTemplateId: varchar('sopTemplateId', { length: 36 }),
+  title: varchar('title', { length: 191 }).notNull(),
+  goal: text('goal'),
+  videoUrl: varchar('videoUrl', { length: 500 }),
+  // Proposer's suggested icon (see ALLOWED_ICONS in sop-templates.controller.ts).
+  // Nullable — old rows predate this column; approval falls back to the
+  // current template's icon (edit) or the default (new proposal).
+  icon: varchar('icon', { length: 50 }),
+  stepsJson: json('stepsJson').notNull(),
+  categoryIdsJson: json('categoryIdsJson'),
+  status: mysqlEnum('status', ['PENDING', 'APPROVED', 'REJECTED']).notNull().default('PENDING'),
+  // Set only on approval — the version number this proposal became.
+  versionNumber: int('versionNumber'),
+  proposedByUserId: varchar('proposedByUserId', { length: 36 }).notNull(),
+  proposedByName: varchar('proposedByName', { length: 191 }).notNull(),
+  reviewedByUserId: varchar('reviewedByUserId', { length: 36 }),
+  reviewedByName: varchar('reviewedByName', { length: 191 }),
+  reviewedAt: datetime('reviewedAt', { mode: 'date', fsp: 3 }),
+  reviewNote: text('reviewNote'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Org-wide list of section names a step can belong to (e.g. "Pre-shift
+// Preparation", "Main Process") — admin-managed in Settings, same shape as
+// sopCategories below. SopStep.section stores the name directly (not an FK,
+// same loose-reference idiom used across this app) rather than an id, so a
+// step's group label still resolves even if the section is later renamed
+// or removed from the picker.
+export const sopSections = mysqlTable('SopSection', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  displayOrder: int('displayOrder').notNull().default(0),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Org-wide label taxonomy for SOPs — unlike a step's `section` (free-typed,
+// local to one document), this is a shared lookup so the same label means
+// the same thing across every SOP. Many-to-many with sopTemplates via
+// sopTemplateCategories below (one SOP can carry several labels).
+export const sopCategories = mysqlTable('SopCategory', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  color: varchar('color', { length: 20 }).notNull(),
+  displayOrder: int('displayOrder').notNull().default(0),
+  deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Join rows are fully replaced on every assignment (delete-then-insert, see
+// setTemplateCategories) rather than soft-deleted — there's no history worth
+// keeping for "this SOP had this label." A dangling row (pointing at a
+// since-deleted category) is harmless: listTemplates joins with
+// isNull(sopCategories.deletedAt), so it just stops resolving.
+export const sopTemplateCategories = mysqlTable('SopTemplateCategory', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  sopTemplateId: varchar('sopTemplateId', { length: 36 }).notNull(),
+  categoryId: varchar('categoryId', { length: 36 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 // Steps within one SOP template. `section` is a free-typed grouping label
@@ -367,6 +501,12 @@ export const sopSteps = mysqlTable('SopStep', {
   section: varchar('section', { length: 100 }).notNull(),
   title: varchar('title', { length: 191 }).notNull(),
   detail: text('detail'),
+  // Optional hand-off to another SOP document (e.g. "if quantity doesn't
+  // match, follow the Exception Handling SOP"). Loose FK, same convention
+  // as sopTemplateId above — not validated at the DB level, just app-side.
+  // Left dangling (not nulled out) if the target is later deleted; the
+  // frontend only renders the link when it can still resolve a title.
+  linkedTemplateId: varchar('linkedTemplateId', { length: 36 }),
   displayOrder: int('displayOrder').notNull().default(0),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -374,35 +514,34 @@ export const sopSteps = mysqlTable('SopStep', {
 });
 
 // One real observation of a teacher performing a SOP. Status advances
-// sequentially through 5 sign-off stages (trainee self-completion → trainer
-// observation → assessor certification → two follow-up spot-checks), each
-// recording who signed and when. Terminal state is CERTIFIED.
+// sequentially through 2 sign-off stages (trainer observation → assessor
+// certification), each recording who signed and when. Terminal state is
+// CERTIFIED.
 export const sopObservations = mysqlTable('SopObservation', {
   id: varchar('id', { length: 36 }).primaryKey(),
   teacherId: varchar('teacherId', { length: 36 }).notNull(),
   sopTemplateId: varchar('sopTemplateId', { length: 36 }).notNull(),
+  // Who's assigned to run the observation — set at creation, distinct from
+  // trainerName/trainerAt below (the actual sign-off, recorded once the
+  // trainer completes the checklist — usually the same person, but not
+  // enforced, since the assigned trainer might hand it off).
+  trainerId: varchar('trainerId', { length: 36 }),
   status: mysqlEnum('status', [
-    'PENDING_TRAINEE', 'PENDING_TRAINER', 'PENDING_ASSESSOR',
-    'PENDING_FOLLOWUP_1', 'PENDING_FOLLOWUP_2', 'CERTIFIED',
-  ]).notNull().default('PENDING_TRAINEE'),
-  completedByName: varchar('completedByName', { length: 191 }),
-  completedAt: datetime('completedAt', { mode: 'date', fsp: 3 }),
+    'PENDING_TRAINER', 'PENDING_ASSESSOR', 'CERTIFIED',
+  ]).notNull().default('PENDING_TRAINER'),
   trainerName: varchar('trainerName', { length: 191 }),
   trainerAt: datetime('trainerAt', { mode: 'date', fsp: 3 }),
   assessorName: varchar('assessorName', { length: 191 }),
   assessorAt: datetime('assessorAt', { mode: 'date', fsp: 3 }),
-  followUp1Name: varchar('followUp1Name', { length: 191 }),
-  followUp1At: datetime('followUp1At', { mode: 'date', fsp: 3 }),
-  followUp2Name: varchar('followUp2Name', { length: 191 }),
-  followUp2At: datetime('followUp2At', { mode: 'date', fsp: 3 }),
   notes: text('notes'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 // Per-step checklist result for one observation. Pre-created (status NA) for
-// every active step when the observation is created, then filled in by the
-// trainer at the PENDING_TRAINER stage.
+// every active step when the observation is created, then marked by the
+// assessor at the PENDING_ASSESSOR stage — the trainer trains against the
+// checklist but doesn't score it.
 export const sopObservationStepResults = mysqlTable('SopObservationStepResult', {
   id: varchar('id', { length: 36 }).primaryKey(),
   observationId: varchar('observationId', { length: 36 }).notNull(),

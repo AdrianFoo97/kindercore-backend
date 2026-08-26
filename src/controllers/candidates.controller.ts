@@ -348,15 +348,26 @@ export async function getCandidates(req: Request, res: Response): Promise<void> 
   // Phone matching needs to survive format drift — the same person may
   // land in the DB as `01161788443`, `+60 11-6178 8443`, or
   // `60 116178 8443` depending on how they typed it in the form. Strip
-  // both the stored value and the query to digits-only, then LIKE.
+  // both the stored value and the query to digits-only, then drop a
+  // leading `60` country code or `0` national prefix from each side
+  // before comparing — mirrors `phoneKey()` in CandidatesPage.tsx (used
+  // there to flag repeat applicants) so `+60 11-6061 7054`,
+  // `60116061054`, and `0116061054` all collapse to the same digits and
+  // match each other. Without this, a pasted `+60…` number wouldn't
+  // match a phone stored in local `0…` format at all.
   // Falls back to a raw phone LIKE only when the search term itself has
   // no digits (name-only searches).
   const searchDigits = searchTerm.replace(/\D/g, '');
+  const normalizedSearchDigits = searchDigits.startsWith('60')
+    ? searchDigits.slice(2)
+    : searchDigits.startsWith('0')
+      ? searchDigits.slice(1)
+      : searchDigits;
   const searchFilter = searchTerm
     ? or(
         like(candidates.fullName, `%${searchTerm}%`),
         searchDigits
-          ? sql`REGEXP_REPLACE(${candidates.phone}, '[^0-9]', '') LIKE ${'%' + searchDigits + '%'}`
+          ? sql`REGEXP_REPLACE(REGEXP_REPLACE(${candidates.phone}, '[^0-9]', ''), '^(60|0)', '') LIKE ${'%' + normalizedSearchDigits + '%'}`
           : like(candidates.phone, `%${searchTerm}%`),
       )
     : undefined;

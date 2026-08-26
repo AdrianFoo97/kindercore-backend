@@ -28,20 +28,20 @@ export async function login(req: Request, res: Response): Promise<void> {
   }
 
   const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, teacherId: user.teacherId },
     process.env.JWT_SECRET!,
     { expiresIn: '8h' },
   );
 
   res.json({
     token,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    user: { id: user.id, email: user.email, name: user.name, role: user.role, teacherId: user.teacherId },
   });
 }
 
 // ── Create invite ─────────────────────────────────────────────────────────
 export async function createInvite(req: Request, res: Response): Promise<void> {
-  const { email, role } = req.body as { email: string; role?: 'ADMIN' | 'STAFF' };
+  const { email, role } = req.body as { email: string; role?: 'ADMIN' | 'USER' };
   if (!email?.trim()) { res.status(400).json({ message: 'Email is required' }); return; }
 
   // Check if user already exists and is activated
@@ -54,7 +54,7 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
 
   if (existing) {
     // Update existing pending invite
-    await db.update(users).set({ inviteToken, inviteExpiresAt, role: role ?? 'STAFF', updatedAt: now }).where(eq(users.id, existing.id));
+    await db.update(users).set({ inviteToken, inviteExpiresAt, role: role ?? 'USER', updatedAt: now }).where(eq(users.id, existing.id));
   } else {
     // Create new pending user
     await db.insert(users).values({
@@ -62,7 +62,7 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
       email: email.trim().toLowerCase(),
       name: '',
       passwordHash: '',
-      role: role ?? 'STAFF',
+      role: role ?? 'USER',
       inviteToken,
       inviteExpiresAt,
       activated: false,
@@ -76,7 +76,7 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
 
   // Send invite email (non-blocking — don't fail if email fails)
   const { sendInviteEmail } = await import('../utils/email.js');
-  const emailSent = await sendInviteEmail(email.trim().toLowerCase(), inviteLink, role ?? 'STAFF');
+  const emailSent = await sendInviteEmail(email.trim().toLowerCase(), inviteLink, role ?? 'USER');
 
   res.json({ inviteLink, expiresAt: inviteExpiresAt, emailSent });
 }
@@ -131,14 +131,14 @@ export async function activateAccount(req: Request, res: Response): Promise<void
 
   // Auto-login after activation
   const jwtToken = jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, teacherId: user.teacherId },
     process.env.JWT_SECRET!,
     { expiresIn: '8h' },
   );
 
   res.json({
     token: jwtToken,
-    user: { id: user.id, email: user.email, name: name.trim(), role: user.role },
+    user: { id: user.id, email: user.email, name: name.trim(), role: user.role, teacherId: user.teacherId },
   });
 }
 
@@ -153,6 +153,7 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
     activated: users.activated,
     inviteToken: users.inviteToken,
     createdAt: users.createdAt,
+    teacherId: users.teacherId,
   }).from(users);
   const result = allUsers.map(({ inviteToken, ...rest }) => ({
     ...rest,
@@ -169,15 +170,38 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
   const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   if (!target) { res.status(404).json({ message: 'User not found' }); return; }
 
-  // ADMIN can only delete STAFF
-  if (req.user!.role === 'ADMIN' && target.role !== 'STAFF') {
-    res.status(403).json({ message: 'Admins can only remove staff members' }); return;
+  // ADMIN can only delete USER
+  if (req.user!.role === 'ADMIN' && target.role !== 'USER') {
+    res.status(403).json({ message: 'Admins can only remove regular users' }); return;
   }
-  // STAFF cannot delete anyone
-  if (req.user!.role === 'STAFF') {
+  // USER cannot delete anyone
+  if (req.user!.role === 'USER') {
     res.status(403).json({ message: 'Insufficient permissions' }); return;
   }
 
   await db.delete(users).where(eq(users.id, id));
+  res.json({ success: true });
+}
+
+// ── Link/unlink a User to a Teacher ─────────────────────────────────────────
+// This is what makes AuthRole resolution possible for that user (see
+// resolveGrants in auth.middleware.ts) — no automatic match is possible
+// since Teacher has no email column, so this is always a manual admin action.
+export async function updateUserTeacher(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const { teacherId } = req.body as { teacherId: string | null };
+
+  const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  if (!target) { res.status(404).json({ message: 'User not found' }); return; }
+
+  if (teacherId) {
+    const [conflict] = await db.select().from(users).where(eq(users.teacherId, teacherId)).limit(1);
+    if (conflict && conflict.id !== id) {
+      res.status(409).json({ message: 'That teacher is already linked to another user' });
+      return;
+    }
+  }
+
+  await db.update(users).set({ teacherId: teacherId || null, updatedAt: new Date() }).where(eq(users.id, id));
   res.json({ success: true });
 }

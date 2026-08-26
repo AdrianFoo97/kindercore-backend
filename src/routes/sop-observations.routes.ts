@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  listObservations, getObservation, createObservation, advanceStage,
+  listObservations, getObservation, createObservation, advanceStage, saveStepResultsDraft,
 } from '../controllers/sop-observations.controller.js';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -11,3 +11,4 @@ sopObservationsRouter.get('/sop-observations', authMiddleware, asyncHandler(list
 sopObservationsRouter.post('/sop-observations', authMiddleware, asyncHandler(createObservation));
 sopObservationsRouter.get('/sop-observations/:id', authMiddleware, asyncHandler(getObservation));
 sopObservationsRouter.post('/sop-observations/:id/advance', authMiddleware, asyncHandler(advanceStage));
+sopObservationsRouter.post('/sop-observations/:id/step-results', authMiddleware, asyncHandler(saveStepResultsDraft));

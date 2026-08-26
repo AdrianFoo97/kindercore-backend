@@ -15,6 +15,9 @@ import { missionCategoriesRouter } from './mission-categories.routes.js';
 import { sopTemplatesRouter } from './sop-templates.routes.js';
 import { sopStepsRouter } from './sop-steps.routes.js';
 import { sopObservationsRouter } from './sop-observations.routes.js';
+import { sopCategoriesRouter } from './sop-categories.routes.js';
+import { sopSectionsRouter } from './sop-sections.routes.js';
+import { sopRevisionsRouter } from './sop-revisions.routes.js';
 import { teacherAppraisalsRouter } from './teacher-appraisals.routes.js';
 import { allowanceRouter } from './allowance.routes.js';
 import { financeRouter } from './finance.routes.js';
@@ -23,49 +26,13 @@ import { uploadRouter } from './upload.routes.js';
 import { candidatesRouter } from './candidates.routes.js';
 import { attendanceRouter } from './attendance.routes.js';
 import { speechRouter } from './speech.routes.js';
+import { meRouter } from './me.routes.js';
+import { authRolesRouter } from './auth-roles.routes.js';
 
 export const router = Router();
 
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
-});
-
-// ── Temporary: export Teacher rows as INSERT SQL (remove after use) ───────────
-import { pool } from '../db/client.js';
-router.get('/admin/export-teachers-sql', async (_req, res) => {
-  try {
-    const conn = await pool.getConnection();
-    const [rows]: any = await conn.execute('SELECT * FROM `Teacher` ORDER BY `createdAt`');
-    conn.release();
-
-    const esc = (v: unknown): string => {
-      if (v === null || v === undefined) return 'NULL';
-      if (typeof v === 'boolean') return v ? '1' : '0';
-      if (typeof v === 'number') return String(v);
-      if (v instanceof Date) return `'${v.toISOString().replace('T', ' ').slice(0, 23)}'`;
-      const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-      return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-    };
-
-    if (!rows.length) { res.type('text').send('-- No teachers'); return; }
-    const cols = Object.keys(rows[0]);
-    const colList = cols.map((c: string) => `\`${c}\``).join(', ');
-    const valueLines = rows.map((row: any, i: number) => {
-      const vals = cols.map((c: string) => esc(row[c])).join(', ');
-      return `  (${vals})${i < rows.length - 1 ? ',' : ';'}`;
-    });
-    const sql = [
-      '-- Teacher seed exported from production',
-      '-- Run on test DB: INSERT IGNORE skips rows that already exist',
-      '',
-      `INSERT IGNORE INTO \`Teacher\` (${colList}) VALUES`,
-      ...valueLines,
-    ].join('\n');
-
-    res.type('text').send(sql);
-  } catch (e: any) {
-    res.status(500).send(`-- Error: ${e.message}`);
-  }
 });
 
 router.use('/auth', authRouter);
@@ -88,7 +55,12 @@ router.use('/', missionCategoriesRouter);
 router.use('/', sopTemplatesRouter);
 router.use('/', sopStepsRouter);
 router.use('/', sopObservationsRouter);
+router.use('/', sopCategoriesRouter);
+router.use('/', sopSectionsRouter);
+router.use('/', sopRevisionsRouter);
 router.use('/', teacherAppraisalsRouter);
 router.use('/', allowanceRouter);
 router.use('/', attendanceRouter);
 router.use('/', speechRouter);
+router.use('/', meRouter);
+router.use('/', authRolesRouter);

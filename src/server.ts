@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { router } from './routes/index.js';
 import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
+import { ALL_MODULE_KEYS } from './constants/authModules.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -16,7 +17,7 @@ async function runMigrations() {
       \`email\` VARCHAR(191) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
       \`passwordHash\` VARCHAR(191) NOT NULL,
-      \`role\` ENUM('SUPERADMIN','ADMIN','STAFF') NOT NULL DEFAULT 'STAFF',
+      \`role\` ENUM('SUPERADMIN','ADMIN','USER') NOT NULL DEFAULT 'USER',
       \`inviteToken\` VARCHAR(191),
       \`inviteExpiresAt\` DATETIME(3),
       \`activated\` TINYINT(1) NOT NULL DEFAULT 0,
@@ -184,6 +185,33 @@ async function runMigrations() {
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
     )`,
+    // Access control — see schema.ts's authRoles/authRoleModules/authRoleViews
+    // for the design rationale.
+    `CREATE TABLE IF NOT EXISTS \`AuthRole\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT,
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AuthRoleModule\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`authRoleId\` VARCHAR(36) NOT NULL,
+      \`module\` VARCHAR(50) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`AuthRoleModule_authRoleId_idx\` (\`authRoleId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AuthRoleView\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`authRoleId\` VARCHAR(36) NOT NULL,
+      \`view\` VARCHAR(50) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`AuthRoleView_authRoleId_idx\` (\`authRoleId\`)
+    )`,
     `CREATE TABLE IF NOT EXISTS \`Teacher\` (
       \`id\` VARCHAR(36) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
@@ -273,11 +301,65 @@ async function runMigrations() {
       \`id\` VARCHAR(36) NOT NULL,
       \`title\` VARCHAR(191) NOT NULL,
       \`goal\` TEXT,
+      \`videoUrl\` VARCHAR(500),
+      \`currentVersion\` INT NOT NULL DEFAULT 1,
+      \`icon\` VARCHAR(50) NOT NULL DEFAULT 'faClipboardCheck',
       \`displayOrder\` INT NOT NULL DEFAULT 0,
       \`deletedAt\` DATETIME(3),
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`SopTemplateRevision\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`sopTemplateId\` VARCHAR(36),
+      \`title\` VARCHAR(191) NOT NULL,
+      \`goal\` TEXT,
+      \`videoUrl\` VARCHAR(500),
+      \`icon\` VARCHAR(50),
+      \`stepsJson\` JSON NOT NULL,
+      \`categoryIdsJson\` JSON,
+      \`status\` ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+      \`versionNumber\` INT,
+      \`proposedByUserId\` VARCHAR(36) NOT NULL,
+      \`proposedByName\` VARCHAR(191) NOT NULL,
+      \`reviewedByUserId\` VARCHAR(36),
+      \`reviewedByName\` VARCHAR(191),
+      \`reviewedAt\` DATETIME(3),
+      \`reviewNote\` TEXT,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`SopTemplateRevision_sopTemplateId_idx\` (\`sopTemplateId\`),
+      INDEX \`SopTemplateRevision_status_idx\` (\`status\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`SopCategory\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(100) NOT NULL,
+      \`color\` VARCHAR(20) NOT NULL,
+      \`displayOrder\` INT NOT NULL DEFAULT 0,
+      \`deletedAt\` DATETIME(3),
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`SopSection\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(100) NOT NULL,
+      \`displayOrder\` INT NOT NULL DEFAULT 0,
+      \`deletedAt\` DATETIME(3),
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS \`SopTemplateCategory\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`sopTemplateId\` VARCHAR(36) NOT NULL,
+      \`categoryId\` VARCHAR(36) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`SopTemplateCategory_sopTemplateId_idx\` (\`sopTemplateId\`),
+      INDEX \`SopTemplateCategory_categoryId_idx\` (\`categoryId\`)
     ) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS \`SopStep\` (
       \`id\` VARCHAR(36) NOT NULL,
@@ -285,6 +367,7 @@ async function runMigrations() {
       \`section\` VARCHAR(100) NOT NULL,
       \`title\` VARCHAR(191) NOT NULL,
       \`detail\` TEXT,
+      \`linkedTemplateId\` VARCHAR(36),
       \`displayOrder\` INT NOT NULL DEFAULT 0,
       \`deletedAt\` DATETIME(3),
       \`createdAt\` DATETIME(3) NOT NULL,
@@ -296,17 +379,12 @@ async function runMigrations() {
       \`id\` VARCHAR(36) NOT NULL,
       \`teacherId\` VARCHAR(36) NOT NULL,
       \`sopTemplateId\` VARCHAR(36) NOT NULL,
-      \`status\` ENUM('PENDING_TRAINEE','PENDING_TRAINER','PENDING_ASSESSOR','PENDING_FOLLOWUP_1','PENDING_FOLLOWUP_2','CERTIFIED') NOT NULL DEFAULT 'PENDING_TRAINEE',
-      \`completedByName\` VARCHAR(191),
-      \`completedAt\` DATETIME(3),
+      \`trainerId\` VARCHAR(36),
+      \`status\` ENUM('PENDING_TRAINER','PENDING_ASSESSOR','CERTIFIED') NOT NULL DEFAULT 'PENDING_TRAINER',
       \`trainerName\` VARCHAR(191),
       \`trainerAt\` DATETIME(3),
       \`assessorName\` VARCHAR(191),
       \`assessorAt\` DATETIME(3),
-      \`followUp1Name\` VARCHAR(191),
-      \`followUp1At\` DATETIME(3),
-      \`followUp2Name\` VARCHAR(191),
-      \`followUp2At\` DATETIME(3),
       \`notes\` TEXT,
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
@@ -527,6 +605,14 @@ async function runMigrations() {
     `ALTER TABLE \`Position\` ADD COLUMN \`starColor\` VARCHAR(20) NULL`,
     `ALTER TABLE \`CareerMission\` ADD COLUMN \`whyItMatters\` TEXT`,
     `ALTER TABLE \`CareerMission\` ADD COLUMN \`highPriority\` TINYINT(1) NOT NULL DEFAULT 0`,
+    // SopStep — optional link to another SOP document from a specific step
+    `ALTER TABLE \`SopStep\` ADD COLUMN \`linkedTemplateId\` VARCHAR(36) NULL`,
+    // SopTemplate — optional external video link (YouTube/Vimeo/Drive/etc.)
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`videoUrl\` VARCHAR(500) NULL`,
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`currentVersion\` INT NOT NULL DEFAULT 1`,
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`icon\` VARCHAR(50) NOT NULL DEFAULT 'faClipboardCheck'`,
+    `ALTER TABLE \`SopObservation\` ADD COLUMN \`trainerId\` VARCHAR(36) NULL`,
+    `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`icon\` VARCHAR(50) NULL`,
     // Candidate — columns added AFTER the initial CREATE TABLE. CREATE TABLE
     // IF NOT EXISTS is a no-op if the table is already there, so any DB that
     // ran an earlier version of this branch is missing these. Each ADD is
@@ -598,6 +684,16 @@ async function runMigrations() {
     // Entry-level override — excludes one specific (category, month) row
     // from the sum without touching the category/group flag.
     `ALTER TABLE \`OperatingCost\` ADD COLUMN \`includeInOperatingCostSum\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // Links a login identity to its HR/career profile — without this
+    // there's no way to resolve "who is this person" beyond their bare
+    // User.role. Nullable (an admin-only login may have no Teacher
+    // profile) and unique (one Teacher can't be claimed by two Users).
+    `ALTER TABLE \`User\` ADD COLUMN \`teacherId\` VARCHAR(36) NULL`,
+    `ALTER TABLE \`User\` ADD UNIQUE KEY \`User_teacherId_uq\` (\`teacherId\`)`,
+    // Which AuthRole this position's teachers get. Backfilled onto a
+    // seeded "All Access" AuthRole below so no existing Position loses
+    // module access the moment this column starts being checked.
+    `ALTER TABLE \`Position\` ADD COLUMN \`authRoleId\` VARCHAR(36) NULL`,
   ];
 
   const conn = await pool.getConnection();
@@ -689,6 +785,26 @@ async function runMigrations() {
     );
     if (statusRepair?.affectedRows > 0) {
       console.log(`[migrate] Repaired ${statusRepair.affectedRows} Lead(s) with empty status (routed to REJECTED if lostReason set, else NEW)`);
+    }
+
+    // Rename the base User.role tier from STAFF to USER. Two-step so
+    // existing STAFF rows have somewhere valid to land before the old
+    // value is removed from the enum: widen, migrate the data, narrow.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`User\` MODIFY \`role\` ENUM('SUPERADMIN','ADMIN','STAFF','USER') NOT NULL DEFAULT 'USER'`,
+      );
+      const [roleRename] = await conn.execute<any>(
+        `UPDATE \`User\` SET \`role\` = 'USER' WHERE \`role\` = 'STAFF'`,
+      );
+      await conn.execute(
+        `ALTER TABLE \`User\` MODIFY \`role\` ENUM('SUPERADMIN','ADMIN','USER') NOT NULL DEFAULT 'USER'`,
+      );
+      if (roleRename?.affectedRows > 0) {
+        console.log(`[migrate] Renamed role STAFF -> USER for ${roleRename.affectedRows} User(s)`);
+      }
+    } catch (e: any) {
+      console.warn('[migrate] Failed to rename User.role STAFF -> USER:', e.message);
     }
 
     // Phase 2c: backfill Lead.attended for rows whose status already
@@ -1582,6 +1698,67 @@ async function runMigrations() {
       } catch {
         // malformed JSON — getSettings normalizes it back into shape on read
       }
+    }
+
+    // Seed the default How-To Guide sections once, in this fixed order — the
+    // reference document (the original 拣货/Picking checklist this feature
+    // was modeled on) groups every SOP's steps into exactly these three
+    // phases, so new installs start with the same structure instead of an
+    // empty picker. Only runs when the table is genuinely empty; an admin
+    // renaming/removing/reordering them afterward is left alone.
+    const [[sectionCountRow]] = await conn.execute<any[]>(
+      `SELECT COUNT(*) AS count FROM \`SopSection\``,
+    );
+    if (Number(sectionCountRow?.count ?? 0) === 0) {
+      const defaultSections = ['Pre-shift Preparation', 'Main Process', 'Exception Handling'];
+      const now = new Date();
+      for (let i = 0; i < defaultSections.length; i++) {
+        await conn.execute(
+          `INSERT INTO \`SopSection\` (\`id\`, \`name\`, \`displayOrder\`, \`createdAt\`, \`updatedAt\`)
+           VALUES (?, ?, ?, ?, ?)`,
+          [randomUUID(), defaultSections[i], i, now, now],
+        );
+      }
+      console.log(`[migrate] Seeded default SopSection rows: ${defaultSections.join(', ')}`);
+    }
+
+    // Seed a default "All Access" AuthRole granted every module, and
+    // backfill every Position with no authRoleId onto it. Without this,
+    // the instant authRoleId starts being checked, every teacher whose
+    // Position isn't explicitly assigned would lose all module access —
+    // this keeps day-1 behavior identical to today (everything open)
+    // until an admin deliberately narrows a Position onto a different,
+    // more restrictive AuthRole.
+    try {
+      const [[defaultRoleRow]] = await conn.execute<any[]>(
+        `SELECT \`id\` FROM \`AuthRole\` WHERE \`name\` = 'All Access (default)' LIMIT 1`,
+      );
+      let defaultAuthRoleId: string = defaultRoleRow?.id;
+      if (!defaultAuthRoleId) {
+        defaultAuthRoleId = randomUUID();
+        const now = new Date();
+        await conn.execute(
+          `INSERT INTO \`AuthRole\` (\`id\`, \`name\`, \`description\`, \`sortOrder\`, \`createdAt\`, \`updatedAt\`)
+           VALUES (?, 'All Access (default)', 'Auto-seeded during AuthRole rollout — every module granted so no existing Position loses access.', 0, ?, ?)`,
+          [defaultAuthRoleId, now, now],
+        );
+        for (const moduleKey of ALL_MODULE_KEYS) {
+          await conn.execute(
+            `INSERT INTO \`AuthRoleModule\` (\`id\`, \`authRoleId\`, \`module\`, \`createdAt\`) VALUES (?, ?, ?, ?)`,
+            [randomUUID(), defaultAuthRoleId, moduleKey, now],
+          );
+        }
+        console.log(`[migrate] Seeded default AuthRole "All Access (default)" with all ${ALL_MODULE_KEYS.length} modules granted`);
+      }
+      const [backfillResult] = await conn.execute<any>(
+        `UPDATE \`Position\` SET \`authRoleId\` = ? WHERE \`authRoleId\` IS NULL`,
+        [defaultAuthRoleId],
+      );
+      if (backfillResult?.affectedRows > 0) {
+        console.log(`[migrate] Backfilled authRoleId onto ${backfillResult.affectedRows} Position row(s)`);
+      }
+    } catch (e: any) {
+      console.warn('[migrate] AuthRole seed/backfill skipped:', e.message);
     }
   } finally {
     conn.release();

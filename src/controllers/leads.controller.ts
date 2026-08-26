@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
-import { and, asc, desc, eq, gte, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
 import type { RowDataPacket } from 'mysql2';
 import { db, pool } from '../db/client.js';
 import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
@@ -359,11 +359,26 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
     whereParams.push(yearFilter);
   }
 
-  // Search by name or phone
+  // Search by name or phone. Phone matching needs to survive format drift —
+  // the same parent may be stored as `01161788443`, `+60 11-6178 8443`, or
+  // `60 116178 8443`. Strip both sides to digits-only, then drop a leading
+  // `60` country code or `0` national prefix from each before comparing
+  // (mirrors `phoneKey()` in CandidatesPage.tsx / the same fix in
+  // candidates.controller.ts's getCandidates), so all three formats collapse
+  // to the same digits. Falls back to a raw phone LIKE only when the search
+  // term itself has no digits (name-only searches).
+  const searchDigits = searchTerm.replace(/\D/g, '');
+  const normalizedSearchDigits = searchDigits.startsWith('60')
+    ? searchDigits.slice(2)
+    : searchDigits.startsWith('0')
+      ? searchDigits.slice(1)
+      : searchDigits;
   if (searchTerm) {
-    whereStr += ' AND (`childName` LIKE ? OR `parentPhone` LIKE ?)';
-    const like = `%${searchTerm}%`;
-    whereParams.push(like, like);
+    const phoneClause = searchDigits
+      ? "REGEXP_REPLACE(REGEXP_REPLACE(`parentPhone`, '[^0-9]', ''), '^(60|0)', '') LIKE ?"
+      : '`parentPhone` LIKE ?';
+    whereStr += ` AND (\`childName\` LIKE ? OR ${phoneClause})`;
+    whereParams.push(`%${searchTerm}%`, searchDigits ? `%${normalizedSearchDigits}%` : `%${searchTerm}%`);
   }
 
   const [[countRow]] = await pool.query<RowDataPacket[]>(
@@ -407,7 +422,14 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   } else {
     // Drizzle builder for simple cases
     const notDeleted = sql`${leads.deletedAt} IS NULL`;
-    const searchFilter = searchTerm ? sql`(${leads.childName} LIKE ${`%${searchTerm}%`} OR ${leads.parentPhone} LIKE ${`%${searchTerm}%`})` : undefined;
+    const searchFilter = searchTerm
+      ? or(
+          like(leads.childName, `%${searchTerm}%`),
+          searchDigits
+            ? sql`REGEXP_REPLACE(REGEXP_REPLACE(${leads.parentPhone}, '[^0-9]', ''), '^(60|0)', '') LIKE ${'%' + normalizedSearchDigits + '%'}`
+            : like(leads.parentPhone, `%${searchTerm}%`),
+        )
+      : undefined;
     const baseWhere =
       status === 'inactive' ? and(notDeleted, inArray(leads.status, ['ENROLLED', 'LOST', 'REJECTED'])) :
       status ? and(notDeleted, eq(leads.status, status as any)) :

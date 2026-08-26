@@ -86,6 +86,7 @@ const upsertPositionSchema = z.object({
   description: z.string().nullable().optional(),
   roleFocus: z.string().max(191).nullable().optional(),
   departmentId: z.string().max(20).nullable().optional(),
+  authRoleId: z.string().max(36).nullable().optional(),
 });
 
 export async function upsertPosition(req: Request, res: Response): Promise<void> {
@@ -117,6 +118,7 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
       description: parsed.data.description ?? null,
       roleFocus: parsed.data.roleFocus ?? null,
       departmentId: parsed.data.departmentId ?? null,
+      authRoleId: parsed.data.authRoleId ?? null,
       createdAt: now,
       updatedAt: now,
     });

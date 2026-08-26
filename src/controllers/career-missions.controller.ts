@@ -281,7 +281,7 @@ export async function getTeacherCareer(req: Request, res: Response): Promise<voi
         : `Complete all required ${currentPosition.name} missions`,
       `Appraisal score ≥ ${APPRAISAL_REQUIRED}%`,
       `Safety score ≥ ${SAFETY_REQUIRED}%`,
-      'SOP compliance: passed',
+      'How-To Guide adherence: passed',
       'Supervisor approval',
     ]
     : [];

@@ -27,8 +27,14 @@ const upsertStepSchema = z.object({
   section: z.string().min(1).max(100),
   title: z.string().min(1).max(191),
   detail: z.string().nullable().optional(),
+  linkedTemplateId: z.string().min(1).max(36).nullable().optional(),
   displayOrder: z.number().int().min(0).optional(),
 });
+
+// A step can't "hand off" to the document it's already part of.
+function isSelfLink(sopTemplateId: string, linkedTemplateId: string | null | undefined): boolean {
+  return !!linkedTemplateId && linkedTemplateId === sopTemplateId;
+}
 
 export async function createStep(req: Request, res: Response): Promise<void> {
   const parsed = upsertStepSchema.safeParse(req.body);
@@ -37,7 +43,15 @@ export async function createStep(req: Request, res: Response): Promise<void> {
     return;
   }
   if (!(await assertTemplateExists(parsed.data.sopTemplateId))) {
-    res.status(400).json({ message: 'SOP template does not exist' });
+    res.status(400).json({ message: 'How-To Guide does not exist' });
+    return;
+  }
+  if (isSelfLink(parsed.data.sopTemplateId, parsed.data.linkedTemplateId)) {
+    res.status(400).json({ message: 'A step cannot link to the How-To Guide it belongs to' });
+    return;
+  }
+  if (parsed.data.linkedTemplateId && !(await assertTemplateExists(parsed.data.linkedTemplateId))) {
+    res.status(400).json({ message: 'Linked How-To Guide does not exist' });
     return;
   }
   const now = new Date();
@@ -56,6 +70,7 @@ export async function createStep(req: Request, res: Response): Promise<void> {
     section: parsed.data.section,
     title: parsed.data.title,
     detail: parsed.data.detail ?? null,
+    linkedTemplateId: parsed.data.linkedTemplateId ?? null,
     displayOrder,
     createdAt: now,
     updatedAt: now,
@@ -77,8 +92,19 @@ export async function updateStep(req: Request, res: Response): Promise<void> {
   }
   const [existing] = await db.select().from(sopSteps).where(eq(sopSteps.id, id));
   if (!existing || existing.deletedAt) {
-    res.status(404).json({ message: 'SOP step not found' });
+    res.status(404).json({ message: 'Step not found' });
     return;
+  }
+  if ('linkedTemplateId' in parsed.data) {
+    const targetTemplateId = parsed.data.sopTemplateId ?? existing.sopTemplateId;
+    if (isSelfLink(targetTemplateId, parsed.data.linkedTemplateId)) {
+      res.status(400).json({ message: 'A step cannot link to the How-To Guide it belongs to' });
+      return;
+    }
+    if (parsed.data.linkedTemplateId && !(await assertTemplateExists(parsed.data.linkedTemplateId))) {
+      res.status(400).json({ message: 'Linked How-To Guide does not exist' });
+      return;
+    }
   }
   await db.update(sopSteps).set({ ...parsed.data, updatedAt: new Date() }).where(eq(sopSteps.id, id));
   const [row] = await db.select().from(sopSteps).where(eq(sopSteps.id, id));
@@ -90,7 +116,7 @@ export async function updateStep(req: Request, res: Response): Promise<void> {
 export async function deleteStep(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
   const [existing] = await db.select().from(sopSteps).where(eq(sopSteps.id, id));
-  if (!existing) { res.status(404).json({ message: 'SOP step not found' }); return; }
+  if (!existing) { res.status(404).json({ message: 'Step not found' }); return; }
   await db.update(sopSteps).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(sopSteps.id, id));
   res.json({ ok: true });
 }
