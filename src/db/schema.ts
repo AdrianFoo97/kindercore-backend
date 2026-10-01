@@ -272,6 +272,88 @@ export const levelIncentives = mysqlTable('LevelIncentive', {
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// ── Points & Rewards ─────────────────────────────────────────────────────────
+// Points are always granted manually by a supervisor (no auto-earn).
+// Earning rules are an admin-curated reference / grant-template list
+// shown to teachers ("here's how you can earn") and used to prefill a
+// manual grant. The reward catalog + redemptions drive the spend side.
+
+// Admin-managed global list. `icon` stores an icon NAME (resolved to a
+// FontAwesome glyph on the frontend), not the glyph itself.
+export const pointsEarningRules = mysqlTable('PointsEarningRule', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  icon: varchar('icon', { length: 40 }).notNull(),
+  label: varchar('label', { length: 191 }).notNull(),
+  description: text('description'),
+  amount: int('amount').notNull(),
+  category: varchar('category', { length: 20 }).notNull().default('other'),
+  active: boolean('active').notNull().default(true),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Admin-managed global redeemable catalog.
+export const pointsRewardItems = mysqlTable('PointsRewardItem', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  icon: varchar('icon', { length: 40 }).notNull(),
+  label: varchar('label', { length: 191 }).notNull(),
+  sub: varchar('sub', { length: 191 }),
+  cost: int('cost').notNull(),
+  stock: mysqlEnum('stock', ['in', 'limited', 'out']).notNull().default('in'),
+  category: varchar('category', { length: 20 }).notNull().default('other'),
+  active: boolean('active').notNull().default(true),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Per-teacher ledger. `delta` is positive for grants, negative for
+// redemptions/adjustments. `balanceAfter` is the running balance at
+// the time the row was written (for fast history display).
+export const pointsTransactions = mysqlTable('PointsTransaction', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  kind: mysqlEnum('kind', ['earned', 'redeemed']).notNull(),
+  label: varchar('label', { length: 191 }).notNull(),
+  delta: int('delta').notNull(),
+  balanceAfter: int('balanceAfter').notNull(),
+  date: varchar('date', { length: 10 }).notNull(), // YYYY-MM-DD
+  ruleId: varchar('ruleId', { length: 36 }),
+  redemptionId: varchar('redemptionId', { length: 36 }),
+  note: text('note'),
+  createdBy: varchar('createdBy', { length: 191 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Per-teacher claimed rewards ("My rewards"). Lifecycle:
+//   redeemed → pending → delivered (terminal).
+// 'redeemed' = sits in teacher's account; 'pending' = teacher applied
+// to use it, awaiting HR; 'delivered' = HR delivered the item or
+// approved the application — terminal regardless of teacher use.
+export const rewardRedemptions = mysqlTable('RewardRedemption', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  rewardId: varchar('rewardId', { length: 36 }).notNull(),
+  label: varchar('label', { length: 191 }).notNull(),
+  icon: varchar('icon', { length: 40 }).notNull(),
+  pointsSpent: int('pointsSpent').notNull(),
+  status: mysqlEnum('status', ['redeemed', 'pending', 'delivered'])
+    .notNull().default('redeemed'),
+  voucherCode: varchar('voucherCode', { length: 60 }),
+  redemptionCode: varchar('redemptionCode', { length: 40 }).notNull(),
+  instructions: text('instructions'),
+  redeemedDate: varchar('redeemedDate', { length: 10 }).notNull(), // YYYY-MM-DD
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Per-teacher single pinned reward goal (one row per teacher).
+export const teacherRewardGoals = mysqlTable('TeacherRewardGoal', {
+  teacherId: varchar('teacherId', { length: 36 }).primaryKey(),
+  rewardId: varchar('rewardId', { length: 36 }).notNull(),
+  setAt: varchar('setAt', { length: 10 }).notNull(), // YYYY-MM-DD
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 export const teachers = mysqlTable('Teacher', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 191 }).notNull(),
@@ -304,6 +386,10 @@ export const teachers = mysqlTable('Teacher', {
   dob: datetime('dob', { mode: 'date', fsp: 3 }),
   employmentType: varchar('employmentType', { length: 20 }).default('full-time'),
   resignedAt: datetime('resignedAt', { mode: 'date', fsp: 3 }),
+  // Drives the "new grants" banner on the teacher's Rewards hub — earned
+  // transactions newer than this timestamp are "new". Set via POST
+  // /teachers/:teacherId/points/seen.
+  pointsLastSeenAt: datetime('pointsLastSeenAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -437,7 +523,7 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
   icon: varchar('icon', { length: 50 }),
   stepsJson: json('stepsJson').notNull(),
   categoryIdsJson: json('categoryIdsJson'),
-  status: mysqlEnum('status', ['PENDING', 'APPROVED', 'REJECTED']).notNull().default('PENDING'),
+  status: mysqlEnum('status', ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED']).notNull().default('PENDING'),
   // Set only on approval — the version number this proposal became.
   versionNumber: int('versionNumber'),
   proposedByUserId: varchar('proposedByUserId', { length: 36 }).notNull(),
@@ -446,6 +532,28 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
   reviewedByName: varchar('reviewedByName', { length: 191 }),
   reviewedAt: datetime('reviewedAt', { mode: 'date', fsp: 3 }),
   reviewNote: text('reviewNote'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Free-text bug reports — any signed-in user can submit one (currently
+// only exposed from the teacher mobile app's Settings page), an admin
+// triages them from Tools. Deliberately simple: no category, no severity,
+// no attachments — just what happened, from where, and who to ask if it
+// needs more detail.
+export const bugReports = mysqlTable('BugReport', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  message: text('message').notNull(),
+  // Where they were when they hit the issue — a path+query string, not a
+  // full URL (this app has no need to distinguish hosts/origins).
+  pageUrl: varchar('pageUrl', { length: 500 }),
+  appVersion: varchar('appVersion', { length: 20 }),
+  reportedByUserId: varchar('reportedByUserId', { length: 36 }).notNull(),
+  reportedByName: varchar('reportedByName', { length: 191 }).notNull(),
+  // Up to 4 screenshot URLs (e.g. `/uploads/bug-reports/xxx.jpg`), same
+  // relative-path convention as Position.badgeUrl.
+  photoUrls: json('photoUrls').$type<string[]>(),
+  status: mysqlEnum('status', ['OPEN', 'RESOLVED']).notNull().default('OPEN'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });

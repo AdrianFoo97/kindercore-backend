@@ -30,10 +30,12 @@ export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || path.resolve(
  *    PRIVATE_UPLOAD_ROOT path. */
 export const PRIVATE_UPLOAD_ROOT = path.resolve(process.env.PRIVATE_UPLOAD_ROOT || path.resolve(process.cwd(), 'private-uploads'));
 const BADGES_DIR = path.join(UPLOAD_ROOT, 'badges');
+const BUG_REPORTS_DIR = path.join(UPLOAD_ROOT, 'bug-reports');
 
 // Ensure folders exist at boot
 fs.mkdirSync(PRIVATE_UPLOAD_ROOT, { recursive: true });
 fs.mkdirSync(BADGES_DIR, { recursive: true });
+fs.mkdirSync(BUG_REPORTS_DIR, { recursive: true });
 
 const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
 const EXT_BY_MIME: Record<string, string> = {
@@ -63,6 +65,29 @@ const upload = multer({
   },
 });
 
+// Real device screenshots (JPEG) — no SVG here, this is photo evidence, not
+// an icon picker. Same 5 MB per-file cap, capped at 4 files per report so a
+// bug report can't be used to dump unlimited disk usage.
+const BUG_REPORT_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const bugReportStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, BUG_REPORTS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase() ?? '';
+    cb(null, `${randomUUID()}${ext}`);
+  },
+});
+const uploadBugReportPhotos = multer({
+  storage: bugReportStorage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 4 },
+  fileFilter: (_req, file, cb) => {
+    if (!BUG_REPORT_ALLOWED_MIME.has(file.mimetype)) {
+      cb(new Error('Only PNG, JPG or WebP images are allowed'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
 export const uploadRouter = Router();
 
 uploadRouter.post(
@@ -81,5 +106,24 @@ uploadRouter.post(
     const file = (req as any).file as Express.Multer.File | undefined;
     if (!file) return res.status(400).json({ message: 'No file uploaded' });
     res.json({ url: `/uploads/badges/${file.filename}` });
+  },
+);
+
+uploadRouter.post(
+  '/bug-report-photos',
+  authMiddleware,
+  (req, res, next) => {
+    uploadBugReportPhotos.array('photos', 4)(req, res, (err) => {
+      if (err) {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        return res.status(400).json({ message: msg });
+      }
+      next();
+    });
+  },
+  (req, res) => {
+    const files = (req as any).files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) return res.status(400).json({ message: 'No files uploaded' });
+    res.json({ urls: files.map(f => `/uploads/bug-reports/${f.filename}`) });
   },
 );

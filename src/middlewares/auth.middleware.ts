@@ -76,7 +76,11 @@ export async function resolveGrants(userId: string): Promise<{ modules: Set<stri
   };
 }
 
-function isAdminRole(role: string | undefined): boolean {
+// Exported (not just used internally by requireModule/requireView) so a
+// controller that needs conditional logic rather than a hard gate — e.g.
+// listRevisions scoping results to "my own" vs. "everyone's" — can reuse
+// the exact same admin-bypass rule instead of redefining it.
+export function isAdminRole(role: string | undefined): boolean {
   return role === 'ADMIN' || role === 'SUPERADMIN';
 }
 

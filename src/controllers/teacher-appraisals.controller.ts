@@ -6,9 +6,9 @@ import { db } from '../db/client.js';
 import { teacherAppraisals, teachers } from '../db/schema.js';
 
 // How many recent monthly scores to average for the promotion gate.
-// Six months captures one performance cycle without letting one bad month
-// linger forever in the average.
-export const APPRAISAL_AVG_WINDOW = 6;
+// Rolling 12-month window so the average reflects a full year of
+// performance without letting scores from over a year ago linger forever.
+export const APPRAISAL_AVG_WINDOW = 12;
 export const APPRAISAL_PASS_THRESHOLD = 75;
 
 // Compute a teacher's average appraisal score over the most recent

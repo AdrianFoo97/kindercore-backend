@@ -28,6 +28,8 @@ import { attendanceRouter } from './attendance.routes.js';
 import { speechRouter } from './speech.routes.js';
 import { meRouter } from './me.routes.js';
 import { authRolesRouter } from './auth-roles.routes.js';
+import { pointsRouter } from './points.routes.js';
+import { bugReportsRouter } from './bug-reports.routes.js';
 
 export const router = Router();
 
@@ -64,3 +66,5 @@ router.use('/', attendanceRouter);
 router.use('/', speechRouter);
 router.use('/', meRouter);
 router.use('/', authRolesRouter);
+router.use('/', pointsRouter);
+router.use('/', bugReportsRouter);
