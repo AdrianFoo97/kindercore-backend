@@ -8,6 +8,24 @@ import {
   sopTemplateRevisions, sopTemplates, sopSteps, sopTemplateCategories, users,
 } from '../db/schema.js';
 
+// mysql2 only auto-parses a JSON column if the server reports it as the
+// real JSON wire type — MariaDB (what test/production actually run,
+// unlike local dev's real MySQL 8) never does, since its "JSON" is just a
+// CHECK-constrained LONGTEXT alias, so the driver hands back a raw string
+// instead. Same gotcha already worked around in candidates/packages/
+// planner/salary/settings/students controllers; sop-revisions never got
+// it because it was only ever exercised against local dev.
+function parseJsonField<T>(v: T | string): T {
+  return typeof v === 'string' ? JSON.parse(v) : v;
+}
+function normalizeRevision<T extends { stepsJson: unknown; categoryIdsJson: unknown }>(row: T): T {
+  return {
+    ...row,
+    stepsJson: parseJsonField(row.stepsJson),
+    categoryIdsJson: row.categoryIdsJson == null ? null : parseJsonField(row.categoryIdsJson),
+  };
+}
+
 const proposedStepSchema = z.object({
   section: z.string().min(1).max(100),
   title: z.string().min(1).max(191),
@@ -58,7 +76,7 @@ export async function listRevisions(req: Request, res: Response): Promise<void> 
   const rows = await db.select().from(sopTemplateRevisions)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(sopTemplateRevisions.createdAt));
-  res.json(rows);
+  res.json(rows.map(normalizeRevision));
 }
 
 export async function getRevision(req: Request, res: Response): Promise<void> {
@@ -74,7 +92,7 @@ export async function getRevision(req: Request, res: Response): Promise<void> {
     res.status(404).json({ message: 'Revision not found' });
     return;
   }
-  res.json(revision);
+  res.json(normalizeRevision(revision));
 }
 
 export async function createRevision(req: Request, res: Response): Promise<void> {
@@ -113,7 +131,7 @@ export async function createRevision(req: Request, res: Response): Promise<void>
     updatedAt: now,
   });
   const [row] = await db.select().from(sopTemplateRevisions).where(eq(sopTemplateRevisions.id, id));
-  res.json(row);
+  res.json(normalizeRevision(row));
 }
 
 // A reviewer edits the proposal's own content (fix a typo, tighten a step's
@@ -157,7 +175,7 @@ export async function updateRevision(req: Request, res: Response): Promise<void>
   }).where(eq(sopTemplateRevisions.id, id));
 
   const [row] = await db.select().from(sopTemplateRevisions).where(eq(sopTemplateRevisions.id, id));
-  res.json(row);
+  res.json(normalizeRevision(row));
 }
 
 export async function approveRevision(req: Request, res: Response): Promise<void> {
@@ -175,8 +193,8 @@ export async function approveRevision(req: Request, res: Response): Promise<void
   const reviewer = req.user!;
   const [reviewerRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, reviewer.id));
   const now = new Date();
-  const steps = revision.stepsJson as { section: string; title: string; detail?: string | null; linkedTemplateId?: string | null }[];
-  const categoryIds = (revision.categoryIdsJson as string[] | null) ?? null;
+  const steps = parseJsonField(revision.stepsJson) as { section: string; title: string; detail?: string | null; linkedTemplateId?: string | null }[];
+  const categoryIds = revision.categoryIdsJson == null ? null : (parseJsonField(revision.categoryIdsJson) as string[]);
 
   let templateId = revision.sopTemplateId;
   let newVersion: number;
@@ -254,7 +272,7 @@ export async function approveRevision(req: Request, res: Response): Promise<void
   });
 
   const [row] = await db.select().from(sopTemplateRevisions).where(eq(sopTemplateRevisions.id, id));
-  res.json(row);
+  res.json(normalizeRevision(row));
 }
 
 const rejectSchema = z.object({
@@ -285,5 +303,5 @@ export async function rejectRevision(req: Request, res: Response): Promise<void>
   }).where(eq(sopTemplateRevisions.id, id));
 
   const [row] = await db.select().from(sopTemplateRevisions).where(eq(sopTemplateRevisions.id, id));
-  res.json(row);
+  res.json(normalizeRevision(row));
 }

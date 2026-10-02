@@ -5,6 +5,13 @@ import { z } from 'zod';
 import { db } from '../db/client.js';
 import { bugReports, users } from '../db/schema.js';
 
+// Same MariaDB-vs-MySQL JSON gotcha as sop-revisions.controller.ts — the
+// driver only auto-parses a JSON column against real MySQL, so test/
+// production (MariaDB) hand back a raw string instead.
+function normalizeBugReport<T extends { photoUrls: unknown }>(row: T): T {
+  return { ...row, photoUrls: typeof row.photoUrls === 'string' ? JSON.parse(row.photoUrls) : row.photoUrls };
+}
+
 const createBugReportSchema = z.object({
   message: z.string().min(1).max(2000),
   pageUrl: z.string().max(500).nullable().optional(),
@@ -36,7 +43,7 @@ export async function createBugReport(req: Request, res: Response): Promise<void
     updatedAt: now,
   });
   const [row] = await db.select().from(bugReports).where(eq(bugReports.id, id));
-  res.json(row);
+  res.json(normalizeBugReport(row));
 }
 
 // Admin-only (see bug-reports.routes.ts) — a reporter isn't scoped to
@@ -44,7 +51,7 @@ export async function createBugReport(req: Request, res: Response): Promise<void
 // "check my submission's status" surface for this yet, only submission.
 export async function listBugReports(_req: Request, res: Response): Promise<void> {
   const rows = await db.select().from(bugReports).orderBy(desc(bugReports.createdAt));
-  res.json(rows);
+  res.json(rows.map(normalizeBugReport));
 }
 
 export async function resolveBugReport(req: Request, res: Response): Promise<void> {
@@ -53,5 +60,5 @@ export async function resolveBugReport(req: Request, res: Response): Promise<voi
   if (!existing) { res.status(404).json({ message: 'Bug report not found' }); return; }
   await db.update(bugReports).set({ status: 'RESOLVED', updatedAt: new Date() }).where(eq(bugReports.id, id));
   const [row] = await db.select().from(bugReports).where(eq(bugReports.id, id));
-  res.json(row);
+  res.json(normalizeBugReport(row));
 }

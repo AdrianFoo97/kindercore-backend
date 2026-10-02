@@ -406,7 +406,7 @@ function reshapeBlock(row: any) {
     subjectId: row.subjectId,
     taskId: row.taskId,
     classroomId: row.classroomId,
-    assignedTeacherIds: row.assignedTeacherIds,
+    assignedTeacherIds: parseJson(row.assignedTeacherIds),
     notes: row.notes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
