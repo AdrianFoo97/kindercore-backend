@@ -560,6 +560,91 @@ async function runMigrations() {
       INDEX \`idx_candidate_status\` (\`status\`),
       INDEX \`idx_candidate_desiredPosition\` (\`desiredPosition\`)
     )`,
+    // Points & Rewards — points are always a manual supervisor grant (no
+    // auto-earn); earning rules are an admin-curated grant-template list,
+    // the reward catalog + redemptions drive the spend side.
+    `CREATE TABLE IF NOT EXISTS \`PointsEarningRule\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`icon\` VARCHAR(40) NOT NULL,
+      \`label\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT NULL,
+      \`amount\` INT NOT NULL,
+      \`category\` VARCHAR(20) NOT NULL DEFAULT 'other',
+      \`active\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`PointsRewardItem\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`icon\` VARCHAR(40) NOT NULL,
+      \`label\` VARCHAR(191) NOT NULL,
+      \`sub\` VARCHAR(191) NULL,
+      \`cost\` INT NOT NULL,
+      \`stock\` ENUM('in','limited','out') NOT NULL DEFAULT 'in',
+      \`category\` VARCHAR(20) NOT NULL DEFAULT 'other',
+      \`active\` TINYINT(1) NOT NULL DEFAULT 1,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`PointsTransaction\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`kind\` ENUM('earned','redeemed') NOT NULL,
+      \`label\` VARCHAR(191) NOT NULL,
+      \`delta\` INT NOT NULL,
+      \`balanceAfter\` INT NOT NULL,
+      \`date\` VARCHAR(10) NOT NULL,
+      \`ruleId\` VARCHAR(36) NULL,
+      \`redemptionId\` VARCHAR(36) NULL,
+      \`note\` TEXT NULL,
+      \`createdBy\` VARCHAR(191) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`idx_pt_teacher\` (\`teacherId\`)
+    )`,
+    // status enum is deliberately only 'redeemed'|'pending'|'delivered' —
+    // see points.controller.ts; don't widen this to a stale 5-state enum.
+    `CREATE TABLE IF NOT EXISTS \`RewardRedemption\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`rewardId\` VARCHAR(36) NOT NULL,
+      \`label\` VARCHAR(191) NOT NULL,
+      \`icon\` VARCHAR(40) NOT NULL,
+      \`pointsSpent\` INT NOT NULL,
+      \`status\` ENUM('redeemed','pending','delivered') NOT NULL DEFAULT 'redeemed',
+      \`voucherCode\` VARCHAR(60) NULL,
+      \`redemptionCode\` VARCHAR(40) NOT NULL,
+      \`instructions\` TEXT NULL,
+      \`redeemedDate\` VARCHAR(10) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`idx_rr_teacher\` (\`teacherId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`TeacherRewardGoal\` (
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`rewardId\` VARCHAR(36) NOT NULL,
+      \`setAt\` VARCHAR(10) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`teacherId\`)
+    )`,
+    // Free-text bug reports — any signed-in user can submit one (currently
+    // only exposed from the teacher mobile app's Settings page), an admin
+    // triages them from Tools > Bug Reports.
+    `CREATE TABLE IF NOT EXISTS \`BugReport\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`message\` TEXT NOT NULL,
+      \`pageUrl\` VARCHAR(500) NULL,
+      \`appVersion\` VARCHAR(20) NULL,
+      \`reportedByUserId\` VARCHAR(36) NOT NULL,
+      \`reportedByName\` VARCHAR(191) NOT NULL,
+      \`status\` ENUM('OPEN', 'RESOLVED') NOT NULL DEFAULT 'OPEN',
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    )`,
   ];
 
   const addColumns = [
@@ -694,6 +779,11 @@ async function runMigrations() {
     // seeded "All Access" AuthRole below so no existing Position loses
     // module access the moment this column starts being checked.
     `ALTER TABLE \`Position\` ADD COLUMN \`authRoleId\` VARCHAR(36) NULL`,
+    // Drives the "new grants" banner on the teacher's Rewards hub —
+    // earned transactions newer than this are "new". Set via POST
+    // /teachers/:teacherId/points/seen.
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`pointsLastSeenAt\` DATETIME(3) NULL`,
+    `ALTER TABLE \`BugReport\` ADD COLUMN \`photoUrls\` JSON NULL`,
   ];
 
   const conn = await pool.getConnection();
@@ -979,6 +1069,20 @@ async function runMigrations() {
     );
     if (paymentDateSync?.affectedRows > 0) {
       console.log(`[migrate] Backfilled Lead.statusChangedAt from Student.enrolledAt on ${paymentDateSync.affectedRows} ENROLLED lead(s)`);
+    }
+
+    // Phase 2e: widen SopTemplateRevision.status to include DRAFT — the
+    // Author Guides hub's Save Draft / resume / Publish Now flow needs it.
+    // MODIFY COLUMN is idempotent: a no-op once the enum already has it.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`SopTemplateRevision\` MODIFY \`status\`
+         ENUM('DRAFT','PENDING','APPROVED','REJECTED')
+         NOT NULL DEFAULT 'PENDING'`,
+      );
+      console.log('[migrate] Verified SopTemplateRevision.status enum includes DRAFT');
+    } catch (e: any) {
+      console.warn('[migrate] Failed to enforce SopTemplateRevision.status enum:', e.message);
     }
 
     // Phase 3: seed default category groups & categories if none exist
