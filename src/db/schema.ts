@@ -270,17 +270,27 @@ export const authRoleViews = mysqlTable('AuthRoleView', {
 // not just the UI): renaming it later would silently break any check already
 // wired to the old string. Creating a view here does nothing on its own —
 // it only becomes a real gate once a developer writes the matching
-// requireView/hasView call in code and deploys. `module` is a loose
-// reference to the hardcoded ModuleKey catalog (authModules.ts), same
-// no-FK convention as AuthRoleModule.module/AuthRoleView.view.
+// requireView/hasView call in code and deploys. Which module(s) it belongs
+// to lives in authViewModules below, not here — a view can surface under
+// more than one module.
 export const authViews = mysqlTable('AuthView', {
   id: varchar('id', { length: 36 }).primaryKey(),
   key: varchar('key', { length: 50 }).notNull().unique(),
   label: varchar('label', { length: 191 }).notNull(),
   description: text('description'),
-  module: varchar('module', { length: 50 }).notNull(),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// `module` is a loose reference to the hardcoded ModuleKey catalog
+// (authModules.ts), same no-FK convention as AuthRoleModule.module. A view
+// can have more than one row here — it's offered on a role once any one of
+// its modules is granted.
+export const authViewModules = mysqlTable('AuthViewModule', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  authViewId: varchar('authViewId', { length: 36 }).notNull(),
+  module: varchar('module', { length: 50 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 export const levelIncentives = mysqlTable('LevelIncentive', {

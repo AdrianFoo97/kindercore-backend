@@ -212,19 +212,27 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       INDEX \`AuthRoleView_authRoleId_idx\` (\`authRoleId\`)
     )`,
-    // The catalog of views themselves (key/label/description/module) — see
+    // The catalog of views themselves (key/label/description) — see
     // schema.ts's authViews comment. AuthRoleView.view stores the `key`
-    // string loosely, no FK.
+    // string loosely, no FK. Which module(s) a view belongs to lives in
+    // AuthViewModule below, not here, same split as AuthRole/AuthRoleModule.
     `CREATE TABLE IF NOT EXISTS \`AuthView\` (
       \`id\` VARCHAR(36) NOT NULL,
       \`key\` VARCHAR(50) NOT NULL,
       \`label\` VARCHAR(191) NOT NULL,
       \`description\` TEXT,
-      \`module\` VARCHAR(50) NOT NULL,
       \`createdAt\` DATETIME(3) NOT NULL,
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`),
       UNIQUE KEY \`AuthView_key_uq\` (\`key\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AuthViewModule\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`authViewId\` VARCHAR(36) NOT NULL,
+      \`module\` VARCHAR(50) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`AuthViewModule_authViewId_idx\` (\`authViewId\`)
     )`,
     `CREATE TABLE IF NOT EXISTS \`Teacher\` (
       \`id\` VARCHAR(36) NOT NULL,
@@ -1879,6 +1887,42 @@ async function runMigrations() {
       console.warn('[migrate] AuthRole seed/backfill skipped:', e.message);
     }
 
+    // AuthView originally shipped with a single `module` column; it's now
+    // AuthViewModule (a view can belong to more than one module). Any
+    // environment that already created AuthView before this change still
+    // has that column — move its data into AuthViewModule, then drop it.
+    // No-op (silently caught) on an environment where AuthView was just
+    // created fresh above and never had the column.
+    try {
+      const [legacyRows] = await conn.execute<any[]>(
+        `SELECT \`id\`, \`module\` FROM \`AuthView\` WHERE \`module\` IS NOT NULL`,
+      );
+      if (legacyRows.length > 0) {
+        const now = new Date();
+        for (const row of legacyRows) {
+          const [[already]] = await conn.execute<any[]>(
+            `SELECT \`id\` FROM \`AuthViewModule\` WHERE \`authViewId\` = ? AND \`module\` = ? LIMIT 1`,
+            [row.id, row.module],
+          );
+          if (!already) {
+            await conn.execute(
+              `INSERT INTO \`AuthViewModule\` (\`id\`, \`authViewId\`, \`module\`, \`createdAt\`) VALUES (?, ?, ?, ?)`,
+              [randomUUID(), row.id, row.module, now],
+            );
+          }
+        }
+        console.log(`[migrate] Backfilled AuthViewModule from ${legacyRows.length} legacy AuthView.module value(s)`);
+      }
+      await conn.execute(`ALTER TABLE \`AuthView\` DROP COLUMN \`module\``);
+      console.log('[migrate] Dropped legacy AuthView.module column');
+    } catch (e: any) {
+      // ER_BAD_FIELD_ERROR = column already gone (already migrated, or
+      // created fresh without it) — nothing to do.
+      if (e.code !== 'ER_BAD_FIELD_ERROR') {
+        console.warn('[migrate] AuthView.module backfill/drop skipped:', e.message);
+      }
+    }
+
     // Seed the one view that's actually wired to a real permission check
     // today (OPERATION_SOP_APPROVE) into the new AuthView catalog, so
     // existing AuthRoleView rows referencing that key string keep working
@@ -1890,10 +1934,15 @@ async function runMigrations() {
       );
       if (!existingView) {
         const now = new Date();
+        const viewId = randomUUID();
         await conn.execute(
-          `INSERT INTO \`AuthView\` (\`id\`, \`key\`, \`label\`, \`description\`, \`module\`, \`createdAt\`, \`updatedAt\`)
-           VALUES (?, 'OPERATION_SOP_APPROVE', 'Approve/reject How-To Guide changes', 'Review and decide on How-To Guide changes submitted by teachers.', 'OPERATION', ?, ?)`,
-          [randomUUID(), now, now],
+          `INSERT INTO \`AuthView\` (\`id\`, \`key\`, \`label\`, \`description\`, \`createdAt\`, \`updatedAt\`)
+           VALUES (?, 'OPERATION_SOP_APPROVE', 'Approve/reject How-To Guide changes', 'Review and decide on How-To Guide changes submitted by teachers.', ?, ?)`,
+          [viewId, now, now],
+        );
+        await conn.execute(
+          `INSERT INTO \`AuthViewModule\` (\`id\`, \`authViewId\`, \`module\`, \`createdAt\`) VALUES (?, ?, 'OPERATION', ?)`,
+          [randomUUID(), viewId, now],
         );
         console.log('[migrate] Seeded AuthView "OPERATION_SOP_APPROVE"');
       }
