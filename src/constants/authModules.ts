@@ -1,10 +1,8 @@
-// The fixed catalog of Modules and Views an AuthRole can be granted.
-// Deliberately code-level, not DB-driven — every module maps to a real
-// Navbar dropdown wired to real routes, and every view maps to a real
-// gated action in a real page component. Adding either always requires a
-// code deploy anyway (new routes/components/gate call-sites), so a
-// DB-driven catalog would only add indirection without removing any
-// deploy step.
+// The fixed catalog of Modules an AuthRole can be granted. Deliberately
+// code-level, not DB-driven — every module maps to a real Navbar dropdown
+// wired to real routes, so adding one always requires a code deploy
+// anyway (new routes/components), and a DB-driven catalog would only add
+// indirection without removing that deploy step.
 //
 // This file is hand-mirrored on the frontend at
 // kindercore-frontend/src/constants/authModules.ts — keep both in sync.
@@ -26,14 +24,11 @@ export const MODULES = {
 export type ModuleKey = typeof MODULES[keyof typeof MODULES];
 export const ALL_MODULE_KEYS: ModuleKey[] = Object.values(MODULES);
 
-// Fine-grained actions within a module that not every AuthRole sharing
-// that module should get. Keyed loosely by module for readability, but
-// stored/checked as flat strings (matches AuthRoleView.view VARCHAR(50)).
-export const VIEWS = {
-  // Improvement Inbox approve/reject — the pilot case. Available to a
-  // "Supervisor" AuthRole even though "Teacher" shares the OPERATION
-  // module (Best Way Library) without this view.
-  OPERATION_SOP_APPROVE: 'OPERATION_SOP_APPROVE',
-} as const;
-export type ViewKey = typeof VIEWS[keyof typeof VIEWS];
-export const ALL_VIEW_KEYS: ViewKey[] = Object.values(VIEWS);
+// Views (fine-grained actions within a module, e.g. OPERATION_SOP_APPROVE)
+// used to live here as a hardcoded object too. They're now a real,
+// admin-managed DB catalog instead — see db/schema.ts's authViews table
+// and controllers/auth-views.controller.ts. A view created there still
+// does nothing on its own until a developer hardcodes a matching
+// requireView(...)/hasView(...) call somewhere, same as before; the
+// catalog just makes the key/label/description part admin-editable
+// without a deploy.

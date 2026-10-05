@@ -212,6 +212,20 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       INDEX \`AuthRoleView_authRoleId_idx\` (\`authRoleId\`)
     )`,
+    // The catalog of views themselves (key/label/description/module) — see
+    // schema.ts's authViews comment. AuthRoleView.view stores the `key`
+    // string loosely, no FK.
+    `CREATE TABLE IF NOT EXISTS \`AuthView\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`key\` VARCHAR(50) NOT NULL,
+      \`label\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT,
+      \`module\` VARCHAR(50) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`AuthView_key_uq\` (\`key\`)
+    )`,
     `CREATE TABLE IF NOT EXISTS \`Teacher\` (
       \`id\` VARCHAR(36) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
@@ -1863,6 +1877,28 @@ async function runMigrations() {
       }
     } catch (e: any) {
       console.warn('[migrate] AuthRole seed/backfill skipped:', e.message);
+    }
+
+    // Seed the one view that's actually wired to a real permission check
+    // today (OPERATION_SOP_APPROVE) into the new AuthView catalog, so
+    // existing AuthRoleView rows referencing that key string keep working
+    // and it shows up in the Views admin page without an admin having to
+    // recreate it by hand.
+    try {
+      const [[existingView]] = await conn.execute<any[]>(
+        `SELECT \`id\` FROM \`AuthView\` WHERE \`key\` = 'OPERATION_SOP_APPROVE' LIMIT 1`,
+      );
+      if (!existingView) {
+        const now = new Date();
+        await conn.execute(
+          `INSERT INTO \`AuthView\` (\`id\`, \`key\`, \`label\`, \`description\`, \`module\`, \`createdAt\`, \`updatedAt\`)
+           VALUES (?, 'OPERATION_SOP_APPROVE', 'Approve/reject How-To Guide changes', 'Review and decide on How-To Guide changes submitted by teachers.', 'OPERATION', ?, ?)`,
+          [randomUUID(), now, now],
+        );
+        console.log('[migrate] Seeded AuthView "OPERATION_SOP_APPROVE"');
+      }
+    } catch (e: any) {
+      console.warn('[migrate] AuthView seed skipped:', e.message);
     }
   } finally {
     conn.release();

@@ -264,6 +264,25 @@ export const authRoleViews = mysqlTable('AuthRoleView', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// The catalog of views themselves — what AuthRoleView.view's string actually
+// means. `key` is what a developer hardcodes into requireView(...)/hasView(...)
+// call sites, so it's immutable after creation (enforced in the controller,
+// not just the UI): renaming it later would silently break any check already
+// wired to the old string. Creating a view here does nothing on its own —
+// it only becomes a real gate once a developer writes the matching
+// requireView/hasView call in code and deploys. `module` is a loose
+// reference to the hardcoded ModuleKey catalog (authModules.ts), same
+// no-FK convention as AuthRoleModule.module/AuthRoleView.view.
+export const authViews = mysqlTable('AuthView', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  key: varchar('key', { length: 50 }).notNull().unique(),
+  label: varchar('label', { length: 191 }).notNull(),
+  description: text('description'),
+  module: varchar('module', { length: 50 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 export const levelIncentives = mysqlTable('LevelIncentive', {
   id: varchar('id', { length: 36 }).primaryKey(),
   positionId: varchar('positionId', { length: 10 }).notNull(),

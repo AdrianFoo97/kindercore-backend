@@ -3,8 +3,8 @@ import { randomUUID } from 'crypto';
 import { asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { authRoles, authRoleModules, authRoleViews, positions } from '../db/schema.js';
-import { MODULES, VIEWS, ALL_MODULE_KEYS, ALL_VIEW_KEYS } from '../constants/authModules.js';
+import { authRoles, authRoleModules, authRoleViews, authViews, positions } from '../db/schema.js';
+import { ALL_MODULE_KEYS } from '../constants/authModules.js';
 
 export async function listAuthRoles(_req: Request, res: Response): Promise<void> {
   const rows = await db.select().from(authRoles).orderBy(asc(authRoles.sortOrder));
@@ -129,7 +129,7 @@ export async function setAuthRoleModules(req: Request, res: Response): Promise<v
 }
 
 const setViewsSchema = z.object({
-  views: z.array(z.enum(ALL_VIEW_KEYS as [string, ...string[]])),
+  views: z.array(z.string().min(1).max(50)),
 });
 
 export async function setAuthRoleViews(req: Request, res: Response): Promise<void> {
@@ -143,6 +143,18 @@ export async function setAuthRoleViews(req: Request, res: Response): Promise<voi
   if (!existing) { res.status(404).json({ message: 'Access role not found' }); return; }
   const now = new Date();
   const viewKeys = [...new Set(parsed.data.views)];
+  // Validated against the live AuthView catalog, not a hardcoded enum —
+  // views are admin-managed now (see auth-views.controller.ts), so the
+  // valid set changes without a code deploy.
+  if (viewKeys.length > 0) {
+    const catalogRows = await db.select({ key: authViews.key }).from(authViews);
+    const validKeys = new Set(catalogRows.map(r => r.key));
+    const unknown = viewKeys.filter(v => !validKeys.has(v));
+    if (unknown.length > 0) {
+      res.status(400).json({ message: `Unknown view key(s): ${unknown.join(', ')}` });
+      return;
+    }
+  }
   await db.transaction(async (tx) => {
     await tx.delete(authRoleViews).where(eq(authRoleViews.authRoleId, id));
     for (const view of viewKeys) {
@@ -150,14 +162,4 @@ export async function setAuthRoleViews(req: Request, res: Response): Promise<voi
     }
   });
   res.json({ ok: true });
-}
-
-// Small catalog endpoint so the frontend chip-picker doesn't need to
-// hand-maintain its own copy of every label — just the keys (mirrored in
-// kindercore-frontend/src/constants/authModules.ts) plus a friendly label.
-export async function listAuthCatalog(_req: Request, res: Response): Promise<void> {
-  res.json({
-    modules: Object.values(MODULES),
-    views: Object.values(VIEWS),
-  });
 }
