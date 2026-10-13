@@ -7,7 +7,6 @@ import { randomUUID } from 'crypto';
 import { router } from './routes/index.js';
 import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
-import { ALL_MODULE_KEYS } from './constants/authModules.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -797,9 +796,10 @@ async function runMigrations() {
     // profile) and unique (one Teacher can't be claimed by two Users).
     `ALTER TABLE \`User\` ADD COLUMN \`teacherId\` VARCHAR(36) NULL`,
     `ALTER TABLE \`User\` ADD UNIQUE KEY \`User_teacherId_uq\` (\`teacherId\`)`,
-    // Which AuthRole this position's teachers get. Backfilled onto a
-    // seeded "All Access" AuthRole below so no existing Position loses
-    // module access the moment this column starts being checked.
+    // Which AuthRole this position's teachers get. Null fails closed (no
+    // modules) until an admin explicitly assigns one — deliberately not
+    // backfilled onto an "everything granted" default, which only fights
+    // an admin who wants a Position to genuinely have no access.
     `ALTER TABLE \`Position\` ADD COLUMN \`authRoleId\` VARCHAR(36) NULL`,
     // Drives the "new grants" banner on the teacher's Rewards hub —
     // earned transactions newer than this are "new". Set via POST
@@ -1846,45 +1846,6 @@ async function runMigrations() {
         );
       }
       console.log(`[migrate] Seeded default SopSection rows: ${defaultSections.join(', ')}`);
-    }
-
-    // Seed a default "All Access" AuthRole granted every module, and
-    // backfill every Position with no authRoleId onto it. Without this,
-    // the instant authRoleId starts being checked, every teacher whose
-    // Position isn't explicitly assigned would lose all module access —
-    // this keeps day-1 behavior identical to today (everything open)
-    // until an admin deliberately narrows a Position onto a different,
-    // more restrictive AuthRole.
-    try {
-      const [[defaultRoleRow]] = await conn.execute<any[]>(
-        `SELECT \`id\` FROM \`AuthRole\` WHERE \`name\` = 'All Access (default)' LIMIT 1`,
-      );
-      let defaultAuthRoleId: string = defaultRoleRow?.id;
-      if (!defaultAuthRoleId) {
-        defaultAuthRoleId = randomUUID();
-        const now = new Date();
-        await conn.execute(
-          `INSERT INTO \`AuthRole\` (\`id\`, \`name\`, \`description\`, \`sortOrder\`, \`createdAt\`, \`updatedAt\`)
-           VALUES (?, 'All Access (default)', 'Auto-seeded during AuthRole rollout — every module granted so no existing Position loses access.', 0, ?, ?)`,
-          [defaultAuthRoleId, now, now],
-        );
-        for (const moduleKey of ALL_MODULE_KEYS) {
-          await conn.execute(
-            `INSERT INTO \`AuthRoleModule\` (\`id\`, \`authRoleId\`, \`module\`, \`createdAt\`) VALUES (?, ?, ?, ?)`,
-            [randomUUID(), defaultAuthRoleId, moduleKey, now],
-          );
-        }
-        console.log(`[migrate] Seeded default AuthRole "All Access (default)" with all ${ALL_MODULE_KEYS.length} modules granted`);
-      }
-      const [backfillResult] = await conn.execute<any>(
-        `UPDATE \`Position\` SET \`authRoleId\` = ? WHERE \`authRoleId\` IS NULL`,
-        [defaultAuthRoleId],
-      );
-      if (backfillResult?.affectedRows > 0) {
-        console.log(`[migrate] Backfilled authRoleId onto ${backfillResult.affectedRows} Position row(s)`);
-      }
-    } catch (e: any) {
-      console.warn('[migrate] AuthRole seed/backfill skipped:', e.message);
     }
 
     // AuthView originally shipped with a single `module` column; it's now
