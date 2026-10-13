@@ -75,6 +75,30 @@ export const leads = mysqlTable('Lead', {
   utmSource: varchar('utmSource', { length: 191 }),
   leadTemperature: mysqlEnum('leadTemperature', ['COOL', 'WARM', 'HOT']),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+  // Whatever the enquirer typed on the public form, stored as-is (uppercased)
+  // regardless of whether it matched a known MarketingCampaign — the public
+  // check endpoint blocks submission on an unrecognized/expired code, so by
+  // the time this lands here it should already be real, but this isn't a
+  // foreign key: a campaign can be deleted later without orphaning
+  // historical leads.
+  promoCode: varchar('promoCode', { length: 50 }),
+});
+
+export const marketingCampaigns = mysqlTable('MarketingCampaign', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  // Always stored uppercase — the public check endpoint uppercases
+  // whatever it's given before comparing, so this keeps matching a plain
+  // equality check instead of a SQL UPPER()/LOWER() call.
+  code: varchar('code', { length: 50 }).notNull(),
+  // Validity window — a code only passes the public check while today
+  // falls within [startDate, endDate] inclusive. No separate active flag:
+  // the date range *is* the on/off switch, so there's only one place to
+  // look to know whether a code currently works.
+  startDate: datetime('startDate', { mode: 'date', fsp: 3 }).notNull(),
+  endDate: datetime('endDate', { mode: 'date', fsp: 3 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 export const googleConnections = mysqlTable('GoogleConnection', {

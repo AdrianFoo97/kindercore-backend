@@ -4,7 +4,7 @@ import { google } from 'googleapis';
 import { and, asc, desc, eq, gte, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
 import type { RowDataPacket } from 'mysql2';
 import { db, pool } from '../db/client.js';
-import { googleConnections, leads, packages, students, systemSettings } from '../db/schema.js';
+import { googleConnections, leads, packages, students, systemSettings, marketingCampaigns } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 import { broadcast } from '../sse.js';
 import { systemRoleFor, deriveIsQualified, deriveVisitOutcome } from '../constants/lostReasons.js';
@@ -169,10 +169,26 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   const { childName, parentPhone, childDob, enrolmentYear, company,
           relationship, programme, preferredAppointmentTime, addressLocation,
           needsTransport, howDidYouKnow, ctaSource, utmSource, submittedAt: submittedAtRaw,
-          notes } = parsed.data;
+          notes, promoCode: promoCodeRaw } = parsed.data;
   if (company) {
     res.status(400).json({ message: 'Bad request' });
     return;
+  }
+
+  // Re-validate server-side even though the form already live-checks this —
+  // the public endpoint can be hit directly, and a promo code is only
+  // useful for campaign attribution if it's guaranteed to resolve to a
+  // real MarketingCampaign that's currently within its date range.
+  let promoCode: string | null = null;
+  if (promoCodeRaw && promoCodeRaw.trim()) {
+    const normalized = promoCodeRaw.trim().toUpperCase();
+    const [match] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.code, normalized)).limit(1);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (!match || today < match.startDate || today > match.endDate) {
+      res.status(400).json({ message: '无效的优惠码' });
+      return;
+    }
+    promoCode = normalized;
   }
 
   // Rate limit by phone number and IP
@@ -200,7 +216,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
     id, childName: normalizeName(childName), parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,
     needsTransport, howDidYouKnow, ctaSource, utmSource, leadTemperature: getLeadTemperature(ctaSource), submittedAt,
-    notes,
+    notes, promoCode,
   });
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
 

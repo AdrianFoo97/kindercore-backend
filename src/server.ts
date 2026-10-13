@@ -54,6 +54,17 @@ async function runMigrations() {
       \`deletedAt\` DATETIME(3),
       PRIMARY KEY (\`id\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`MarketingCampaign\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`code\` VARCHAR(50) NOT NULL,
+      \`startDate\` DATETIME(3) NOT NULL,
+      \`endDate\` DATETIME(3) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`MarketingCampaign_code_uq\` (\`code\`)
+    )`,
     `CREATE TABLE IF NOT EXISTS \`GoogleConnection\` (
       \`id\` VARCHAR(36) NOT NULL,
       \`accessToken\` TEXT NOT NULL,
@@ -705,6 +716,8 @@ async function runMigrations() {
     // Lead — explicit analytics columns (source of truth for classifiers)
     `ALTER TABLE \`Lead\` ADD COLUMN \`isQualified\` TINYINT(1) NOT NULL DEFAULT 1`,
     `ALTER TABLE \`Lead\` ADD COLUMN \`visitOutcome\` ENUM('ATTENDED','NO_SHOW') DEFAULT NULL`,
+    // Lead — promo code entered on the public enquiry form
+    `ALTER TABLE \`Lead\` ADD COLUMN \`promoCode\` VARCHAR(50) NULL`,
     // Career progression columns
     `ALTER TABLE \`Position\` ADD COLUMN \`inCareerProgression\` TINYINT(1) NOT NULL DEFAULT 1`,
     `ALTER TABLE \`Position\` ADD COLUMN \`badgeUrl\` VARCHAR(500) NULL`,
@@ -1913,6 +1926,24 @@ async function runMigrations() {
       }
     } catch (e: any) {
       console.warn('[migrate] AuthView seed skipped:', e.message);
+    }
+
+    // The LEADS module was renamed to MARKETING when Leads moved under a
+    // new "Marketing" nav dropdown alongside Campaigns. Any AuthRole/AuthView
+    // still granting the old key needs to carry over onto the new one, or
+    // whoever had it silently loses Leads access the moment this deploys.
+    // Harmless to rerun — the second pass just finds zero rows.
+    try {
+      const [roleResult] = await conn.execute<any>(`UPDATE \`AuthRoleModule\` SET \`module\` = 'MARKETING' WHERE \`module\` = 'LEADS'`);
+      if (roleResult?.affectedRows > 0) {
+        console.log(`[migrate] Renamed AuthRoleModule 'LEADS' -> 'MARKETING' on ${roleResult.affectedRows} row(s)`);
+      }
+      const [viewResult] = await conn.execute<any>(`UPDATE \`AuthViewModule\` SET \`module\` = 'MARKETING' WHERE \`module\` = 'LEADS'`);
+      if (viewResult?.affectedRows > 0) {
+        console.log(`[migrate] Renamed AuthViewModule 'LEADS' -> 'MARKETING' on ${viewResult.affectedRows} row(s)`);
+      }
+    } catch (e: any) {
+      console.warn('[migrate] LEADS -> MARKETING module rename skipped:', e.message);
     }
   } finally {
     conn.release();

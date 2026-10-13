@@ -16,6 +16,7 @@ export const createLeadSchema = z.object({
   howDidYouKnow: z.string().min(1).optional(),
   ctaSource: z.string().optional(),
   utmSource: z.string().optional(),
+  promoCode: z.string().max(50).optional(),
   submittedAt: z.string().optional(),
   // Public enquiry form embeds the referrer's child name in `notes` as
   // `朋友介绍 — 朋友的孩子：{name}，请确认...` so the leads table can

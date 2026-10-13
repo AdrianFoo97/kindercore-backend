@@ -8,12 +8,12 @@
 // kindercore-frontend/src/constants/authModules.ts — keep both in sync.
 
 // One entry per Navbar dropdown currently shown to any authenticated user
-// with zero role gating: Leads, Students, HR, Finance, Operation, Analysis,
-// Tools. Settings/Admin/Dev stay hard-gated to ADMIN/SUPERADMIN as before —
-// they are NOT part of this catalog, since that tier sits above AuthRole
-// entirely.
+// with zero role gating: Marketing (Leads + Campaigns), Students, HR,
+// Finance, Operation, Analysis, Tools. Settings/Admin/Dev stay hard-gated
+// to ADMIN/SUPERADMIN as before — they are NOT part of this catalog,
+// since that tier sits above AuthRole entirely.
 export const MODULES = {
-  LEADS: 'LEADS',
+  MARKETING: 'MARKETING',
   STUDENTS: 'STUDENTS',
   HR: 'HR',
   FINANCE: 'FINANCE',
