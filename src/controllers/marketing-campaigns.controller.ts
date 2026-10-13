@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { db } from '../db/client.js';
 import { marketingCampaigns } from '../db/schema.js';
+import { todayInMalaysia, dateKey } from '../utils/dateKey.js';
 
 // Codes are always normalized to uppercase before storing or comparing —
 // keeps the public check a plain equality lookup instead of needing a SQL
@@ -89,7 +90,7 @@ export async function checkPromoCode(req: Request, res: Response): Promise<void>
   if (!code) { res.json({ valid: false }); return; }
   const [match] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.code, code)).limit(1);
   if (!match) { res.json({ valid: false }); return; }
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  if (today < match.startDate || today > match.endDate) { res.json({ valid: false }); return; }
+  const today = todayInMalaysia();
+  if (today < dateKey(match.startDate) || today > dateKey(match.endDate)) { res.json({ valid: false }); return; }
   res.json({ valid: true, campaignName: match.name });
 }

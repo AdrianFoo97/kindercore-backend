@@ -8,6 +8,7 @@ import { googleConnections, leads, packages, students, systemSettings, marketing
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 import { broadcast } from '../sse.js';
 import { systemRoleFor, deriveIsQualified, deriveVisitOutcome } from '../constants/lostReasons.js';
+import { todayInMalaysia, dateKey } from '../utils/dateKey.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
@@ -183,8 +184,8 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   if (promoCodeRaw && promoCodeRaw.trim()) {
     const normalized = promoCodeRaw.trim().toUpperCase();
     const [match] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.code, normalized)).limit(1);
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    if (!match || today < match.startDate || today > match.endDate) {
+    const today = todayInMalaysia();
+    if (!match || today < dateKey(match.startDate) || today > dateKey(match.endDate)) {
       res.status(400).json({ message: '无效的优惠码' });
       return;
     }
