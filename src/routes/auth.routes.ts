@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, createInvite, verifyInvite, activateAccount, listUsers, deleteUser, updateUserTeacher } from '../controllers/auth.controller.js';
+import { login, createInvite, verifyInvite, activateAccount, listUsers, deleteUser, updateUserTeacher, updateUserAuthRole } from '../controllers/auth.controller.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 
@@ -12,3 +12,4 @@ authRouter.post('/activate', asyncHandler(activateAccount));
 authRouter.get('/users', authMiddleware, asyncHandler(listUsers));
 authRouter.delete('/users/:id', authMiddleware, asyncHandler(deleteUser));
 authRouter.patch('/users/:id/teacher', authMiddleware, adminMiddleware, asyncHandler(updateUserTeacher));
+authRouter.patch('/users/:id/auth-role', authMiddleware, adminMiddleware, asyncHandler(updateUserAuthRole));

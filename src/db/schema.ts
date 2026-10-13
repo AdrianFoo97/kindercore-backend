@@ -25,6 +25,12 @@ export const users = mysqlTable('User', {
   // DB level (see server.ts migration) so one Teacher can't be claimed by
   // two Users.
   teacherId: varchar('teacherId', { length: 36 }),
+  // Direct AuthRole grant, independent of the teacherId→Position chain —
+  // for admin-portal team members who aren't teaching staff (no career
+  // ladder position to hang an AuthRole off of). resolveGrants unions
+  // whatever this resolves to with whatever the teacher/position chain
+  // resolves to, so a user can have either, both, or neither.
+  authRoleId: varchar('authRoleId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });

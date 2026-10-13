@@ -796,6 +796,10 @@ async function runMigrations() {
     // profile) and unique (one Teacher can't be claimed by two Users).
     `ALTER TABLE \`User\` ADD COLUMN \`teacherId\` VARCHAR(36) NULL`,
     `ALTER TABLE \`User\` ADD UNIQUE KEY \`User_teacherId_uq\` (\`teacherId\`)`,
+    // Direct AuthRole grant for a User — see the matching comment on the
+    // Drizzle schema. Not unique: more than one User can share an
+    // AuthRole directly, same as Position can.
+    `ALTER TABLE \`User\` ADD COLUMN \`authRoleId\` VARCHAR(36) NULL`,
     // Which AuthRole this position's teachers get. Null fails closed (no
     // modules) until an admin explicitly assigns one — deliberately not
     // backfilled onto an "everything granted" default, which only fights

@@ -41,8 +41,17 @@ export async function login(req: Request, res: Response): Promise<void> {
 
 // ── Create invite ─────────────────────────────────────────────────────────
 export async function createInvite(req: Request, res: Response): Promise<void> {
-  const { email, role } = req.body as { email: string; role?: 'ADMIN' | 'USER' };
+  const { email, role, authRoleId } = req.body as { email: string; role?: 'ADMIN' | 'USER'; authRoleId?: string | null };
   if (!email?.trim()) { res.status(400).json({ message: 'Email is required' }); return; }
+  const resolvedRole = role ?? 'USER';
+  // Resend (ManageUsersPage's "Resend" button) re-posts { email, role } with
+  // no authRoleId at all — omitted, not explicitly cleared — so that must
+  // preserve whatever was already set rather than wiping it back to null.
+  const authRoleIdProvided = 'authRoleId' in req.body;
+  // Only meaningful for USER — ADMIN/SUPERADMIN already bypass AuthRole
+  // checks entirely, so silently drop it rather than storing a value
+  // that'll never be read.
+  const resolvedAuthRoleId = resolvedRole === 'USER' ? (authRoleId || null) : null;
 
   // Check if user already exists and is activated
   const [existing] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).limit(1);
@@ -54,7 +63,10 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
 
   if (existing) {
     // Update existing pending invite
-    await db.update(users).set({ inviteToken, inviteExpiresAt, role: role ?? 'USER', updatedAt: now }).where(eq(users.id, existing.id));
+    await db.update(users).set({
+      inviteToken, inviteExpiresAt, role: resolvedRole, updatedAt: now,
+      ...(authRoleIdProvided ? { authRoleId: resolvedAuthRoleId } : {}),
+    }).where(eq(users.id, existing.id));
   } else {
     // Create new pending user
     await db.insert(users).values({
@@ -62,7 +74,8 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
       email: email.trim().toLowerCase(),
       name: '',
       passwordHash: '',
-      role: role ?? 'USER',
+      role: resolvedRole,
+      authRoleId: resolvedAuthRoleId,
       inviteToken,
       inviteExpiresAt,
       activated: false,
@@ -154,6 +167,7 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
     inviteToken: users.inviteToken,
     createdAt: users.createdAt,
     teacherId: users.teacherId,
+    authRoleId: users.authRoleId,
   }).from(users);
   const result = allUsers.map(({ inviteToken, ...rest }) => ({
     ...rest,
@@ -203,5 +217,20 @@ export async function updateUserTeacher(req: Request, res: Response): Promise<vo
   }
 
   await db.update(users).set({ teacherId: teacherId || null, updatedAt: new Date() }).where(eq(users.id, id));
+  res.json({ success: true });
+}
+
+// ── Grant/revoke a User's direct AuthRole ───────────────────────────────────
+// The other half of resolveGrants' union (see auth.middleware.ts) — for
+// admin-portal team members who aren't teaching staff, so there's no
+// Teacher/Position to hang an AuthRole off of via updateUserTeacher above.
+export async function updateUserAuthRole(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const { authRoleId } = req.body as { authRoleId: string | null };
+
+  const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  if (!target) { res.status(404).json({ message: 'User not found' }); return; }
+
+  await db.update(users).set({ authRoleId: authRoleId || null, updatedAt: new Date() }).where(eq(users.id, id));
   res.json({ success: true });
 }

@@ -55,25 +55,42 @@ export function authMiddleware(
 }
 
 // ── AuthRole resolution ──────────────────────────────────────────────────────
-// Resolves req.user.id -> User.teacherId -> Teacher.positionId ->
-// Position.authRoleId -> AuthRole -> its granted Modules/Views. Resolved
-// live per request (not embedded in the JWT) so an admin can grant/revoke
-// a specific View immediately without forcing a re-login — this only runs
-// on routes that opt into requireModule/requireView, not every request.
+// A User's grants are the union of up to two independent sources:
+//   1. User.authRoleId — a direct grant, for admin-portal team members who
+//      aren't teaching staff (no career-ladder Position to hang an AuthRole
+//      off of).
+//   2. User.teacherId -> Teacher.positionId -> Position.authRoleId — for
+//      teaching staff, whose access is tied to where they sit on the career
+//      ladder.
+// Either, both, or neither may be present; results are combined, not one
+// overriding the other. Resolved live per request (not embedded in the JWT)
+// so an admin can grant/revoke immediately without forcing a re-login — this
+// only runs on routes that opt into requireModule/requireView, not every
+// request.
 export async function resolveGrants(userId: string): Promise<{ modules: Set<string>; views: Set<string> }> {
-  const empty = { modules: new Set<string>(), views: new Set<string>() };
+  const modules = new Set<string>();
+  const views = new Set<string>();
   const [user] = await db.select().from(users).where(eq(users.id, userId));
-  if (!user?.teacherId) return empty;
-  const [teacher] = await db.select().from(teachers).where(eq(teachers.id, user.teacherId));
-  if (!teacher?.positionId) return empty;
-  const [position] = await db.select().from(positions).where(eq(positions.positionId, teacher.positionId));
-  if (!position?.authRoleId) return empty;
-  const modRows = await db.select({ module: authRoleModules.module }).from(authRoleModules).where(eq(authRoleModules.authRoleId, position.authRoleId));
-  const viewRows = await db.select({ view: authRoleViews.view }).from(authRoleViews).where(eq(authRoleViews.authRoleId, position.authRoleId));
-  return {
-    modules: new Set(modRows.map(r => r.module)),
-    views: new Set(viewRows.map(r => r.view)),
-  };
+  if (!user) return { modules, views };
+
+  const authRoleIds = new Set<string>();
+  if (user.authRoleId) authRoleIds.add(user.authRoleId);
+  if (user.teacherId) {
+    const [teacher] = await db.select().from(teachers).where(eq(teachers.id, user.teacherId));
+    if (teacher?.positionId) {
+      const [position] = await db.select().from(positions).where(eq(positions.positionId, teacher.positionId));
+      if (position?.authRoleId) authRoleIds.add(position.authRoleId);
+    }
+  }
+
+  for (const authRoleId of authRoleIds) {
+    const modRows = await db.select({ module: authRoleModules.module }).from(authRoleModules).where(eq(authRoleModules.authRoleId, authRoleId));
+    const viewRows = await db.select({ view: authRoleViews.view }).from(authRoleViews).where(eq(authRoleViews.authRoleId, authRoleId));
+    for (const r of modRows) modules.add(r.module);
+    for (const r of viewRows) views.add(r.view);
+  }
+
+  return { modules, views };
 }
 
 // Exported (not just used internally by requireModule/requireView) so a
