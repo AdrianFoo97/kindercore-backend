@@ -337,7 +337,12 @@ export async function seedDummyLeads(_req: Request, res: Response): Promise<void
 }
 
 export async function getLeadPhones(_req: Request, res: Response): Promise<void> {
-  const rows = await db.select({ id: leads.id, parentPhone: leads.parentPhone, childName: leads.childName, submittedAt: leads.submittedAt }).from(leads);
+  // visitOutcome rides along so the repeat-submission badge can flag "this
+  // phone number has a prior no-show" without a second round-trip per lead.
+  const rows = await db.select({
+    id: leads.id, parentPhone: leads.parentPhone, childName: leads.childName,
+    submittedAt: leads.submittedAt, visitOutcome: leads.visitOutcome,
+  }).from(leads);
   res.json(rows);
 }
 
