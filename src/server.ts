@@ -1059,6 +1059,18 @@ async function runMigrations() {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
+    // Same repair for LeadLabel / LeadLabelAssignment — they're compared
+    // against Lead.id (utf8mb4_unicode_ci) in getLeads' labelId filter,
+    // so a mismatched collation breaks that query with "Illegal mix of
+    // collations".
+    for (const t of ['LeadLabel', 'LeadLabelAssignment']) {
+      try {
+        await conn.execute(`ALTER TABLE \`${t}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      } catch (e: any) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
     // Backfill: every existing Student needs at least one StudentEnrollment
     // row covering their full active period. Skip students that already
     // have one (idempotent — safe to run on every boot).
