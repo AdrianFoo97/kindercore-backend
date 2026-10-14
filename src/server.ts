@@ -65,6 +65,24 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       UNIQUE KEY \`MarketingCampaign_code_uq\` (\`code\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`LeadLabel\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(100) NOT NULL,
+      \`color\` VARCHAR(20) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`LeadLabel_name_uq\` (\`name\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`LeadLabelAssignment\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`leadId\` VARCHAR(36) NOT NULL,
+      \`labelId\` VARCHAR(36) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`LeadLabelAssignment_lead_label_uq\` (\`leadId\`, \`labelId\`),
+      INDEX \`LeadLabelAssignment_labelId_idx\` (\`labelId\`)
+    )`,
     `CREATE TABLE IF NOT EXISTS \`GoogleConnection\` (
       \`id\` VARCHAR(36) NOT NULL,
       \`accessToken\` TEXT NOT NULL,

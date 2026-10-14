@@ -4,7 +4,7 @@ import { google } from 'googleapis';
 import { and, asc, desc, eq, gte, inArray, like, lt, ne, or, sql } from 'drizzle-orm';
 import type { RowDataPacket } from 'mysql2';
 import { db, pool } from '../db/client.js';
-import { googleConnections, leads, packages, students, systemSettings, marketingCampaigns } from '../db/schema.js';
+import { googleConnections, leads, packages, students, systemSettings, marketingCampaigns, leadLabels, leadLabelAssignments } from '../db/schema.js';
 import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator.js';
 import { broadcast } from '../sse.js';
 import { systemRoleFor, deriveIsQualified, deriveVisitOutcome } from '../constants/lostReasons.js';
@@ -352,7 +352,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
   const skip = (page - 1) * pageSize;
 
-  const { status, sortBy, sortOrder, search, year } = req.query as Record<string, string | undefined>;
+  const { status, sortBy, sortOrder, search, year, labelId } = req.query as Record<string, string | undefined>;
   const searchTerm = (search ?? '').trim();
   const yearFilter = year ? parseInt(year) : undefined;
 
@@ -401,6 +401,11 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       : '`parentPhone` LIKE ?';
     whereStr += ` AND (\`childName\` LIKE ? OR ${phoneClause})`;
     whereParams.push(`%${searchTerm}%`, searchDigits ? `%${normalizedSearchDigits}%` : `%${searchTerm}%`);
+  }
+
+  if (labelId) {
+    whereStr += ' AND `id` IN (SELECT `leadId` FROM `LeadLabelAssignment` WHERE `labelId` = ?)';
+    whereParams.push(labelId);
   }
 
   const [[countRow]] = await pool.query<RowDataPacket[]>(
@@ -457,7 +462,8 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       status ? and(notDeleted, eq(leads.status, status as any)) :
       notDeleted;
     const yearFilterDrizzle = yearFilter ? sql`YEAR(${leads.submittedAt}) = ${yearFilter}` : undefined;
-    const drizzleWhere = and(baseWhere, searchFilter, yearFilterDrizzle);
+    const labelFilterDrizzle = labelId ? sql`${leads.id} IN (SELECT leadId FROM LeadLabelAssignment WHERE labelId = ${labelId})` : undefined;
+    const drizzleWhere = and(baseWhere, searchFilter, yearFilterDrizzle, labelFilterDrizzle);
 
     const sortCol =
       field === 'childName' ? leads.childName :
@@ -472,7 +478,25 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       .offset(skip);
   }
 
-  res.json({ items, total, page, pageSize });
+  // Attach each lead's labels in one extra joined query rather than N+1 —
+  // same grouped-in-JS idiom as listAuthRoles' modules/views attachment.
+  const ids = (items as { id: string }[]).map(i => i.id);
+  const labelRows = ids.length
+    ? await db.select({
+        leadId: leadLabelAssignments.leadId,
+        id: leadLabels.id, name: leadLabels.name, color: leadLabels.color,
+      }).from(leadLabelAssignments)
+        .innerJoin(leadLabels, eq(leadLabelAssignments.labelId, leadLabels.id))
+        .where(inArray(leadLabelAssignments.leadId, ids))
+    : [];
+  const labelsByLead = new Map<string, { id: string; name: string; color: string }[]>();
+  for (const r of labelRows) {
+    if (!labelsByLead.has(r.leadId)) labelsByLead.set(r.leadId, []);
+    labelsByLead.get(r.leadId)!.push({ id: r.id, name: r.name, color: r.color });
+  }
+  const itemsWithLabels = (items as { id: string }[]).map(i => ({ ...i, labels: labelsByLead.get(i.id) ?? [] }));
+
+  res.json({ items: itemsWithLabels, total, page, pageSize });
 }
 
 export async function getLeadStats(req: Request, res: Response): Promise<void> {

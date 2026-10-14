@@ -32,6 +32,7 @@ import { authViewsRouter } from './auth-views.routes.js';
 import { pointsRouter } from './points.routes.js';
 import { bugReportsRouter } from './bug-reports.routes.js';
 import { marketingCampaignsRouter } from './marketing-campaigns.routes.js';
+import { leadLabelsRouter } from './lead-labels.routes.js';
 
 export const router = Router();
 
@@ -72,3 +73,4 @@ router.use('/', authViewsRouter);
 router.use('/', pointsRouter);
 router.use('/', bugReportsRouter);
 router.use('/', marketingCampaignsRouter);
+router.use('/', leadLabelsRouter);

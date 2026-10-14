@@ -19,6 +19,7 @@ import {
   resetAllLeads,
   seedDummyLeads,
 } from '../controllers/leads.controller.js';
+import { setLeadLabels } from '../controllers/lead-labels.controller.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -36,6 +37,7 @@ leadsRouter.get('/upcoming', authMiddleware, asyncHandler(getUpcomingAppointment
 leadsRouter.get('/trash', authMiddleware, asyncHandler(getTrashedLeads));
 leadsRouter.get('/:id', authMiddleware, asyncHandler(getLeadById));
 leadsRouter.patch('/:id', authMiddleware, asyncHandler(updateLead));
+leadsRouter.put('/:id/labels', authMiddleware, asyncHandler(setLeadLabels));
 leadsRouter.delete('/:id', authMiddleware, asyncHandler(deleteLead));
 leadsRouter.post('/:id/restore', authMiddleware, asyncHandler(restoreLead));
 leadsRouter.delete('/:id/permanent', authMiddleware, asyncHandler(permanentDeleteLead));

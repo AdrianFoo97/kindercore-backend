@@ -101,6 +101,23 @@ export const marketingCampaigns = mysqlTable('MarketingCampaign', {
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+export const leadLabels = mysqlTable('LeadLabel', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  color: varchar('color', { length: 20 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Many-to-many — a lead can carry several labels (VIP + Needs Callback,
+// etc.), same shape as AuthRoleModule/AuthRoleView.
+export const leadLabelAssignments = mysqlTable('LeadLabelAssignment', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  leadId: varchar('leadId', { length: 36 }).notNull(),
+  labelId: varchar('labelId', { length: 36 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 export const googleConnections = mysqlTable('GoogleConnection', {
   id: varchar('id', { length: 36 }).primaryKey(),
   accessToken: text('accessToken').notNull(),
