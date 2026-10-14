@@ -1062,8 +1062,9 @@ async function runMigrations() {
     // Same repair for LeadLabel / LeadLabelAssignment — they're compared
     // against Lead.id (utf8mb4_unicode_ci) in getLeads' labelId filter,
     // so a mismatched collation breaks that query with "Illegal mix of
-    // collations".
-    for (const t of ['LeadLabel', 'LeadLabelAssignment']) {
+    // collations". MarketingCampaign joins against Lead.promoCode the
+    // same way for the campaign filter/lead-count, so it needs the fix too.
+    for (const t of ['LeadLabel', 'LeadLabelAssignment', 'MarketingCampaign']) {
       try {
         await conn.execute(`ALTER TABLE \`${t}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
       } catch (e: any) {

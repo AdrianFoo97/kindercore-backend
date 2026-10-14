@@ -352,7 +352,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20') || 20));
   const skip = (page - 1) * pageSize;
 
-  const { status, sortBy, sortOrder, search, year, labelId } = req.query as Record<string, string | undefined>;
+  const { status, sortBy, sortOrder, search, year, labelId, promoCode } = req.query as Record<string, string | undefined>;
   const searchTerm = (search ?? '').trim();
   const yearFilter = year ? parseInt(year) : undefined;
 
@@ -406,6 +406,11 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
   if (labelId) {
     whereStr += ' AND `id` IN (SELECT `leadId` FROM `LeadLabelAssignment` WHERE `labelId` = ?)';
     whereParams.push(labelId);
+  }
+
+  if (promoCode) {
+    whereStr += ' AND `promoCode` = ?';
+    whereParams.push(promoCode);
   }
 
   const [[countRow]] = await pool.query<RowDataPacket[]>(
@@ -463,7 +468,8 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
       notDeleted;
     const yearFilterDrizzle = yearFilter ? sql`YEAR(${leads.submittedAt}) = ${yearFilter}` : undefined;
     const labelFilterDrizzle = labelId ? sql`${leads.id} IN (SELECT leadId FROM LeadLabelAssignment WHERE labelId = ${labelId})` : undefined;
-    const drizzleWhere = and(baseWhere, searchFilter, yearFilterDrizzle, labelFilterDrizzle);
+    const promoCodeFilterDrizzle = promoCode ? eq(leads.promoCode, promoCode) : undefined;
+    const drizzleWhere = and(baseWhere, searchFilter, yearFilterDrizzle, labelFilterDrizzle, promoCodeFilterDrizzle);
 
     const sortCol =
       field === 'childName' ? leads.childName :

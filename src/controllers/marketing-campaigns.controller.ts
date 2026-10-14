@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { db } from '../db/client.js';
-import { marketingCampaigns } from '../db/schema.js';
+import { marketingCampaigns, leads } from '../db/schema.js';
 import { todayInMalaysia, dateKey } from '../utils/dateKey.js';
 
 // Codes are always normalized to uppercase before storing or comparing —
@@ -20,8 +20,18 @@ const upsertSchema = baseSchema.refine(data => data.startDate <= data.endDate, {
 });
 
 export async function listMarketingCampaigns(_req: Request, res: Response): Promise<void> {
-  const rows = await db.select().from(marketingCampaigns).orderBy(asc(marketingCampaigns.startDate));
-  res.json(rows);
+  const rows = await db
+    .select({
+      id: marketingCampaigns.id, name: marketingCampaigns.name, code: marketingCampaigns.code,
+      startDate: marketingCampaigns.startDate, endDate: marketingCampaigns.endDate,
+      createdAt: marketingCampaigns.createdAt, updatedAt: marketingCampaigns.updatedAt,
+      leadCount: sql<number>`COUNT(${leads.id})`,
+    })
+    .from(marketingCampaigns)
+    .leftJoin(leads, eq(leads.promoCode, marketingCampaigns.code))
+    .groupBy(marketingCampaigns.id)
+    .orderBy(asc(marketingCampaigns.startDate));
+  res.json(rows.map(r => ({ ...r, leadCount: Number(r.leadCount) })));
 }
 
 export async function createMarketingCampaign(req: Request, res: Response): Promise<void> {
@@ -42,7 +52,7 @@ export async function createMarketingCampaign(req: Request, res: Response): Prom
     createdAt: now, updatedAt: now,
   });
   const [row] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, id));
-  res.json(row);
+  res.json({ ...row, leadCount: 0 });
 }
 
 const patchSchema = baseSchema.partial().omit({ code: true });
@@ -67,7 +77,8 @@ export async function updateMarketingCampaign(req: Request, res: Response): Prom
     ...rest, startDate: nextStart, endDate: nextEnd, updatedAt: new Date(),
   }).where(eq(marketingCampaigns.id, id));
   const [row] = await db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, id));
-  res.json(row);
+  const [countRow] = await db.select({ c: sql<number>`COUNT(*)` }).from(leads).where(eq(leads.promoCode, row.code));
+  res.json({ ...row, leadCount: Number(countRow.c) });
 }
 
 export async function deleteMarketingCampaign(req: Request, res: Response): Promise<void> {
