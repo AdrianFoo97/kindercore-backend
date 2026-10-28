@@ -4,3 +4,4 @@ dist
 .env.*
 uploads/
 private-uploads/
+test-results.json

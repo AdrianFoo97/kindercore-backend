@@ -38,5 +38,9 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
       - name: Tests
-        # Verbose: one ✓ line per test, so the log names every test that ran.
-        run: npx vitest run --reporter=verbose
+        # Verbose: one ✓ line per test in this step's log. JSON: feeds the
+        # ✅/❌ checklist on the run's Summary page (next step).
+        run: npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json
+      - name: Test summary
+        if: always() # show results even when tests fail
+        run: node .github/scripts/test-summary.mjs test-results.json
