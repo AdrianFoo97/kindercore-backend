@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { runYearRollover, undoYearRollover, repairRollover } from '../controllers/admin.controller.js';
 import { getDbSchema } from '../controllers/db-schema.controller.js';
+import { getArchitecture } from '../controllers/architecture.controller.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -13,3 +14,6 @@ adminRouter.post('/year-rollover/repair', authMiddleware, adminMiddleware, async
 
 // Live database structure for the Admin → Database Design page (read-only).
 adminRouter.get('/db-schema', authMiddleware, adminMiddleware, asyncHandler(getDbSchema));
+
+// Backend layered structure for the Admin → Backend Architecture page (read-only).
+adminRouter.get('/architecture', authMiddleware, adminMiddleware, asyncHandler(getArchitecture));
