@@ -12,7 +12,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     globalSetup: ['./src/tests/integration/globalSetup.ts'],
-    env: { DATABASE_URL: TEST_DATABASE_URL, TEST_DATABASE_URL },
+    // JWT_SECRET: login signs real tokens; tests verify them with the same key.
+    env: { DATABASE_URL: TEST_DATABASE_URL, TEST_DATABASE_URL, JWT_SECRET: 'test-jwt-secret' },
     // Test files share one database — run them one at a time so one
     // file's resetTables() can't wipe another's fixtures mid-test.
     fileParallelism: false,
