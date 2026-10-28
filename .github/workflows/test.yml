@@ -38,4 +38,5 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
       - name: Tests
-        run: npm test
+        # Verbose: one ✓ line per test, so the log names every test that ran.
+        run: npx vitest run --reporter=verbose
