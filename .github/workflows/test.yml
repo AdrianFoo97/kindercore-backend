@@ -1,0 +1,41 @@
+# Type-check + tests on every push to the `test` branch
+# (i.e. `git push origin dev:test`). A failure shows as a red ✗ on the
+# commit in GitHub. Node 20 matches the Dockerfile.
+#
+# Integration tests run against a real MySQL 8 (same major version as
+# docker-compose). The test suite builds the `kindercore_test` database
+# from src/tests/integration/schema.sql and loads fixtures per test.
+name: Tests
+
+on:
+  push:
+    branches: [test]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/kindercore_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Tests
+        run: npm test
