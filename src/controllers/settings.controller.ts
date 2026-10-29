@@ -28,6 +28,9 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
   const rows = await db.select().from(systemSettings).orderBy(asc(systemSettings.key));
   const result: Record<string, unknown> = {};
   for (const row of rows) {
+    // `secret.*` rows (e.g. the attendance reader key hash) are never sent
+    // to the browser — this endpoint is readable by every signed-in user.
+    if (row.key.startsWith('secret.')) continue;
     const val = row.value;
     result[row.key] = typeof val === 'string' ? (() => { try { return JSON.parse(val); } catch { return val; } })() : val;
   }
@@ -39,6 +42,12 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
 
 export async function updateSetting(req: Request, res: Response): Promise<void> {
   const { key } = req.params;
+  // `secret.*` settings have their own endpoints (e.g. /api/admin/attendance-reader)
+  // that hash what they store — never write them raw through this generic route.
+  if (key.startsWith('secret.')) {
+    res.status(403).json({ message: 'This setting can only be changed from its own settings page.' });
+    return;
+  }
 
   const parsed = updateSettingSchema.safeParse(req.body);
   if (!parsed.success) {

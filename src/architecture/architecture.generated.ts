@@ -57,6 +57,36 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "getArchitecture",
           "controller": "architecture.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/admin/attendance-reader",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getReaderKey",
+          "controller": "attendance-reader.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/attendance-reader/key",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "createReaderKey",
+          "controller": "attendance-reader.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/admin/attendance-reader/key",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "deleteReaderKey",
+          "controller": "attendance-reader.controller"
         }
       ]
     },
@@ -77,7 +107,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/allowance-types",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createAllowanceType",
           "controller": "allowance.controller"
@@ -86,7 +117,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/allowance-types/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateAllowanceType",
           "controller": "allowance.controller"
@@ -95,7 +127,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/allowance-types/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteAllowanceType",
           "controller": "allowance.controller"
@@ -104,7 +137,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/allowances",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "getTeacherAllowances",
           "controller": "allowance.controller"
@@ -113,7 +147,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/teachers/:teacherId/allowances",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "upsertTeacherAllowances",
           "controller": "allowance.controller"
@@ -127,7 +162,9 @@ export const ARCHITECTURE: Architecture = {
         {
           "method": "POST",
           "path": "/api/attendance/scan",
-          "middleware": [],
+          "middleware": [
+            "readerOrStaffMiddleware"
+          ],
           "handler": "scanRfid",
           "controller": "attendance.controller"
         },
@@ -135,7 +172,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/students/:id/attendance",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "getStudentAttendance",
           "controller": "attendance.controller"
@@ -144,7 +182,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/attendance/:attendanceId",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "deleteAttendance",
           "controller": "attendance.controller"
@@ -277,7 +316,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/auth/invite",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createInvite",
           "controller": "auth.controller"
@@ -300,7 +340,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/auth/users",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "listUsers",
           "controller": "auth.controller"
@@ -309,7 +350,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/auth/users/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteUser",
           "controller": "auth.controller"
@@ -402,7 +444,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/candidates",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "getCandidates",
           "controller": "candidates.controller"
@@ -411,7 +454,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/candidates/stats",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "getCandidateStats",
           "controller": "candidates.controller"
@@ -420,7 +464,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/candidates/upcoming-interviews",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.MARKETING)"
           ],
           "handler": "getUpcomingCandidateInterviews",
           "controller": "candidates.controller"
@@ -429,7 +474,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/candidates/phone-index",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "getCandidatePhoneIndex",
           "controller": "candidates.controller"
@@ -438,7 +484,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/candidates/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "getCandidateById",
           "controller": "candidates.controller"
@@ -447,7 +494,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/candidates/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "updateCandidate",
           "controller": "candidates.controller"
@@ -456,7 +504,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/candidates/:id/hire",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "hireCandidate",
           "controller": "candidates.controller"
@@ -465,7 +514,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/candidates/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "deleteCandidate",
           "controller": "candidates.controller"
@@ -474,7 +524,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/candidates/:id/resume",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "downloadCandidateResume",
           "controller": "candidates.controller"
@@ -483,7 +534,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/candidates/:id/schedule-interview",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "scheduleCandidateInterview",
           "controller": "candidates.controller"
@@ -492,7 +544,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/candidates/:id/unschedule-interview",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "unscheduleCandidateInterview",
           "controller": "candidates.controller"
@@ -546,7 +599,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/career-missions",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createMission",
           "controller": "career-missions.controller"
@@ -555,7 +609,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/career-missions/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateMission",
           "controller": "career-missions.controller"
@@ -564,7 +619,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/career-missions/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteMission",
           "controller": "career-missions.controller"
@@ -573,7 +629,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/career-missions/reorder",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "reorderMissions",
           "controller": "career-missions.controller"
@@ -582,7 +639,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/career-page",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "getTeacherCareer",
           "controller": "career-missions.controller"
@@ -591,7 +649,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/teachers/:teacherId/missions/:missionId/progress",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "upsertTeacherMissionProgress",
           "controller": "career-missions.controller"
@@ -600,7 +659,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/teachers/:teacherId/missions/:missionId/target",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "setMissionTarget",
           "controller": "career-missions.controller"
@@ -615,7 +675,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/career-records",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.ANALYSIS)"
           ],
           "handler": "getCareerRecordsByYear",
           "controller": "career.controller"
@@ -624,7 +685,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/career",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "getCareerRecords",
           "controller": "career.controller"
@@ -633,7 +695,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/teachers/:teacherId/career",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "createCareerRecord",
           "controller": "career.controller"
@@ -642,7 +705,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/career/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "updateCareerRecord",
           "controller": "career.controller"
@@ -651,7 +715,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/career/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "deleteCareerRecord",
           "controller": "career.controller"
@@ -666,7 +731,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/enrollments/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "updateEnrollment",
           "controller": "enrollments.controller"
@@ -675,7 +741,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/enrollments/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "deleteEnrollment",
           "controller": "enrollments.controller"
@@ -705,7 +772,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/google/status",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "getStatus",
           "controller": "google.controller"
@@ -714,7 +782,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/google/connect-token",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "connectToken",
           "controller": "google.controller"
@@ -723,7 +792,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/google/calendars",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "listCalendars",
           "controller": "google.controller"
@@ -732,7 +802,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/google/calendar",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "setCalendar",
           "controller": "google.controller"
@@ -741,7 +812,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/google/interview-calendar",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "setInterviewCalendar",
           "controller": "google.controller"
@@ -770,7 +842,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/lead-labels",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "listLeadLabels",
           "controller": "lead-labels.controller"
@@ -779,7 +852,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/lead-labels",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "createLeadLabel",
           "controller": "lead-labels.controller"
@@ -788,7 +862,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/lead-labels/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "updateLeadLabel",
           "controller": "lead-labels.controller"
@@ -797,7 +872,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/lead-labels/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "deleteLeadLabel",
           "controller": "lead-labels.controller"
@@ -819,7 +895,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/phones",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "getLeadPhones",
           "controller": "leads.controller"
@@ -828,7 +905,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.MARKETING, MODULES.ANALYSIS)"
           ],
           "handler": "getLeads",
           "controller": "leads.controller"
@@ -837,7 +915,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/stats",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "getLeadStats",
           "controller": "leads.controller"
@@ -846,7 +925,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/analytics",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.MARKETING, MODULES.ANALYSIS)"
           ],
           "handler": "getAnalytics",
           "controller": "leads.controller"
@@ -855,7 +935,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/sales-analytics",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.MARKETING, MODULES.ANALYSIS)"
           ],
           "handler": "getSalesAnalytics",
           "controller": "leads.controller"
@@ -884,7 +965,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/upcoming",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.MARKETING, MODULES.HR)"
           ],
           "handler": "getUpcomingAppointments",
           "controller": "leads.controller"
@@ -893,7 +975,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/trash",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "getTrashedLeads",
           "controller": "leads.controller"
@@ -902,7 +985,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/leads/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "getLeadById",
           "controller": "leads.controller"
@@ -911,7 +995,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/leads/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "updateLead",
           "controller": "leads.controller"
@@ -920,7 +1005,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/leads/:id/labels",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "setLeadLabels",
           "controller": "lead-labels.controller"
@@ -929,7 +1015,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/leads/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "deleteLead",
           "controller": "leads.controller"
@@ -938,7 +1025,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/leads/:id/restore",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "restoreLead",
           "controller": "leads.controller"
@@ -947,7 +1035,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/leads/:id/permanent",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "permanentDeleteLead",
           "controller": "leads.controller"
@@ -956,7 +1045,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/leads/:id/appointment",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "createAppointment",
           "controller": "leads.controller"
@@ -965,7 +1055,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/leads/:id/confirm-appointment",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "confirmAppointment",
           "controller": "leads.controller"
@@ -974,7 +1065,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/leads/:id/confirm-appointment-no-calendar",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "confirmAppointmentWithoutCalendar",
           "controller": "leads.controller"
@@ -996,7 +1088,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/marketing-campaigns",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "listMarketingCampaigns",
           "controller": "marketing-campaigns.controller"
@@ -1005,7 +1098,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/marketing-campaigns",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "createMarketingCampaign",
           "controller": "marketing-campaigns.controller"
@@ -1014,7 +1108,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/marketing-campaigns/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "updateMarketingCampaign",
           "controller": "marketing-campaigns.controller"
@@ -1023,7 +1118,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/marketing-campaigns/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.MARKETING)"
           ],
           "handler": "deleteMarketingCampaign",
           "controller": "marketing-campaigns.controller"
@@ -1062,7 +1158,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/mission-categories",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createCategory",
           "controller": "mission-categories.controller"
@@ -1071,7 +1168,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/mission-categories/:code",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateCategory",
           "controller": "mission-categories.controller"
@@ -1080,7 +1178,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/mission-categories/:code",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteCategory",
           "controller": "mission-categories.controller"
@@ -1089,7 +1188,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/mission-categories/reorder",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "reorderCategories",
           "controller": "mission-categories.controller"
@@ -1104,7 +1204,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/operating-cost/groups",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.FINANCE, MODULES.ANALYSIS)"
           ],
           "handler": "listGroups",
           "controller": "operatingCost.controller"
@@ -1113,7 +1214,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/operating-cost/groups",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createGroup",
           "controller": "operatingCost.controller"
@@ -1122,7 +1224,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/operating-cost/groups/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateGroup",
           "controller": "operatingCost.controller"
@@ -1131,7 +1234,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/operating-cost/groups/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteGroup",
           "controller": "operatingCost.controller"
@@ -1140,7 +1244,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/operating-cost/categories",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.FINANCE, MODULES.ANALYSIS)"
           ],
           "handler": "listCategories",
           "controller": "operatingCost.controller"
@@ -1149,7 +1254,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/operating-cost/categories",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createCategory",
           "controller": "operatingCost.controller"
@@ -1158,7 +1264,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/operating-cost/categories/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateCategory",
           "controller": "operatingCost.controller"
@@ -1167,7 +1274,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/operating-cost/categories/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteCategory",
           "controller": "operatingCost.controller"
@@ -1176,7 +1284,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/operating-cost/entries",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.FINANCE, MODULES.ANALYSIS)"
           ],
           "handler": "getEntries",
           "controller": "operatingCost.controller"
@@ -1185,7 +1294,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/operating-cost/entries",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)"
           ],
           "handler": "bulkUpsertEntries",
           "controller": "operatingCost.controller"
@@ -1312,7 +1422,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/teachers",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "createTeacher",
           "controller": "planner.controller"
@@ -1321,7 +1432,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/planner/teachers/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.TOOLS)"
           ],
           "handler": "updateTeacher",
           "controller": "planner.controller"
@@ -1330,7 +1442,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/planner/teachers/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "deleteTeacher",
           "controller": "planner.controller"
@@ -1339,7 +1452,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/planner/classrooms",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.TOOLS, MODULES.HR)"
           ],
           "handler": "getClassrooms",
           "controller": "planner.controller"
@@ -1348,7 +1462,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/classrooms",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "createClassroom",
           "controller": "planner.controller"
@@ -1357,7 +1472,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/planner/classrooms/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "updateClassroom",
           "controller": "planner.controller"
@@ -1366,7 +1482,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/planner/classrooms/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "deleteClassroom",
           "controller": "planner.controller"
@@ -1375,7 +1492,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/planner/subjects",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.TOOLS, MODULES.HR)"
           ],
           "handler": "getSubjects",
           "controller": "planner.controller"
@@ -1384,7 +1502,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/subjects",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "createSubject",
           "controller": "planner.controller"
@@ -1393,7 +1512,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/planner/subjects/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "updateSubject",
           "controller": "planner.controller"
@@ -1402,7 +1522,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/planner/subjects/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "deleteSubject",
           "controller": "planner.controller"
@@ -1411,7 +1532,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/planner/tasks",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "getTasks",
           "controller": "planner.controller"
@@ -1420,7 +1542,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/tasks",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "createTask",
           "controller": "planner.controller"
@@ -1429,7 +1552,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/planner/tasks/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "updateTask",
           "controller": "planner.controller"
@@ -1438,7 +1562,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/planner/tasks/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "deleteTask",
           "controller": "planner.controller"
@@ -1447,7 +1572,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/planner/blocks",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "getBlocks",
           "controller": "planner.controller"
@@ -1456,7 +1582,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/blocks",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "createBlock",
           "controller": "planner.controller"
@@ -1465,7 +1592,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/planner/blocks/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "updateBlock",
           "controller": "planner.controller"
@@ -1474,7 +1602,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/planner/blocks/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "deleteBlock",
           "controller": "planner.controller"
@@ -1483,7 +1612,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/blocks/duplicate",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "duplicateBlock",
           "controller": "planner.controller"
@@ -1492,7 +1622,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/blocks/copy-week",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "copyWeek",
           "controller": "planner.controller"
@@ -1501,7 +1632,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/blocks/check-conflicts",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "checkConflicts",
           "controller": "planner.controller"
@@ -1510,7 +1642,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/planner/timetables",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "getSavedTimetables",
           "controller": "planner.controller"
@@ -1519,7 +1652,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/timetables",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "saveTimetable",
           "controller": "planner.controller"
@@ -1528,7 +1662,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/planner/timetables/:id/load",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "loadTimetable",
           "controller": "planner.controller"
@@ -1537,7 +1672,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/planner/timetables/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
           ],
           "handler": "deleteSavedTimetable",
           "controller": "planner.controller"
@@ -1561,7 +1697,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/points/rules",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createRule",
           "controller": "points.controller"
@@ -1570,7 +1707,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/points/rules/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateRule",
           "controller": "points.controller"
@@ -1579,7 +1717,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/points/rules/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteRule",
           "controller": "points.controller"
@@ -1597,7 +1736,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/points/rewards",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "createReward",
           "controller": "points.controller"
@@ -1606,7 +1746,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/points/rewards/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "updateReward",
           "controller": "points.controller"
@@ -1615,7 +1756,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/points/rewards/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteReward",
           "controller": "points.controller"
@@ -1624,7 +1766,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/points",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "getTeacherPoints",
           "controller": "points.controller"
@@ -1633,7 +1776,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/points/standings",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "getStandings",
           "controller": "points.controller"
@@ -1642,7 +1786,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/points/transactions",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "listTransactions",
           "controller": "points.controller"
@@ -1651,7 +1796,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/teachers/:teacherId/points/grant",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "grantPoints",
           "controller": "points.controller"
@@ -1660,7 +1806,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/teachers/:teacherId/points/seen",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "markPointsSeen",
           "controller": "points.controller"
@@ -1669,7 +1816,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/transactions/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "updateTransaction",
           "controller": "points.controller"
@@ -1678,7 +1826,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/transactions/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "deleteTransaction",
           "controller": "points.controller"
@@ -1687,7 +1836,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/teachers/:teacherId/points/goal",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "setGoal",
           "controller": "points.controller"
@@ -1696,7 +1846,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/teachers/:teacherId/points/goal",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "clearGoal",
           "controller": "points.controller"
@@ -1705,7 +1856,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/rewards",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "listRedemptions",
           "controller": "points.controller"
@@ -1714,7 +1866,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/teachers/:teacherId/rewards/redeem",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "redeemReward",
           "controller": "points.controller"
@@ -1723,7 +1876,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/redemptions",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "listAllRedemptions",
           "controller": "points.controller"
@@ -1741,7 +1895,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/redemptions/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "updateRedemption",
           "controller": "points.controller"
@@ -1765,7 +1920,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/salary/departments/:departmentId",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "upsertDepartment",
           "controller": "salary.controller"
@@ -1774,7 +1930,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/salary/departments/:departmentId",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deleteDepartment",
           "controller": "salary.controller"
@@ -1792,7 +1949,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/salary/positions/:positionId",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "upsertPosition",
           "controller": "salary.controller"
@@ -1801,7 +1959,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/salary/positions/:positionId",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "deletePosition",
           "controller": "salary.controller"
@@ -1819,7 +1978,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/salary/level-incentives",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "adminMiddleware"
           ],
           "handler": "upsertLevelIncentives",
           "controller": "salary.controller"
@@ -1828,7 +1988,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/salary/teachers",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)"
           ],
           "handler": "getTeachersWithSalary",
           "controller": "salary.controller"
@@ -1837,7 +1998,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/salary/payroll-by-month",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)"
           ],
           "handler": "getPayrollByMonth",
           "controller": "salary.controller"
@@ -1855,7 +2017,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/salary/employer-contributions",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)"
           ],
           "handler": "getEmployerContributions",
           "controller": "salary.controller"
@@ -1950,7 +2113,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/sop-observations",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "listObservations",
           "controller": "sop-observations.controller"
@@ -1959,7 +2123,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/sop-observations",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "createObservation",
           "controller": "sop-observations.controller"
@@ -1968,7 +2133,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/sop-observations/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "getObservation",
           "controller": "sop-observations.controller"
@@ -1977,7 +2143,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/sop-observations/:id/advance",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "advanceStage",
           "controller": "sop-observations.controller"
@@ -1986,7 +2153,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/sop-observations/:id/step-results",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "saveStepResultsDraft",
           "controller": "sop-observations.controller"
@@ -2128,7 +2296,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/sop-steps",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
           ],
           "handler": "createStep",
           "controller": "sop-steps.controller"
@@ -2137,7 +2306,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/sop-steps/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
           ],
           "handler": "updateStep",
           "controller": "sop-steps.controller"
@@ -2146,7 +2316,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/sop-steps/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
           ],
           "handler": "deleteStep",
           "controller": "sop-steps.controller"
@@ -2155,7 +2326,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/sop-steps/reorder",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
           ],
           "handler": "reorderSteps",
           "controller": "sop-steps.controller"
@@ -2245,7 +2417,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/students/:id/speech",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "getStudentSpeech",
           "controller": "speech.controller"
@@ -2260,7 +2433,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/students",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "getStudents",
           "controller": "students.controller"
@@ -2269,7 +2443,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/students/revenue-analytics",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.STUDENTS, MODULES.ANALYSIS, MODULES.FINANCE)"
           ],
           "handler": "getRevenueAnalytics",
           "controller": "students.controller"
@@ -2278,7 +2453,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/students",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.STUDENTS, MODULES.MARKETING)"
           ],
           "handler": "createStudent",
           "controller": "students.controller"
@@ -2287,7 +2463,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/students/with-lead",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.STUDENTS, MODULES.MARKETING)"
           ],
           "handler": "createStudentWithLead",
           "controller": "students.controller"
@@ -2296,7 +2473,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/students/sibling",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "createSibling",
           "controller": "students.controller"
@@ -2305,7 +2483,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PUT",
           "path": "/api/students/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "updateStudent",
           "controller": "students.controller"
@@ -2314,7 +2493,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/students/:id/onboarding",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "updateOnboardingProgress",
           "controller": "students.controller"
@@ -2323,7 +2503,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/students/:id/complete-onboarding",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "completeOnboarding",
           "controller": "students.controller"
@@ -2332,7 +2513,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/students/:id/withdraw",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "withdrawStudent",
           "controller": "students.controller"
@@ -2341,7 +2523,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/students/:id/reactivate",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "reactivateStudent",
           "controller": "students.controller"
@@ -2360,7 +2543,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/students/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "deleteStudent",
           "controller": "students.controller"
@@ -2369,7 +2553,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/students/:id/enrollments",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "getEnrollmentsForStudent",
           "controller": "enrollments.controller"
@@ -2378,7 +2563,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/students/:id/enrollments",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
           ],
           "handler": "createEnrollment",
           "controller": "enrollments.controller"
@@ -2393,7 +2579,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/teachers/:teacherId/appraisals",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
           ],
           "handler": "listAppraisals",
           "controller": "teacher-appraisals.controller"
@@ -2402,7 +2589,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/teachers/:teacherId/appraisals",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "upsertAppraisal",
           "controller": "teacher-appraisals.controller"
@@ -2411,7 +2599,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "DELETE",
           "path": "/api/appraisals/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
           ],
           "handler": "deleteAppraisal",
           "controller": "teacher-appraisals.controller"
@@ -2427,6 +2616,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/upload/badge",
           "middleware": [
             "authMiddleware",
+            "adminMiddleware",
             "(req, res, next) => { upload.single('image')(req, res, (err) => { if (err) { const msg = err instanceof Error ? err.message : 'Upload failed'; return res.status(400).json({ message: msg }); } next(); }); }"
           ],
           "handler": "(inline)",
@@ -2466,6 +2656,14 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "architecture.controller",
       "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "attendance-reader.controller",
+      "services": [
+        "readerKey.service"
+      ],
       "controllers": [],
       "tables": []
     },
@@ -2841,6 +3039,14 @@ export const ARCHITECTURE: Architecture = {
         "SystemSetting",
         "Teacher",
         "TeacherAllowance"
+      ]
+    },
+    {
+      "id": "readerKey.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "SystemSetting"
       ]
     },
     {

@@ -31,26 +31,43 @@ export function adminMiddleware(
   next();
 }
 
-export function authMiddleware(
+// The token proves WHO is calling; the account row says what they may do
+// right now. Role and teacher link are re-read from the database on every
+// request rather than trusted from the token — otherwise demoting, unlinking
+// or deleting someone only took effect when their 8-hour token expired.
+// (One primary-key lookup per request.)
+export async function authMiddleware(
   req: Request,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     res.status(401).json({ message: 'Unauthorized' });
     return;
   }
   const token = header.slice(7);
+  let claims: AuthUser;
   try {
-    const payload = jwt.verify(
-      token,
-      process.env.JWT_SECRET!,
-    ) as AuthUser;
-    req.user = payload;
-    next();
+    claims = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as AuthUser;
   } catch {
     res.status(401).json({ message: 'Invalid token' });
+    return;
+  }
+  try {
+    const [account] = await db
+      .select({ id: users.id, email: users.email, role: users.role, teacherId: users.teacherId, activated: users.activated })
+      .from(users)
+      .where(eq(users.id, claims.id))
+      .limit(1);
+    if (!account || !account.activated) {
+      res.status(401).json({ message: 'Account no longer active' });
+      return;
+    }
+    req.user = { id: account.id, email: account.email, role: account.role, teacherId: account.teacherId };
+    next();
+  } catch (err) {
+    next(err);
   }
 }
 
@@ -109,6 +126,43 @@ export function requireModule(module: string) {
     const grants = await resolveGrants(req.user!.id);
     if (!grants.modules.has(module)) {
       res.status(403).json({ message: 'Forbidden: module not permitted' });
+      return;
+    }
+    next();
+  };
+}
+
+// Like requireModule, but any ONE of several modules is enough — for data
+// two areas legitimately share (e.g. operating cost: Finance enters it,
+// Analysis reports on it).
+export function requireAnyModule(...modules: string[]) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (isAdminRole(req.user?.role)) { next(); return; }
+    const grants = await resolveGrants(req.user!.id);
+    if (!modules.some(m => grants.modules.has(m))) {
+      res.status(403).json({ message: 'Forbidden: module not permitted' });
+      return;
+    }
+    next();
+  };
+}
+
+/** True when the request is about the signed-in user's own teacher record. */
+export function isOwnTeacher(req: Request, param = 'teacherId'): boolean {
+  const target = req.params[param];
+  return !!target && !!req.user?.teacherId && target === req.user.teacherId;
+}
+
+// For a teacher's personal data under /teachers/:teacherId/… (their points,
+// rewards, career page, appraisals, allowances): the teacher themselves, or
+// staff with the given module (e.g. HR), or an admin. Stops one teacher
+// reading or changing another's by editing the id in the URL.
+export function selfOrModule(module: string, param = 'teacherId') {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (isAdminRole(req.user?.role) || isOwnTeacher(req, param)) { next(); return; }
+    const grants = await resolveGrants(req.user!.id);
+    if (!grants.modules.has(module)) {
+      res.status(403).json({ message: 'Forbidden: not your record' });
       return;
     }
     next();

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { generateStudentSpeech, getStudentSpeech } from '../controllers/speech.controller.js';
-import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, adminMiddleware, requireModule } from '../middlewares/auth.middleware.js';
+import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const speechRouter = Router();
@@ -10,4 +11,4 @@ export const speechRouter = Router();
 // (see attendance.controller.ts) and fetches it through the public
 // /uploads static mount.
 speechRouter.post('/students/:id/speech', authMiddleware, adminMiddleware, asyncHandler(generateStudentSpeech));
-speechRouter.get('/students/:id/speech', authMiddleware, asyncHandler(getStudentSpeech));
+speechRouter.get('/students/:id/speech', authMiddleware, requireModule(MODULES.STUDENTS), asyncHandler(getStudentSpeech));

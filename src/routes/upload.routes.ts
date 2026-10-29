@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { authMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 
 export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || path.resolve(process.cwd(), 'uploads'));
 /** Private upload root — NOT served by the static `/uploads` route. Used
@@ -93,6 +93,7 @@ export const uploadRouter = Router();
 uploadRouter.post(
   '/badge',
   authMiddleware,
+  adminMiddleware, // position badge images — managed in Settings (Admin)
   (req, res, next) => {
     upload.single('image')(req, res, (err) => {
       if (err) {

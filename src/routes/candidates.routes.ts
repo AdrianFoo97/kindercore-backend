@@ -22,7 +22,8 @@ import {
   resetAllCandidates,
   getCandidatePhoneIndex,
 } from '../controllers/candidates.controller.js';
-import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, adminMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
+import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PRIVATE_UPLOAD_ROOT } from './upload.routes.js';
 
@@ -73,24 +74,24 @@ candidatesRouter.post('/:id/resume', (req, res, next) => {
 }, asyncHandler(uploadCandidateResume));
 
 // Admin
-candidatesRouter.get('/', authMiddleware, asyncHandler(getCandidates));
-candidatesRouter.get('/stats', authMiddleware, asyncHandler(getCandidateStats));
-candidatesRouter.get('/upcoming-interviews', authMiddleware, asyncHandler(getUpcomingCandidateInterviews));
+candidatesRouter.get('/', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidates));
+candidatesRouter.get('/stats', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidateStats));
+candidatesRouter.get('/upcoming-interviews', authMiddleware, requireAnyModule(MODULES.HR, MODULES.MARKETING), asyncHandler(getUpcomingCandidateInterviews));
 // Cross-tab phone list — feeds the repeat-applicant pill in the admin list.
 // Kept above /:id so Express doesn't route "phone-index" to getCandidateById.
-candidatesRouter.get('/phone-index', authMiddleware, asyncHandler(getCandidatePhoneIndex));
-candidatesRouter.get('/:id', authMiddleware, asyncHandler(getCandidateById));
-candidatesRouter.patch('/:id', authMiddleware, asyncHandler(updateCandidate));
+candidatesRouter.get('/phone-index', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidatePhoneIndex));
+candidatesRouter.get('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidateById));
+candidatesRouter.patch('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(updateCandidate));
 // Confirms hire details and creates the Teacher record in one step —
 // separate from the generic PATCH because it also writes to Teacher/CareerRecord.
-candidatesRouter.post('/:id/hire', authMiddleware, asyncHandler(hireCandidate));
-candidatesRouter.delete('/:id', authMiddleware, asyncHandler(deleteCandidate));
-candidatesRouter.get('/:id/resume', authMiddleware, asyncHandler(downloadCandidateResume));
+candidatesRouter.post('/:id/hire', authMiddleware, requireModule(MODULES.HR), asyncHandler(hireCandidate));
+candidatesRouter.delete('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(deleteCandidate));
+candidatesRouter.get('/:id/resume', authMiddleware, requireModule(MODULES.HR), asyncHandler(downloadCandidateResume));
 // Interview scheduling with Google Calendar sync. The frontend calls
 // /schedule-interview by default; if the calendar step fails, it retries
 // with skipCalendar: true which persists to the DB only.
-candidatesRouter.post('/:id/schedule-interview',   authMiddleware, asyncHandler(scheduleCandidateInterview));
-candidatesRouter.post('/:id/unschedule-interview', authMiddleware, asyncHandler(unscheduleCandidateInterview));
+candidatesRouter.post('/:id/schedule-interview',   authMiddleware, requireModule(MODULES.HR), asyncHandler(scheduleCandidateInterview));
+candidatesRouter.post('/:id/unschedule-interview', authMiddleware, requireModule(MODULES.HR), asyncHandler(unscheduleCandidateInterview));
 
 // Admin bulk import — admin only. Batches of up to 500 rows per POST.
 candidatesRouter.post('/import', authMiddleware, adminMiddleware, asyncHandler(importCandidates));

@@ -3,11 +3,40 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../db/client.js';
+import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords } from '../db/schema.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TEACHERS
 // ══════════════════════════════════════════════════════════════════════════════
+
+// ── Who may see / change what on a staff record ───────────────────────────
+// The Teacher row carries pay (salary, rate, EPF…) and personal data
+// (phone, date of birth). The teacher app and the Tools planner both read
+// and write this resource, so access is narrowed here, field by field:
+//  • full list            → Admin, or HR / Tools / Finance / Analysis staff;
+//    everyone else gets colleagues' name + colour only, plus their own full row.
+//  • pay & personal edits → Admin or HR only (Tools may change schedule fields).
+const STAFF_VIEW_MODULES = ['HR', 'TOOLS', 'FINANCE', 'ANALYSIS'];
+export const HR_ONLY_TEACHER_FIELDS = [
+  'positionId', 'level', 'isFixedSalary', 'fixedSalaryAmount', 'salaryType', 'hourlyRate',
+  'excludeFromProfitShare', 'excludeFromStaffCost', 'overrideProfitShareWeight', 'customProfitShareWeight',
+  'hasEpf', 'hasSocso', 'hasEis', 'isActive', 'resignedAt', 'createdAt', 'phone', 'dob',
+] as const;
+
+async function hasAnyModule(req: Request, modules: string[]): Promise<boolean> {
+  if (isAdminRole(req.user?.role)) return true;
+  const grants = await resolveGrants(req.user!.id);
+  return modules.some(m => grants.modules.has(m));
+}
+
+/** Comparable form: dates by calendar day, everything else as-is. */
+function comparable(v: unknown): unknown {
+  if (v === undefined || v === null || v === '') return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  return v;
+}
 
 // mysql2 occasionally returns `json(...)` columns as raw strings (driver/version
 // dependent). Normalize at the API boundary so the frontend always gets arrays.
@@ -21,9 +50,16 @@ function normalizeTeacher<T extends Record<string, any>>(row: T): T {
   };
 }
 
-export async function getTeachers(_req: Request, res: Response): Promise<void> {
-  const rows = await db.select().from(teachers).orderBy(teachers.name);
-  res.json(rows.map(normalizeTeacher));
+export async function getTeachers(req: Request, res: Response): Promise<void> {
+  const rows = (await db.select().from(teachers).orderBy(teachers.name)).map(normalizeTeacher);
+  if (await hasAnyModule(req, STAFF_VIEW_MODULES)) {
+    res.json(rows);
+    return;
+  }
+  // Teacher-app users: their own full record, colleagues by name/colour only —
+  // never anyone else's salary, rate, phone or date of birth.
+  const own = req.user?.teacherId;
+  res.json(rows.map(r => (r.id === own ? r : { id: r.id, name: r.name, color: r.color, isActive: r.isActive })));
 }
 
 const createTeacherSchema = z.object({
@@ -142,6 +178,17 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
   }
   const [existing] = await db.select().from(teachers).where(eq(teachers.id, id));
   if (!existing) { res.status(404).json({ message: 'Teacher not found' }); return; }
+
+  // The route admits HR or Tools; only HR (or Admin) may actually change pay
+  // or personal fields. Unchanged values re-sent by a form are fine.
+  if (!(await hasAnyModule(req, ['HR']))) {
+    const changed = HR_ONLY_TEACHER_FIELDS.filter(f =>
+      f in parsed.data && comparable((parsed.data as Record<string, unknown>)[f]) !== comparable((existing as Record<string, unknown>)[f]));
+    if (changed.length) {
+      res.status(403).json({ message: `Only HR can change: ${changed.join(', ')}` });
+      return;
+    }
+  }
 
   const { resignedAt, createdAt, dob, ...rest } = parsed.data;
   const setData: any = { ...rest, updatedAt: new Date() };

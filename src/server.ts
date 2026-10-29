@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { warnIfReaderKeyMissing } from './middlewares/reader.middleware.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -2133,6 +2134,7 @@ runMigrations()
       const dbUrl = process.env.DATABASE_URL ?? '(not set)';
       const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
       console.log(`[backend] DATABASE_URL: ${masked}`);
+      warnIfReaderKeyMissing();
     });
   })
   .catch(err => {

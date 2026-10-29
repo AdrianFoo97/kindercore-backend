@@ -6,10 +6,10 @@ import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.
 export const authRouter = Router();
 
 authRouter.post('/login', asyncHandler(login));
-authRouter.post('/invite', authMiddleware, asyncHandler(createInvite));
+authRouter.post('/invite', authMiddleware, adminMiddleware, asyncHandler(createInvite));
 authRouter.get('/invite/:token', asyncHandler(verifyInvite));
 authRouter.post('/activate', asyncHandler(activateAccount));
-authRouter.get('/users', authMiddleware, asyncHandler(listUsers));
-authRouter.delete('/users/:id', authMiddleware, asyncHandler(deleteUser));
+authRouter.get('/users', authMiddleware, adminMiddleware, asyncHandler(listUsers));
+authRouter.delete('/users/:id', authMiddleware, adminMiddleware, asyncHandler(deleteUser));
 authRouter.patch('/users/:id/teacher', authMiddleware, adminMiddleware, asyncHandler(updateUserTeacher));
 authRouter.patch('/users/:id/auth-role', authMiddleware, adminMiddleware, asyncHandler(updateUserAuthRole));

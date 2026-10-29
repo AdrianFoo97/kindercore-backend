@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
+import { isAdminRole, isOwnTeacher, resolveGrants } from '../middlewares/auth.middleware.js';
 import {
   pointsEarningRules, pointsRewardItems, pointsTransactions,
   rewardRedemptions, teacherRewardGoals, teachers, positions,
@@ -356,6 +357,12 @@ const grantSchema = z.object({
 
 export async function grantPoints(req: Request, res: Response): Promise<void> {
   const { teacherId } = req.params;
+  // Points are a supervisor grant — HR staff who are also teachers can't
+  // grant to their own account (route already requires HR or Admin).
+  if (isOwnTeacher(req) && !isAdminRole(req.user?.role)) {
+    res.status(403).json({ message: 'You can’t grant points to yourself' });
+    return;
+  }
   if (!(await ensureTeacher(teacherId, res))) return;
   const parsed = grantSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -528,6 +535,12 @@ export async function getRedemption(req: Request, res: Response): Promise<void> 
   const row = byId
     ?? (await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.redemptionCode, id)))[0];
   if (!row) { res.status(404).json({ message: 'Redemption not found' }); return; }
+  // A teacher sees only their own redemptions; HR / Admin see any.
+  if (row.teacherId !== req.user?.teacherId && !isAdminRole(req.user?.role)
+    && !(await resolveGrants(req.user!.id)).modules.has('HR')) {
+    res.status(404).json({ message: 'Redemption not found' });
+    return;
+  }
   res.json(row);
 }
 

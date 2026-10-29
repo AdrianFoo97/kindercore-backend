@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { runYearRollover, undoYearRollover, repairRollover } from '../controllers/admin.controller.js';
 import { getDbSchema } from '../controllers/db-schema.controller.js';
 import { getArchitecture } from '../controllers/architecture.controller.js';
+import { getReaderKey, createReaderKey, deleteReaderKey } from '../controllers/attendance-reader.controller.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -17,3 +18,9 @@ adminRouter.get('/db-schema', authMiddleware, adminMiddleware, asyncHandler(getD
 
 // Backend layered structure for the Admin → Backend Architecture page (read-only).
 adminRouter.get('/architecture', authMiddleware, adminMiddleware, asyncHandler(getArchitecture));
+
+// Attendance reader key (Settings → Attendance Reader). Generate returns the
+// plain key once; only a hash is stored.
+adminRouter.get('/attendance-reader', authMiddleware, adminMiddleware, asyncHandler(getReaderKey));
+adminRouter.post('/attendance-reader/key', authMiddleware, adminMiddleware, asyncHandler(createReaderKey));
+adminRouter.delete('/attendance-reader/key', authMiddleware, adminMiddleware, asyncHandler(deleteReaderKey));
