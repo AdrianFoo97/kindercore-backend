@@ -3,6 +3,7 @@ import { runYearRollover, undoYearRollover, repairRollover } from '../controller
 import { getDbSchema } from '../controllers/db-schema.controller.js';
 import { getArchitecture } from '../controllers/architecture.controller.js';
 import { getReaderKey, createReaderKey, deleteReaderKey } from '../controllers/attendance-reader.controller.js';
+import { getTestRunner, createTestRun } from '../controllers/test-runner.controller.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -24,3 +25,8 @@ adminRouter.get('/architecture', authMiddleware, adminMiddleware, asyncHandler(g
 adminRouter.get('/attendance-reader', authMiddleware, adminMiddleware, asyncHandler(getReaderKey));
 adminRouter.post('/attendance-reader/key', authMiddleware, adminMiddleware, asyncHandler(createReaderKey));
 adminRouter.delete('/attendance-reader/key', authMiddleware, adminMiddleware, asyncHandler(deleteReaderKey));
+
+// Test Catalog "Run" buttons — TEST ENVIRONMENT ONLY (404 unless
+// TEST_RUNNER_ENABLED=true on the server).
+adminRouter.get('/test-runner', authMiddleware, adminMiddleware, asyncHandler(getTestRunner));
+adminRouter.post('/test-runner/runs', authMiddleware, adminMiddleware, asyncHandler(createTestRun));

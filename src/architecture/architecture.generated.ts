@@ -87,6 +87,26 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "deleteReaderKey",
           "controller": "attendance-reader.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/admin/test-runner",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getTestRunner",
+          "controller": "test-runner.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/test-runner/runs",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "createTestRun",
+          "controller": "test-runner.controller"
         }
       ]
     },
@@ -3008,6 +3028,14 @@ export const ARCHITECTURE: Architecture = {
         "Teacher",
         "TeacherAppraisal"
       ]
+    },
+    {
+      "id": "test-runner.controller",
+      "services": [
+        "testRunner.service"
+      ],
+      "controllers": [],
+      "tables": []
     }
   ],
   "services": [
@@ -3070,6 +3098,12 @@ export const ARCHITECTURE: Architecture = {
         "Student",
         "StudentEnrollment"
       ]
+    },
+    {
+      "id": "testRunner.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
     }
   ],
   "tables": [
