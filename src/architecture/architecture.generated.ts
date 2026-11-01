@@ -855,6 +855,69 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "incidents.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/incidents",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "createIncident",
+          "controller": "incidents.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/incidents/mine",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "listMyIncidents",
+          "controller": "incidents.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/incidents/student-options",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "listIncidentStudentOptions",
+          "controller": "incidents.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/incidents",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_INCIDENT_MANAGE')"
+          ],
+          "handler": "listIncidents",
+          "controller": "incidents.controller"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/incidents/:id",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_INCIDENT_MANAGE')"
+          ],
+          "handler": "updateIncident",
+          "controller": "incidents.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/incidents/:id/log",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_INCIDENT_MANAGE')"
+          ],
+          "handler": "addIncidentLog",
+          "controller": "incidents.controller"
+        }
+      ]
+    },
+    {
       "id": "lead-labels.routes",
       "mount": "/api",
       "endpoints": [
@@ -2813,6 +2876,19 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "incidents.controller",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "IncidentReport",
+        "IncidentReportLog",
+        "IncidentReportStudent",
+        "Lead",
+        "Student",
+        "User"
+      ]
+    },
+    {
       "id": "lead-labels.controller",
       "services": [],
       "controllers": [],
@@ -3120,6 +3196,9 @@ export const ARCHITECTURE: Architecture = {
     "Classroom",
     "Department",
     "GoogleConnection",
+    "IncidentReport",
+    "IncidentReportLog",
+    "IncidentReportStudent",
     "Lead",
     "LeadLabel",
     "LeadLabelAssignment",

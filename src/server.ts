@@ -696,6 +696,47 @@ async function runMigrations() {
       \`updatedAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
     )`,
+    // Incident reports (Operation → Incidents) — replaces the Google Form.
+    `CREATE TABLE IF NOT EXISTS \`IncidentReport\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`incidentDate\` VARCHAR(10) NOT NULL,
+      \`incidentTime\` VARCHAR(5) NOT NULL,
+      \`location\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT NOT NULL,
+      \`actionsTaken\` TEXT NOT NULL,
+      \`otherChildren\` VARCHAR(500) NULL,
+      \`status\` ENUM('OPEN', 'PARENT_INFORMED', 'RESOLVED') NOT NULL DEFAULT 'OPEN',
+      \`reportedByUserId\` VARCHAR(36) NOT NULL,
+      \`reportedByName\` VARCHAR(191) NOT NULL,
+      \`statusUpdatedByName\` VARCHAR(191) NULL,
+      \`statusUpdatedAt\` DATETIME(3) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`IncidentReport_incidentDate_idx\` (\`incidentDate\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`IncidentReportStudent\` (
+      \`incidentReportId\` VARCHAR(36) NOT NULL,
+      \`studentId\` VARCHAR(36) NOT NULL,
+      \`childName\` VARCHAR(191) NOT NULL,
+      PRIMARY KEY (\`incidentReportId\`, \`studentId\`),
+      KEY \`IncidentReportStudent_studentId_idx\` (\`studentId\`)
+    )`,
+    // Timestamped follow-up log per incident (notes, status moves, edits).
+    `CREATE TABLE IF NOT EXISTS \`IncidentReportLog\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`incidentReportId\` VARCHAR(36) NOT NULL,
+      \`kind\` ENUM('NOTE', 'STATUS', 'EDIT') NOT NULL,
+      \`body\` TEXT NULL,
+      \`statusFrom\` VARCHAR(20) NULL,
+      \`statusTo\` VARCHAR(20) NULL,
+      \`parentReaction\` VARCHAR(20) NULL,
+      \`authorUserId\` VARCHAR(36) NOT NULL,
+      \`authorName\` VARCHAR(191) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`IncidentReportLog_incidentReportId_idx\` (\`incidentReportId\`, \`createdAt\`)
+    )`,
   ];
 
   const addColumns = [
@@ -1931,6 +1972,33 @@ async function runMigrations() {
       if (e.code !== 'ER_BAD_FIELD_ERROR') {
         console.warn('[migrate] AuthView.module backfill/drop skipped:', e.message);
       }
+    }
+
+    // Views the code checks with requireView/hasView must exist in the
+    // AuthView catalog, or an admin has nothing to tick in Admin → Views.
+    // Seed them once (by key); label/description stay admin-editable.
+    const seededViews = [
+      {
+        key: 'OPERATION_INCIDENT_MANAGE',
+        label: 'Manage incident reports',
+        description: 'See every incident report (not just your own), correct the details, change the status and add to the follow-up log. For supervisors and the principal.',
+        module: 'OPERATION',
+      },
+    ];
+    for (const v of seededViews) {
+      const [[exists]] = await conn.execute<any[]>(`SELECT \`id\` FROM \`AuthView\` WHERE \`key\` = ? LIMIT 1`, [v.key]);
+      if (exists) continue;
+      const id = randomUUID();
+      const now = new Date();
+      await conn.execute(
+        `INSERT INTO \`AuthView\` (\`id\`, \`key\`, \`label\`, \`description\`, \`createdAt\`, \`updatedAt\`) VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, v.key, v.label, v.description, now, now],
+      );
+      await conn.execute(
+        `INSERT INTO \`AuthViewModule\` (\`id\`, \`authViewId\`, \`module\`, \`createdAt\`) VALUES (?, ?, ?, ?)`,
+        [randomUUID(), id, v.module, now],
+      );
+      console.log(`[migrate] Seeded view ${v.key}`);
     }
 
     // Seed the one view that's actually wired to a real permission check

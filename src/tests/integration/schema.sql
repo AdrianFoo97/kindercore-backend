@@ -228,6 +228,54 @@ CREATE TABLE `GoogleConnection` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `IncidentReport` (
+  `id` varchar(36) NOT NULL,
+  `incidentDate` varchar(10) NOT NULL,
+  `incidentTime` varchar(5) NOT NULL,
+  `location` varchar(191) NOT NULL,
+  `description` text NOT NULL,
+  `actionsTaken` text NOT NULL,
+  `otherChildren` varchar(500) DEFAULT NULL,
+  `status` enum('OPEN','PARENT_INFORMED','RESOLVED') NOT NULL DEFAULT 'OPEN',
+  `reportedByUserId` varchar(36) NOT NULL,
+  `reportedByName` varchar(191) NOT NULL,
+  `statusUpdatedByName` varchar(191) DEFAULT NULL,
+  `statusUpdatedAt` datetime(3) DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  `updatedAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `IncidentReport_incidentDate_idx` (`incidentDate`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `IncidentReportLog` (
+  `id` varchar(36) NOT NULL,
+  `incidentReportId` varchar(36) NOT NULL,
+  `kind` enum('NOTE','STATUS','EDIT') NOT NULL,
+  `body` text,
+  `statusFrom` varchar(20) DEFAULT NULL,
+  `statusTo` varchar(20) DEFAULT NULL,
+  `parentReaction` varchar(20) DEFAULT NULL,
+  `authorUserId` varchar(36) NOT NULL,
+  `authorName` varchar(191) NOT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `IncidentReportLog_incidentReportId_idx` (`incidentReportId`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `IncidentReportStudent` (
+  `incidentReportId` varchar(36) NOT NULL,
+  `studentId` varchar(36) NOT NULL,
+  `childName` varchar(191) NOT NULL,
+  PRIMARY KEY (`incidentReportId`,`studentId`),
+  KEY `IncidentReportStudent_studentId_idx` (`studentId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `Lead` (
   `id` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `submittedAt` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

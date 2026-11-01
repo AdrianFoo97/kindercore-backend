@@ -9,6 +9,7 @@ import {
   bigint,
   float,
   mysqlEnum,
+  primaryKey,
 } from 'drizzle-orm/mysql-core';
 
 export const users = mysqlTable('User', {
@@ -632,6 +633,63 @@ export const bugReports = mysqlTable('BugReport', {
   status: mysqlEnum('status', ['OPEN', 'RESOLVED']).notNull().default('OPEN'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Incident reports (Operation → Incidents) — replaces the old Google Form.
+// Any staff member can file one (teachers from their mobile app); the
+// Operation module follows it up: OPEN → PARENT_INFORMED → RESOLVED.
+// Date and time are kept exactly as reported ('YYYY-MM-DD' / 'HH:MM'),
+// not as a datetime, so no timezone shift can move an incident's day.
+export const incidentReports = mysqlTable('IncidentReport', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  incidentDate: varchar('incidentDate', { length: 10 }).notNull(),
+  incidentTime: varchar('incidentTime', { length: 5 }).notNull(),
+  location: varchar('location', { length: 191 }).notNull(),
+  description: text('description').notNull(),
+  actionsTaken: text('actionsTaken').notNull(),
+  // Children involved who aren't enrolled students (e.g. a visiting
+  // sibling) — enrolled ones are linked via IncidentReportStudent.
+  otherChildren: varchar('otherChildren', { length: 500 }),
+  status: mysqlEnum('status', ['OPEN', 'PARENT_INFORMED', 'RESOLVED']).notNull().default('OPEN'),
+  // How it was followed up lives in IncidentReportLog (a timestamped log).
+  reportedByUserId: varchar('reportedByUserId', { length: 36 }).notNull(),
+  reportedByName: varchar('reportedByName', { length: 191 }).notNull(),
+  statusUpdatedByName: varchar('statusUpdatedByName', { length: 191 }),
+  statusUpdatedAt: datetime('statusUpdatedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Which enrolled students an incident involved. childName is a snapshot
+// taken when the report was filed, so the report still reads correctly if
+// the child is later renamed or withdrawn.
+export const incidentReportStudents = mysqlTable('IncidentReportStudent', {
+  incidentReportId: varchar('incidentReportId', { length: 36 }).notNull(),
+  studentId: varchar('studentId', { length: 36 }).notNull(),
+  childName: varchar('childName', { length: 191 }).notNull(),
+}, t => ({
+  pk: primaryKey({ columns: [t.incidentReportId, t.studentId] }),
+}));
+
+// The follow-up log of an incident — append-only, so opening a report
+// shows exactly how it was handled and by whom. kind: NOTE = a comment
+// from a supervisor/principal; STATUS = the status moved (statusFrom →
+// statusTo, with an optional comment in `body`); EDIT = the report's
+// details were corrected (body lists what changed).
+export const incidentReportLogs = mysqlTable('IncidentReportLog', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  incidentReportId: varchar('incidentReportId', { length: 36 }).notNull(),
+  kind: mysqlEnum('kind', ['NOTE', 'STATUS', 'EDIT']).notNull(),
+  body: text('body'),
+  statusFrom: varchar('statusFrom', { length: 20 }),
+  statusTo: varchar('statusTo', { length: 20 }),
+  // How satisfied the parent was at the time of this entry — optional, set
+  // alongside a comment: SATISFIED | NEUTRAL | CONCERNED | UPSET. Across a
+  // child's incidents it shows whether repeat incidents are wearing on them.
+  parentReaction: varchar('parentReaction', { length: 20 }),
+  authorUserId: varchar('authorUserId', { length: 36 }).notNull(),
+  authorName: varchar('authorName', { length: 191 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 // Org-wide list of section names a step can belong to (e.g. "Pre-shift

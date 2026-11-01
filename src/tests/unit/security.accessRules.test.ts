@@ -39,6 +39,9 @@ const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/sop-revisions/:id': 'One proposal — scoped in the handler like the list.',
   'POST /api/sop-revisions': 'Any staff member can propose an improvement to a guide.',
   'POST /api/upload/bug-report-photos': 'Screenshots attached to a bug report (anyone signed in can report a bug).',
+  'POST /api/incidents': 'Any staff member must be able to report an incident with a child, straight away.',
+  'GET /api/incidents/mine': 'The caller\'s own incident reports only.',
+  'GET /api/incidents/student-options': 'Current students\' names (id + name only) for picking who was involved in an incident.',
 };
 
 const GATES = /^(adminMiddleware|superadminMiddleware|requireModule\(|requireAnyModule\(|requireView\(|selfOrModule\()/;
@@ -57,9 +60,15 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(Object.keys(APPROVED_ANY_SIGNED_IN).filter(k => !actual.has(k))).toEqual([]);
   });
 
-  it('nothing open to every signed-in user can change data, except filing a bug report or a guide proposal', () => {
+  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report or a guide proposal', () => {
     const writes = signedInOnly.filter(e => e.method !== 'GET').map(key).sort();
-    expect(writes).toEqual(['POST /api/bug-reports', 'POST /api/sop-revisions', 'POST /api/upload/bug-report-photos']);
+    expect(writes).toEqual(['POST /api/bug-reports', 'POST /api/incidents', 'POST /api/sop-revisions', 'POST /api/upload/bug-report-photos']);
+  });
+
+  it('only incident managers can see every incident report or follow one up', () => {
+    expect(gateOf('GET', '/api/incidents')).toEqual(["requireView('OPERATION_INCIDENT_MANAGE')"]);
+    expect(gateOf('PATCH', '/api/incidents/:id')).toEqual(["requireView('OPERATION_INCIDENT_MANAGE')"]);
+    expect(gateOf('POST', '/api/incidents/:id/log')).toEqual(["requireView('OPERATION_INCIDENT_MANAGE')"]);
   });
 
   const gateOf = (method: string, path: string) =>
