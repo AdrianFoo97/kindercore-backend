@@ -585,7 +585,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/candidates/reset-all",
           "middleware": [
             "authMiddleware",
-            "adminMiddleware"
+            "adminMiddleware",
+            "testEnvOnly"
           ],
           "handler": "resetAllCandidates",
           "controller": "candidates.controller"
@@ -595,7 +596,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/candidates/seed-dummy",
           "middleware": [
             "authMiddleware",
-            "adminMiddleware"
+            "adminMiddleware",
+            "testEnvOnly"
           ],
           "handler": "seedDummyCandidates",
           "controller": "candidates.controller"
@@ -1029,7 +1031,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/leads/reset",
           "middleware": [
             "authMiddleware",
-            "adminMiddleware"
+            "adminMiddleware",
+            "testEnvOnly"
           ],
           "handler": "resetAllLeads",
           "controller": "leads.controller"
@@ -1039,7 +1042,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/leads/seed-dummy",
           "middleware": [
             "authMiddleware",
-            "adminMiddleware"
+            "adminMiddleware",
+            "testEnvOnly"
           ],
           "handler": "seedDummyLeads",
           "controller": "leads.controller"
@@ -2617,7 +2621,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/students/reset",
           "middleware": [
             "authMiddleware",
-            "adminMiddleware"
+            "adminMiddleware",
+            "testEnvOnly"
           ],
           "handler": "resetAllStudents",
           "controller": "students.controller"

@@ -21,6 +21,7 @@ import {
 } from '../controllers/leads.controller.js';
 import { setLeadLabels } from '../controllers/lead-labels.controller.js';
 import { authMiddleware, adminMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
+import { testEnvOnly } from '../middlewares/testEnv.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -32,8 +33,8 @@ leadsRouter.get('/', authMiddleware, requireAnyModule(MODULES.MARKETING, MODULES
 leadsRouter.get('/stats', authMiddleware, requireModule(MODULES.MARKETING), asyncHandler(getLeadStats));
 leadsRouter.get('/analytics', authMiddleware, requireAnyModule(MODULES.MARKETING, MODULES.ANALYSIS), asyncHandler(getAnalytics));
 leadsRouter.get('/sales-analytics', authMiddleware, requireAnyModule(MODULES.MARKETING, MODULES.ANALYSIS), asyncHandler(getSalesAnalytics));
-leadsRouter.delete('/reset', authMiddleware, adminMiddleware, asyncHandler(resetAllLeads));
-leadsRouter.post('/seed-dummy', authMiddleware, adminMiddleware, asyncHandler(seedDummyLeads));
+leadsRouter.delete('/reset', authMiddleware, adminMiddleware, testEnvOnly, asyncHandler(resetAllLeads));
+leadsRouter.post('/seed-dummy', authMiddleware, adminMiddleware, testEnvOnly, asyncHandler(seedDummyLeads));
 leadsRouter.get('/upcoming', authMiddleware, requireAnyModule(MODULES.MARKETING, MODULES.HR), asyncHandler(getUpcomingAppointments));
 leadsRouter.get('/trash', authMiddleware, requireModule(MODULES.MARKETING), asyncHandler(getTrashedLeads));
 leadsRouter.get('/:id', authMiddleware, requireModule(MODULES.MARKETING), asyncHandler(getLeadById));

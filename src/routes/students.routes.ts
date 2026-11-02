@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getStudents, getRevenueAnalytics, createStudent, createStudentWithLead, createSibling, updateStudent, updateOnboardingProgress, completeOnboarding, withdrawStudent, reactivateStudent, deleteStudent, resetAllStudents } from '../controllers/students.controller.js';
 import { getEnrollmentsForStudent, createEnrollment } from '../controllers/enrollments.controller.js';
 import { authMiddleware, adminMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
+import { testEnvOnly } from '../middlewares/testEnv.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -17,7 +18,7 @@ studentsRouter.patch('/:id/onboarding', authMiddleware, requireModule(MODULES.ST
 studentsRouter.patch('/:id/complete-onboarding', authMiddleware, requireModule(MODULES.STUDENTS), asyncHandler(completeOnboarding));
 studentsRouter.patch('/:id/withdraw', authMiddleware, requireModule(MODULES.STUDENTS), asyncHandler(withdrawStudent));
 studentsRouter.patch('/:id/reactivate', authMiddleware, requireModule(MODULES.STUDENTS), asyncHandler(reactivateStudent));
-studentsRouter.delete('/reset', authMiddleware, adminMiddleware, asyncHandler(resetAllStudents));
+studentsRouter.delete('/reset', authMiddleware, adminMiddleware, testEnvOnly, asyncHandler(resetAllStudents));
 studentsRouter.delete('/:id', authMiddleware, requireModule(MODULES.STUDENTS), asyncHandler(deleteStudent));
 
 // Enrollment history (per student): list + open new period.

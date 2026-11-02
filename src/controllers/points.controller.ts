@@ -15,14 +15,18 @@ import {
 // Earning rules are an admin-curated reference / grant-template list.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// The kindergarten's calendar day (Malaysia, UTC+8) — a grant at 7am on the
+// 1st belongs to the new month, not the old one as a UTC date would say.
+const todayISO = () => new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+type Executor = Pick<typeof db, 'select'>;
 
 // Balance is derived from the ledger — small per-teacher row counts make
 // summing in JS fine and keeps a single source of truth.
-async function computeBalance(teacherId: string): Promise<{
+async function computeBalance(teacherId: string, exec: Executor = db): Promise<{
   current: number; earnedThisMonth: number; lifetimeEarned: number;
 }> {
-  const rows = await db.select().from(pointsTransactions)
+  const rows = await exec.select().from(pointsTransactions)
     .where(eq(pointsTransactions.teacherId, teacherId));
   const month = todayISO().slice(0, 7); // YYYY-MM
   let current = 0, earnedThisMonth = 0, lifetimeEarned = 0;
@@ -34,6 +38,14 @@ async function computeBalance(teacherId: string): Promise<{
     }
   }
   return { current, earnedThisMonth, lifetimeEarned };
+}
+
+// Lock the teacher's row for the rest of the transaction, so two balance
+// changes at once (a double-tapped Redeem, two HR grants) queue up instead
+// of both reading — and spending — the same balance.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+async function lockTeacherLedger(tx: Tx, teacherId: string): Promise<void> {
+  await tx.select({ id: teachers.id }).from(teachers).where(eq(teachers.id, teacherId)).for('update');
 }
 
 async function ensureTeacher(teacherId: string, res: Response): Promise<boolean> {
@@ -369,28 +381,33 @@ export async function grantPoints(req: Request, res: Response): Promise<void> {
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
-  const { current } = await computeBalance(teacherId);
-  const balanceAfter = current + parsed.data.amount;
-  if (balanceAfter < 0) {
+  const now = new Date();
+  const id = randomUUID();
+  const ok = await db.transaction(async (tx) => {
+    await lockTeacherLedger(tx, teacherId);
+    const { current } = await computeBalance(teacherId, tx);
+    const balanceAfter = current + parsed.data.amount;
+    if (balanceAfter < 0) return false;
+    await tx.insert(pointsTransactions).values({
+      id,
+      teacherId,
+      kind: 'earned',
+      label: parsed.data.label,
+      delta: parsed.data.amount,
+      balanceAfter,
+      date: todayISO(),
+      ruleId: parsed.data.ruleId ?? null,
+      redemptionId: null,
+      note: parsed.data.note ?? null,
+      createdBy: req.user?.email ?? null,
+      createdAt: now,
+    });
+    return true;
+  });
+  if (!ok) {
     res.status(400).json({ message: 'Adjustment would make the balance negative' });
     return;
   }
-  const now = new Date();
-  const id = randomUUID();
-  await db.insert(pointsTransactions).values({
-    id,
-    teacherId,
-    kind: 'earned',
-    label: parsed.data.label,
-    delta: parsed.data.amount,
-    balanceAfter,
-    date: todayISO(),
-    ruleId: parsed.data.ruleId ?? null,
-    redemptionId: null,
-    note: parsed.data.note ?? null,
-    createdBy: req.user?.email ?? null,
-    createdAt: now,
-  });
   const [created] = await db.select().from(pointsTransactions).where(eq(pointsTransactions.id, id));
   res.status(201).json(created);
 }
@@ -558,8 +575,6 @@ export async function redeemReward(req: Request, res: Response): Promise<void> {
     .where(eq(pointsRewardItems.id, parsed.data.rewardId));
   if (!item || !item.active) { res.status(404).json({ message: 'Reward not available' }); return; }
   if (item.stock === 'out') { res.status(409).json({ message: 'Reward is out of stock' }); return; }
-  const { current } = await computeBalance(teacherId);
-  if (current < item.cost) { res.status(409).json({ message: 'Not enough points' }); return; }
 
   const now = new Date();
   const today = todayISO();
@@ -570,37 +585,44 @@ export async function redeemReward(req: Request, res: Response): Promise<void> {
     : null;
   const redemptionCode = `RDM-${today.replace(/-/g, '').slice(2)}-${redemptionId.slice(0, 4).toUpperCase()}`;
 
-  await db.insert(rewardRedemptions).values({
-    id: redemptionId,
-    teacherId,
-    rewardId: item.id,
-    label: item.label,
-    icon: item.icon,
-    pointsSpent: item.cost,
-    status: 'redeemed',
-    voucherCode,
-    redemptionCode,
-    instructions: 'Submitted for approval. HR will follow up to issue or schedule this reward — check your email for next steps.',
-    redeemedDate: today,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const ok = await db.transaction(async (tx) => {
+    await lockTeacherLedger(tx, teacherId);
+    const { current } = await computeBalance(teacherId, tx);
+    if (current < item.cost) return false;
 
-  const balanceAfter = current - item.cost;
-  await db.insert(pointsTransactions).values({
-    id: randomUUID(),
-    teacherId,
-    kind: 'redeemed',
-    label: item.label,
-    delta: -item.cost,
-    balanceAfter,
-    date: today,
-    ruleId: null,
-    redemptionId,
-    note: null,
-    createdBy: req.user?.email ?? null,
-    createdAt: now,
+    await tx.insert(rewardRedemptions).values({
+      id: redemptionId,
+      teacherId,
+      rewardId: item.id,
+      label: item.label,
+      icon: item.icon,
+      pointsSpent: item.cost,
+      status: 'redeemed',
+      voucherCode,
+      redemptionCode,
+      instructions: 'Submitted for approval. HR will follow up to issue or schedule this reward — check your email for next steps.',
+      redeemedDate: today,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await tx.insert(pointsTransactions).values({
+      id: randomUUID(),
+      teacherId,
+      kind: 'redeemed',
+      label: item.label,
+      delta: -item.cost,
+      balanceAfter: current - item.cost,
+      date: today,
+      ruleId: null,
+      redemptionId,
+      note: null,
+      createdBy: req.user?.email ?? null,
+      createdAt: now,
+    });
+    return true;
   });
+  if (!ok) { res.status(409).json({ message: 'Not enough points' }); return; }
 
   const [created] = await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.id, redemptionId));
   res.status(201).json(created);
@@ -622,6 +644,13 @@ export async function updateRedemption(req: Request, res: Response): Promise<voi
   }
   const [existing] = await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.id, id));
   if (!existing) { res.status(404).json({ message: 'Redemption not found' }); return; }
+  // redeemed → pending → delivered, forward only: a delivered reward was
+  // handed over, so it can't quietly go back into the teacher's account.
+  const ORDER = ['redeemed', 'pending', 'delivered'];
+  if (parsed.data.status !== undefined && ORDER.indexOf(parsed.data.status) < ORDER.indexOf(existing.status)) {
+    res.status(400).json({ message: 'A redemption can only move forward (redeemed → pending → delivered).' });
+    return;
+  }
   await db.update(rewardRedemptions).set({
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
     ...(parsed.data.voucherCode !== undefined ? { voucherCode: parsed.data.voucherCode ?? null } : {}),

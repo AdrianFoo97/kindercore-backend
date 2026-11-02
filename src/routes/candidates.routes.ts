@@ -23,6 +23,7 @@ import {
   getCandidatePhoneIndex,
 } from '../controllers/candidates.controller.js';
 import { authMiddleware, adminMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
+import { testEnvOnly } from '../middlewares/testEnv.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PRIVATE_UPLOAD_ROOT } from './upload.routes.js';
@@ -98,7 +99,7 @@ candidatesRouter.post('/import', authMiddleware, adminMiddleware, asyncHandler(i
 
 // Admin nuclear reset — deletes every candidate row + resume file.
 // Meant for import iteration on a fresh env, not for regular use.
-candidatesRouter.post('/reset-all', authMiddleware, adminMiddleware, asyncHandler(resetAllCandidates));
+candidatesRouter.post('/reset-all', authMiddleware, adminMiddleware, testEnvOnly, asyncHandler(resetAllCandidates));
 
 // Dev / demo — admin only.
-candidatesRouter.post('/seed-dummy', authMiddleware, adminMiddleware, asyncHandler(seedDummyCandidates));
+candidatesRouter.post('/seed-dummy', authMiddleware, adminMiddleware, testEnvOnly, asyncHandler(seedDummyCandidates));
