@@ -31,6 +31,20 @@ export function adminMiddleware(
   next();
 }
 
+// "Last active" for Settings → Team Members. Written at most once a minute
+// per person so busy pages don't turn every request into a write; a failed
+// write never blocks the request it rides on.
+export const SEEN_EVERY_MS = 60_000;
+async function markSeen(userId: string, lastSeenAt: Date | null): Promise<void> {
+  const now = new Date();
+  if (lastSeenAt && now.getTime() - lastSeenAt.getTime() < SEEN_EVERY_MS) return;
+  try {
+    await db.update(users).set({ lastSeenAt: now }).where(eq(users.id, userId));
+  } catch (err) {
+    console.error('[auth] could not record last-seen', err);
+  }
+}
+
 // The token proves WHO is calling; the account row says what they may do
 // right now. Role and teacher link are re-read from the database on every
 // request rather than trusted from the token — otherwise demoting, unlinking
@@ -56,7 +70,7 @@ export async function authMiddleware(
   }
   try {
     const [account] = await db
-      .select({ id: users.id, email: users.email, role: users.role, teacherId: users.teacherId, activated: users.activated })
+      .select({ id: users.id, email: users.email, role: users.role, teacherId: users.teacherId, activated: users.activated, lastSeenAt: users.lastSeenAt })
       .from(users)
       .where(eq(users.id, claims.id))
       .limit(1);
@@ -64,6 +78,7 @@ export async function authMiddleware(
       res.status(401).json({ message: 'Account no longer active' });
       return;
     }
+    await markSeen(account.id, account.lastSeenAt);
     req.user = { id: account.id, email: account.email, role: account.role, teacherId: account.teacherId };
     next();
   } catch (err) {

@@ -33,6 +33,9 @@ export async function login(req: Request, res: Response): Promise<void> {
     { expiresIn: '8h' },
   );
 
+  const now = new Date();
+  await db.update(users).set({ lastLoginAt: now, lastSeenAt: now }).where(eq(users.id, user.id));
+
   res.json({
     token,
     user: { id: user.id, email: user.email, name: user.name, role: user.role, teacherId: user.teacherId },
@@ -168,6 +171,8 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
     createdAt: users.createdAt,
     teacherId: users.teacherId,
     authRoleId: users.authRoleId,
+    lastLoginAt: users.lastLoginAt,
+    lastSeenAt: users.lastSeenAt,
   }).from(users);
   const result = allUsers.map(({ inviteToken, ...rest }) => ({
     ...rest,

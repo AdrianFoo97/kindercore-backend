@@ -740,6 +740,9 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // User — activity shown on Settings → Team Members
+    `ALTER TABLE \`User\` ADD COLUMN \`lastLoginAt\` DATETIME(3) NULL`,
+    `ALTER TABLE \`User\` ADD COLUMN \`lastSeenAt\` DATETIME(3) NULL`,
     // Teacher — planner fields
     `ALTER TABLE \`Teacher\` ADD COLUMN \`allowedSubjectIds\` JSON NULL`,
     `ALTER TABLE \`Teacher\` ADD COLUMN \`allowedClassroomIds\` JSON NULL`,

@@ -117,6 +117,20 @@ describe('Login', () => {
 
     expect(r.statusCode).toBe(400);
   });
+
+  it('records when the user signed in, for the Team Members page', async () => {
+    const before = Date.now();
+    await login(req({ email: ADMIN_EMAIL, password: PASSWORD }), res());
+    const [u] = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL));
+    expect(u.lastLoginAt?.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(u.lastSeenAt?.getTime()).toBe(u.lastLoginAt?.getTime());
+  });
+
+  it('does not record a sign-in for a wrong password', async () => {
+    await login(req({ email: ADMIN_EMAIL, password: 'wrong-password' }), res());
+    const [u] = await db.select().from(users).where(eq(users.email, ADMIN_EMAIL));
+    expect(u.lastLoginAt).toBeNull();
+  });
 });
 
 describe('Account activation (setting a password from an invite)', () => {

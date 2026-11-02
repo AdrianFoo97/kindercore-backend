@@ -135,6 +135,37 @@ describe('Security — sign-in check (authMiddleware)', () => {
   });
 });
 
+describe('Team Members — last active', () => {
+  const lastSeen = async (id: string) =>
+    (await db.select({ at: users.lastSeenAt }).from(users).where(eq(users.id, id)))[0].at;
+
+  it('records when a signed-in user was last active', async () => {
+    const before = Date.now();
+    await runAuth(`Bearer ${sign(USER)}`);
+    expect((await lastSeen(USER.id))?.getTime()).toBeGreaterThanOrEqual(before - 1000);
+  });
+
+  it('updates it at most once a minute, so busy pages don\'t write on every click', async () => {
+    const recent = new Date(Date.now() - 30_000);
+    await db.update(users).set({ lastSeenAt: recent }).where(eq(users.id, USER.id));
+    await runAuth(`Bearer ${sign(USER)}`);
+    expect((await lastSeen(USER.id))?.getTime()).toBe(recent.getTime());
+
+    const stale = new Date(Date.now() - 120_000);
+    await db.update(users).set({ lastSeenAt: stale }).where(eq(users.id, USER.id));
+    await runAuth(`Bearer ${sign(USER)}`);
+    expect((await lastSeen(USER.id))!.getTime()).toBeGreaterThan(stale.getTime());
+  });
+
+  it('does not count a refused request as activity', async () => {
+    await runAuth(`Bearer ${sign(USER, 'wrong-secret')}`);
+    await db.update(users).set({ activated: false }).where(eq(users.id, ADMIN.id));
+    await runAuth(`Bearer ${sign(ADMIN)}`);
+    expect(await lastSeen(USER.id)).toBeNull();
+    expect(await lastSeen(ADMIN.id)).toBeNull();
+  });
+});
+
 describe('Security — admin check (adminMiddleware)', () => {
   const runAdmin = (role?: string) => {
     const r = res();
