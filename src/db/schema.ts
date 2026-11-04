@@ -471,6 +471,15 @@ export const teachers = mysqlTable('Teacher', {
   // transactions newer than this timestamp are "new". Set via POST
   // /teachers/:teacherId/points/seen.
   pointsLastSeenAt: datetime('pointsLastSeenAt', { mode: 'date', fsp: 3 }),
+  // HR → Onboarding checklist, copied from the staff_onboarding_tasks setting
+  // when the staff record is created: [{ task, done }]. Staff who were here
+  // before onboarding existed default to completed, so they never show up.
+  onboardingProgress: json('onboardingProgress'),
+  onboardingCompleted: boolean('onboardingCompleted').notNull().default(true),
+  // The new joiner's OWN checklist (handbook, guides…), ticked in their app's
+  // "My onboarding" card — copied from staff_self_onboarding_tasks. Both this
+  // and HR's list above must be done before onboarding can be completed.
+  selfOnboardingProgress: json('selfOnboardingProgress'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -693,6 +702,27 @@ export const incidentReportLogs = mysqlTable('IncidentReportLog', {
   parentReaction: varchar('parentReaction', { length: 20 }),
   authorUserId: varchar('authorUserId', { length: 36 }).notNull(),
   authorName: varchar('authorName', { length: 191 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// New staff who didn't come through Recruitment fill in the public "New
+// staff" form (/join); HR approves (creating their staff record via
+// staffRecord.service) or rejects it under HR → New Staff.
+export const staffJoinRequests = mysqlTable('StaffJoinRequest', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  fullName: varchar('fullName', { length: 191 }).notNull(),
+  phone: varchar('phone', { length: 50 }).notNull(),
+  dob: varchar('dob', { length: 10 }).notNull(),          // YYYY-MM-DD
+  // Gmail preferred — it's what they'll use to sign in to the app.
+  email: varchar('email', { length: 191 }).notNull(),
+  note: text('note'),
+  status: mysqlEnum('status', ['PENDING', 'APPROVED', 'REJECTED']).notNull().default('PENDING'),
+  // Set on approval — the staff record this request became.
+  teacherId: varchar('teacherId', { length: 36 }),
+  rejectionReason: varchar('rejectionReason', { length: 500 }),
+  reviewedByUserId: varchar('reviewedByUserId', { length: 36 }),
+  reviewedByName: varchar('reviewedByName', { length: 191 }),
+  reviewedAt: datetime('reviewedAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 

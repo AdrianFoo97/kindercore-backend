@@ -731,6 +731,26 @@ CREATE TABLE `SpeechClip` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `StaffJoinRequest` (
+  `id` varchar(36) NOT NULL,
+  `fullName` varchar(191) NOT NULL,
+  `phone` varchar(50) NOT NULL,
+  `dob` varchar(10) NOT NULL,
+  `email` varchar(191) NOT NULL,
+  `note` text,
+  `status` enum('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+  `teacherId` varchar(36) DEFAULT NULL,
+  `rejectionReason` varchar(500) DEFAULT NULL,
+  `reviewedByUserId` varchar(36) DEFAULT NULL,
+  `reviewedByName` varchar(191) DEFAULT NULL,
+  `reviewedAt` datetime(3) DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `StaffJoinRequest_status_idx` (`status`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `Student` (
   `id` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `leadId` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -851,6 +871,9 @@ CREATE TABLE `Teacher` (
   `pointsLastSeenAt` datetime(3) DEFAULT NULL,
   `excludeFromStaffCost` tinyint(1) NOT NULL DEFAULT '0',
   `dob` datetime(3) DEFAULT NULL,
+  `onboardingProgress` json DEFAULT NULL,
+  `onboardingCompleted` tinyint(1) NOT NULL DEFAULT '1',
+  `selfOnboardingProgress` json DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

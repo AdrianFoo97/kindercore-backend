@@ -17,6 +17,7 @@ const APPROVED_PUBLIC: Record<string, string> = {
   'GET /api/marketing-campaigns/check': 'Enquiry form checks a promo code is valid.',
   'POST /api/candidates': 'Public job application form.',
   'GET /api/candidates/form-options': 'Job application form loads its dropdown options.',
+  'POST /api/staff-joins': 'Public "New staff" form for joiners who skipped Recruitment. Honeypot-protected, rate-limited in server.ts, echoes nothing back; HR approval is signed-in.',
   'POST /api/candidates/:id/resume': 'Applicant attaches a resume right after applying; one upload only, within a short window.',
   'GET /api/google/auth': 'Starts Google Calendar connection; the redirect carries a signed state token.',
   'GET /api/google/callback': 'Google redirects back here; verified by the signed state token.',

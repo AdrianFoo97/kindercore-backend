@@ -2513,6 +2513,115 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "staff-joins.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/staff-joins",
+          "middleware": [],
+          "handler": "submitStaffJoin",
+          "controller": "staff-joins.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/staff-joins",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "listStaffJoins",
+          "controller": "staff-joins.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/staff-joins/:id/approve",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "approveStaffJoin",
+          "controller": "staff-joins.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/staff-joins/:id/reject",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "rejectStaffJoin",
+          "controller": "staff-joins.controller"
+        }
+      ]
+    },
+    {
+      "id": "staff-onboarding.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/staff-onboarding",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "listStaffOnboarding",
+          "controller": "staff-onboarding.controller"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/teachers/:teacherId/onboarding",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "saveStaffOnboarding",
+          "controller": "staff-onboarding.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/teachers/:teacherId/onboarding/complete",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "completeStaffOnboarding",
+          "controller": "staff-onboarding.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/teachers/:teacherId/onboarding/start",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "startStaffOnboarding",
+          "controller": "staff-onboarding.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/teachers/:teacherId/my-onboarding",
+          "middleware": [
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
+          ],
+          "handler": "getMyOnboarding",
+          "controller": "staff-onboarding.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/teachers/:teacherId/my-onboarding",
+          "middleware": [
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
+          ],
+          "handler": "tickMyOnboarding",
+          "controller": "staff-onboarding.controller"
+        }
+      ]
+    },
+    {
       "id": "students.routes",
       "mount": "/api/students",
       "endpoints": [
@@ -2807,17 +2916,15 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "candidates.controller",
-      "services": [],
+      "services": [
+        "staffRecord.service"
+      ],
       "controllers": [],
       "tables": [
-        "AllowanceType",
         "Candidate",
-        "CareerRecord",
         "GoogleConnection",
-        "Position",
         "SystemSetting",
-        "Teacher",
-        "TeacherAllowance"
+        "Teacher"
       ]
     },
     {
@@ -2966,7 +3073,9 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "planner.controller",
-      "services": [],
+      "services": [
+        "staffOnboarding.service"
+      ],
       "controllers": [],
       "tables": [
         "CareerRecord",
@@ -3090,6 +3199,29 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "staff-joins.controller",
+      "services": [
+        "staffRecord.service"
+      ],
+      "controllers": [],
+      "tables": [
+        "StaffJoinRequest",
+        "Teacher",
+        "User"
+      ]
+    },
+    {
+      "id": "staff-onboarding.controller",
+      "services": [
+        "staffOnboarding.service"
+      ],
+      "controllers": [],
+      "tables": [
+        "Position",
+        "Teacher"
+      ]
+    },
+    {
       "id": "students.controller",
       "services": [],
       "controllers": [],
@@ -3181,6 +3313,26 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "staffOnboarding.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "SystemSetting"
+      ]
+    },
+    {
+      "id": "staffRecord.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AllowanceType",
+        "CareerRecord",
+        "Position",
+        "Teacher",
+        "TeacherAllowance"
+      ]
+    },
+    {
       "id": "testRunner.service",
       "services": [],
       "controllers": [],
@@ -3231,6 +3383,7 @@ export const ARCHITECTURE: Architecture = {
     "SopTemplateCategory",
     "SopTemplateRevision",
     "SpeechClip",
+    "StaffJoinRequest",
     "Student",
     "StudentAttendance",
     "StudentEnrollment",

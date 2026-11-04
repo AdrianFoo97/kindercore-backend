@@ -5,7 +5,8 @@ import path from 'path';
 import { and, asc, desc, eq, gte, isNull, like, or, sql } from 'drizzle-orm';
 import { db, pool } from '../db/client.js';
 import { google } from 'googleapis';
-import { candidates, googleConnections, systemSettings, teachers, careerRecords, positions, allowanceTypes, teacherAllowances } from '../db/schema.js';
+import { candidates, googleConnections, systemSettings, teachers } from '../db/schema.js';
+import { createStaffRecord, StaffRecordError, type NewStaffDetails } from '../services/staffRecord.service.js';
 import { createCandidateSchema, updateCandidateSchema, hireCandidateSchema } from '../validators/candidate.validator.js';
 import { PRIVATE_UPLOAD_ROOT } from '../routes/upload.routes.js';
 
@@ -798,21 +799,6 @@ export async function updateCandidate(req: Request, res: Response): Promise<void
   res.json(updated);
 }
 
-const TEACHER_COLOR_PRESETS = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#8b5cf6','#ec4899','#6b7280','#0ea5e9','#14b8a6','#a855f7'];
-/** Mirrors EditTeacherPage's pickUnusedColor — first unused preset, else a
- *  random hex. Duplicated rather than shared: it's four lines and the two
- *  callers live in different runtimes (browser vs. Node). */
-function pickTeacherColor(usedColors: (string | null)[]): string {
-  const used = new Set(usedColors.filter((c): c is string => !!c).map(c => c.toLowerCase()));
-  const available = TEACHER_COLOR_PRESETS.find(c => !used.has(c.toLowerCase()));
-  if (available) return available;
-  for (let i = 0; i < 50; i++) {
-    const c = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`;
-    if (!used.has(c)) return c;
-  }
-  return TEACHER_COLOR_PRESETS[0];
-}
-
 // "Accepted" on an OFFER_SENT candidate — confirms hire details and creates
 // the Teacher record in the same transaction as the HIRED status flip, so
 // there's no window where a candidate is marked hired with no teacher row
@@ -836,71 +822,23 @@ export async function hireCandidate(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const [position] = await db.select().from(positions).where(eq(positions.positionId, data.positionId)).limit(1);
-  if (!position) {
-    res.status(400).json({ error: 'Position not found' });
-    return;
-  }
-
-  // Validate + filter the submitted allowance amounts against real
-  // AllowanceType rows (defense against stale ids from the client) and
-  // drop zero amounts — no point creating empty TeacherAllowance rows.
-  const validAllowanceIds = new Set((await db.select({ id: allowanceTypes.id }).from(allowanceTypes)).map(t => t.id));
-  const allowanceEntries = (data.allowances ?? []).filter(a => a.amount > 0 && validAllowanceIds.has(a.allowanceTypeId));
-
   const now = new Date();
-  const joinDate = new Date(data.joinDate);
-  const teacherId = randomUUID();
-  const usedColors = (await db.select({ color: teachers.color }).from(teachers)).map(t => t.color);
-  const color = pickTeacherColor(usedColors);
-
-  await db.transaction(async (tx) => {
-    await tx.insert(teachers).values({
-      id: teacherId,
-      name: candidate.fullName,
-      color,
-      phone: data.phone,
-      employmentType: data.employmentType,
-      positionId: data.positionId,
-      level: data.level,
-      isFixedSalary: data.salaryType === 'fixed',
-      fixedSalaryAmount: data.salaryType === 'fixed' ? data.fixedSalaryAmount ?? null : null,
-      salaryType: data.salaryType,
-      hourlyRate: data.salaryType === 'hourly' ? data.hourlyRate ?? null : null,
-      hasEpf: data.hasEpf,
-      hasSocso: data.hasSocso,
-      hasEis: data.hasEis,
-      workStartMinute: data.workStartMinute ?? null,
-      workEndMinute: data.workEndMinute ?? null,
-      workDays: data.workDays ?? null,
-      createdAt: joinDate,
-      updatedAt: now,
+  let teacherId: string;
+  try {
+    teacherId = await db.transaction(async (tx) => {
+      // hireCandidateSchema has already enforced the required fields.
+      const newTeacherId = await createStaffRecord(tx, { ...(data as Omit<NewStaffDetails, 'name'>), name: candidate.fullName });
+      await tx.update(candidates).set({
+        status: 'HIRED',
+        hiredAt: now,
+        statusChangedAt: now,
+      }).where(eq(candidates.id, id));
+      return newTeacherId;
     });
-    // Same "seed the career history at join date" rationale as createTeacher.
-    await tx.insert(careerRecords).values({
-      id: randomUUID(),
-      teacherId,
-      positionId: data.positionId,
-      level: data.level,
-      effectiveDate: joinDate,
-      notes: null,
-      createdAt: now,
-    });
-    for (const entry of allowanceEntries) {
-      await tx.insert(teacherAllowances).values({
-        id: randomUUID(),
-        teacherId,
-        allowanceTypeId: entry.allowanceTypeId,
-        amount: entry.amount,
-        updatedAt: now,
-      });
-    }
-    await tx.update(candidates).set({
-      status: 'HIRED',
-      hiredAt: now,
-      statusChangedAt: now,
-    }).where(eq(candidates.id, id));
-  });
+  } catch (err) {
+    if (err instanceof StaffRecordError) { res.status(400).json({ error: err.message }); return; }
+    throw err;
+  }
 
   const [updatedCandidate] = await db.select().from(candidates).where(eq(candidates.id, id)).limit(1);
   const [createdTeacher] = await db.select().from(teachers).where(eq(teachers.id, teacherId)).limit(1);

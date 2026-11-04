@@ -5,6 +5,7 @@ import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords } from '../db/schema.js';
+import { freshStaffChecklists } from '../services/staffOnboarding.service.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TEACHERS
@@ -99,6 +100,8 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
   const now = new Date();
   const joinDate = parsed.data.createdAt ? new Date(parsed.data.createdAt) : now;
   const id = randomUUID();
+  // Added by hand on the Staff page — still a new joiner, so onboard them.
+  const checklists = await freshStaffChecklists();
   await db.insert(teachers).values({
     id, name: parsed.data.name, color: parsed.data.color,
     phone: parsed.data.phone ?? null,
@@ -120,6 +123,9 @@ export async function createTeacher(req: Request, res: Response): Promise<void> 
     hasEpf: parsed.data.hasEpf ?? true,
     hasSocso: parsed.data.hasSocso ?? true,
     hasEis: parsed.data.hasEis ?? true,
+    onboardingProgress: checklists.hr,
+    selfOnboardingProgress: checklists.self,
+    onboardingCompleted: false,
     createdAt: joinDate, updatedAt: now,
   });
   // Seed an initial career record so the teacher's position history starts at

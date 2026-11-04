@@ -5,6 +5,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
+import { DEFAULT_STAFF_ONBOARDING_TASKS, DEFAULT_STAFF_SELF_ONBOARDING_TASKS } from './services/staffOnboarding.service.js';
 import { router } from './routes/index.js';
 import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
@@ -737,9 +738,32 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       KEY \`IncidentReportLog_incidentReportId_idx\` (\`incidentReportId\`, \`createdAt\`)
     )`,
+    // New staff joining without going through Recruitment — HR approves.
+    `CREATE TABLE IF NOT EXISTS \`StaffJoinRequest\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`fullName\` VARCHAR(191) NOT NULL,
+      \`phone\` VARCHAR(50) NOT NULL,
+      \`dob\` VARCHAR(10) NOT NULL,
+      \`email\` VARCHAR(191) NOT NULL,
+      \`note\` TEXT NULL,
+      \`status\` ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+      \`teacherId\` VARCHAR(36) NULL,
+      \`rejectionReason\` VARCHAR(500) NULL,
+      \`reviewedByUserId\` VARCHAR(36) NULL,
+      \`reviewedByName\` VARCHAR(191) NULL,
+      \`reviewedAt\` DATETIME(3) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`StaffJoinRequest_status_idx\` (\`status\`, \`createdAt\`)
+    )`,
   ];
 
   const addColumns = [
+    // Teacher — HR → Onboarding. Existing staff default to completed (1);
+    // new staff get 0 from staffRecord.service.
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`onboardingProgress\` JSON NULL`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`onboardingCompleted\` TINYINT(1) NOT NULL DEFAULT 1`,
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`selfOnboardingProgress\` JSON NULL`,
     // User — activity shown on Settings → Team Members
     `ALTER TABLE \`User\` ADD COLUMN \`lastLoginAt\` DATETIME(3) NULL`,
     `ALTER TABLE \`User\` ADD COLUMN \`lastSeenAt\` DATETIME(3) NULL`,
@@ -2004,6 +2028,23 @@ async function runMigrations() {
       console.log(`[migrate] Seeded view ${v.key}`);
     }
 
+    // A starter staff-onboarding checklist, seeded once so HR → Onboarding has
+    // something to tick before an admin tailors it (Settings → HR & Payroll →
+    // Staff Onboarding). Never overwrites an existing list.
+    const starterChecklists = [
+      { key: 'staff_onboarding_tasks', tasks: DEFAULT_STAFF_ONBOARDING_TASKS, description: 'HR checklist for a new staff member (HR → Onboarding)' },
+      { key: 'staff_self_onboarding_tasks', tasks: DEFAULT_STAFF_SELF_ONBOARDING_TASKS, description: 'A new staff member\'s own checklist (their app → My onboarding)' },
+    ];
+    for (const c of starterChecklists) {
+      const [[existing]] = await conn.execute<any[]>(`SELECT \`id\` FROM \`SystemSetting\` WHERE \`key\` = ? LIMIT 1`, [c.key]);
+      if (existing) continue;
+      await conn.execute(
+        `INSERT INTO \`SystemSetting\` (\`id\`, \`key\`, \`value\`, \`description\`, \`updatedAt\`) VALUES (?, ?, ?, ?, ?)`,
+        [randomUUID(), c.key, JSON.stringify(c.tasks), c.description, new Date()],
+      );
+      console.log(`[migrate] Seeded ${c.key}`);
+    }
+
     // Seed the one view that's actually wired to a real permission check
     // today (OPERATION_SOP_APPROVE) into the new AuthView catalog, so
     // existing AuthRoleView rows referencing that key string keep working
@@ -2124,6 +2165,19 @@ app.use('/api/candidates', (req, _res, next) => {
   if (req.headers.authorization) return next();           // admin: skip
   if (req.method === 'GET' && req.path === '/form-options') return next();
   if (req.method === 'POST') return candidatePublicLimiter(req, _res, next);
+  next();
+});
+
+// Public "New staff" form — a handful of joiners a month, so a tight cap.
+const staffJoinLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { message: 'Too many submissions. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/staff-joins', (req, _res, next) => {
+  if (req.method === 'POST' && req.path === '/' && !req.headers.authorization) return staffJoinLimiter(req, _res, next);
   next();
 });
 
