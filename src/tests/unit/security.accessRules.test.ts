@@ -30,12 +30,12 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(Object.keys(APPROVED_ANY_SIGNED_IN).filter(k => !actual.has(k))).toEqual([]);
   });
 
-  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report, a facility issue, a purchase request (or editing your own) or a guide proposal', () => {
+  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report, a facility issue, a purchase request (or editing your own) or a guide proposal (or resending your own)', () => {
     const writes = signedInOnly.filter(e => e.method !== 'GET').map(key).sort();
     expect(writes).toEqual([
       'DELETE /api/purchase-requests/:id', 'PATCH /api/purchase-requests/:id',
       'POST /api/bug-reports', 'POST /api/facility-issues', 'POST /api/incidents', 'POST /api/purchase-requests',
-      'POST /api/purchase-requests/:id/bought-myself', 'POST /api/sop-revisions', 'POST /api/upload/bug-report-photos',
+      'POST /api/purchase-requests/:id/bought-myself', 'POST /api/sop-revisions', 'POST /api/sop-revisions/:id/resubmit', 'POST /api/upload/bug-report-photos',
     ]);
   });
 

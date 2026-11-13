@@ -839,6 +839,15 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       KEY \`AppraisalCriterion_section_idx\` (\`sectionId\`)
     )`,
+    // A person's favourite How-To Guides (Guides page opens on Favourites).
+    `CREATE TABLE IF NOT EXISTS \`SopFavorite\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`userId\` VARCHAR(36) NOT NULL,
+      \`sopTemplateId\` VARCHAR(36) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`SopFavorite_user_guide_key\` (\`userId\`, \`sopTemplateId\`)
+    )`,
     // Admin → Access Log: who opened pay / finance / appraisal / applicant records.
     `CREATE TABLE IF NOT EXISTS \`SensitiveAccessLog\` (
       \`id\` VARCHAR(36) NOT NULL,
@@ -949,6 +958,15 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // BugReport — a short title above the description.
+    `ALTER TABLE \`BugReport\` ADD COLUMN \`title\` VARCHAR(120) NULL AFTER \`id\``,
+    // SopTemplateRevision — why a teacher wants to improve a guide (step 1 of "Suggest an improvement").
+    `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`improvementReasonsJson\` JSON NULL AFTER \`stepsJson\``,
+    // SopTemplateRevision — a send-back's comments on individual steps.
+    // SopTemplateRevision — when a supervisor started trying a suggestion in practice, and who.
+    `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`trialStartedAt\` DATETIME(3) NULL AFTER \`status\``,
+    `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`trialStartedByName\` VARCHAR(191) NULL AFTER \`trialStartedAt\``,
+    `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`reviewCommentsJson\` JSON NULL AFTER \`reviewNote\``,
     // AppraisalScore — a score for one point of a criterion (null = the criterion itself).
     `ALTER TABLE \`AppraisalScore\` ADD COLUMN \`pointId\` VARCHAR(36) NULL AFTER \`criterionId\``,
     // Teacher — who they report to (appraisal "own team" scope).
@@ -1444,15 +1462,16 @@ async function runMigrations() {
     }
 
     // Phase 2e: widen SopTemplateRevision.status to include DRAFT — the
-    // Author Guides hub's Save Draft / resume / Publish Now flow needs it.
+    // Author Guides hub's Save Draft / resume / Publish Now flow needs it —
+    // and CHANGES_REQUESTED (a reviewer sent it back to the teacher with feedback).
     // MODIFY COLUMN is idempotent: a no-op once the enum already has it.
     try {
       await conn.execute(
         `ALTER TABLE \`SopTemplateRevision\` MODIFY \`status\`
-         ENUM('DRAFT','PENDING','APPROVED','REJECTED')
+         ENUM('DRAFT','PENDING','TRIAL','CHANGES_REQUESTED','APPROVED','REJECTED')
          NOT NULL DEFAULT 'PENDING'`,
       );
-      console.log('[migrate] Verified SopTemplateRevision.status enum includes DRAFT');
+      console.log('[migrate] Verified SopTemplateRevision.status enum includes DRAFT + TRIAL + CHANGES_REQUESTED');
     } catch (e: any) {
       console.warn('[migrate] Failed to enforce SopTemplateRevision.status enum:', e.message);
     }

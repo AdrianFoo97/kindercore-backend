@@ -232,6 +232,7 @@ CREATE TABLE `AuthViewModule` (
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `BugReport` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `message` text COLLATE utf8mb4_unicode_ci NOT NULL,
   `pageUrl` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `appVersion` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -827,6 +828,17 @@ CREATE TABLE `SopCategory` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `SopFavorite` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `userId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sopTemplateId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `SopFavorite_user_guide_key` (`userId`,`sopTemplateId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `SopObservation` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `teacherId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -925,8 +937,11 @@ CREATE TABLE `SopTemplateRevision` (
   `goal` text COLLATE utf8mb4_unicode_ci,
   `videoUrl` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `stepsJson` json NOT NULL,
+  `improvementReasonsJson` json DEFAULT NULL,
   `categoryIdsJson` json DEFAULT NULL,
-  `status` enum('DRAFT','PENDING','APPROVED','REJECTED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `status` enum('DRAFT','PENDING','TRIAL','CHANGES_REQUESTED','APPROVED','REJECTED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `trialStartedAt` datetime(3) DEFAULT NULL,
+  `trialStartedByName` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `versionNumber` int DEFAULT NULL,
   `proposedByUserId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `proposedByName` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -934,6 +949,7 @@ CREATE TABLE `SopTemplateRevision` (
   `reviewedByName` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `reviewedAt` datetime(3) DEFAULT NULL,
   `reviewNote` text COLLATE utf8mb4_unicode_ci,
+  `reviewCommentsJson` json DEFAULT NULL,
   `createdAt` datetime(3) NOT NULL,
   `updatedAt` datetime(3) NOT NULL,
   `icon` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

@@ -8,6 +8,8 @@ import {
 } from '../db/schema.js';
 import { computeAverageAppraisal } from './teacher-appraisals.controller.js';
 import { APPRAISAL_PASS_THRESHOLD } from '../services/appraisal.service.js';
+import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
+import { MODULES } from '../constants/authModules.js';
 
 const DIFFICULTIES = ['BASIC', 'INTERMEDIATE', 'ADVANCED'] as const;
 const STATUSES = ['PENDING', 'IN_PROGRESS', 'UNDER_REVIEW', 'COMPLETED'] as const;
@@ -357,6 +359,16 @@ export async function upsertTeacherMissionProgress(req: Request, res: Response):
   const [existing] = await db.select().from(teacherMissionProgress)
     .where(and(eq(teacherMissionProgress.teacherId, teacherId), eq(teacherMissionProgress.missionId, missionId)));
 
+  // Completing a quest is the approval (it counts towards promotion) — HR or an
+  // Admin does it. A teacher on their own record can start it, add evidence and
+  // submit it for review, but can't mark it complete or undo a completion.
+  const wantsComplete = parsed.data.status === 'COMPLETED';
+  const undoesComplete = existing?.status === 'COMPLETED' && parsed.data.status !== undefined && parsed.data.status !== 'COMPLETED';
+  if ((wantsComplete || undoesComplete) && !(await canApproveMissions(req))) {
+    res.status(403).json({ message: 'Only HR or a supervisor can mark a quest complete — submit it for review instead.' });
+    return;
+  }
+
   // Coherence guard — status must agree with evidence count for
   // missions that track evidence:
   //   • PENDING       + count > 0  → promote to IN_PROGRESS
@@ -410,6 +422,14 @@ export async function upsertTeacherMissionProgress(req: Request, res: Response):
   res.json(row);
 }
 
+/** Approving quests (marking them complete) belongs to HR and Admins. */
+async function canApproveMissions(req: Request): Promise<boolean> {
+  return isAdminRole(req.user?.role) || (await resolveGrants(req.user!.id)).modules.has(MODULES.HR);
+}
+
+/** How many unfinished quests a teacher can pin as their Current Focus at once. */
+export const MAX_FOCUS_MISSIONS = 3;
+
 const setTargetSchema = z.object({
   isTargeted: z.boolean(),
 });
@@ -433,6 +453,16 @@ export async function setMissionTarget(req: Request, res: Response): Promise<voi
   const now = new Date();
   const [existing] = await db.select().from(teacherMissionProgress)
     .where(and(eq(teacherMissionProgress.teacherId, teacherId), eq(teacherMissionProgress.missionId, missionId)));
+
+  // Focus stays small: at most MAX_FOCUS_MISSIONS unfinished quests pinned at once.
+  if (parsed.data.isTargeted && !existing?.isTargeted) {
+    const pinned = await db.select({ status: teacherMissionProgress.status }).from(teacherMissionProgress)
+      .where(and(eq(teacherMissionProgress.teacherId, teacherId), eq(teacherMissionProgress.isTargeted, true)));
+    if (pinned.filter(p => p.status !== 'COMPLETED').length >= MAX_FOCUS_MISSIONS) {
+      res.status(409).json({ message: `You can focus on ${MAX_FOCUS_MISSIONS} quests at a time — unpin one first.` });
+      return;
+    }
+  }
 
   if (existing) {
     await db.update(teacherMissionProgress)

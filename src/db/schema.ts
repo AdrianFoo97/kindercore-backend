@@ -11,6 +11,7 @@ import {
   decimal,
   mysqlEnum,
   primaryKey,
+  uniqueIndex,
 } from 'drizzle-orm/mysql-core';
 
 export const users = mysqlTable('User', {
@@ -616,8 +617,17 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
   // current template's icon (edit) or the default (new proposal).
   icon: varchar('icon', { length: 50 }),
   stepsJson: json('stepsJson').notNull(),
+  // Why the proposer wants to change an existing guide (a list of short
+  // reasons) — step 1 of a teacher's "Suggest an improvement", shown to the
+  // reviewer. Null on new-guide proposals, supervisors' own edits and older rows.
+  improvementReasonsJson: json('improvementReasonsJson'),
   categoryIdsJson: json('categoryIdsJson'),
-  status: mysqlEnum('status', ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED']).notNull().default('PENDING'),
+  // CHANGES_REQUESTED: a reviewer sent it back with feedback (reviewNote); the
+  // proposer edits and resubmits, which puts it back to PENDING.
+  // TRIAL: looks right on paper — the supervisor is trying it in practice before deciding.
+  status: mysqlEnum('status', ['DRAFT', 'PENDING', 'TRIAL', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED']).notNull().default('PENDING'),
+  trialStartedAt: datetime('trialStartedAt', { mode: 'date', fsp: 3 }),
+  trialStartedByName: varchar('trialStartedByName', { length: 191 }),
   // Set only on approval — the version number this proposal became.
   versionNumber: int('versionNumber'),
   proposedByUserId: varchar('proposedByUserId', { length: 36 }).notNull(),
@@ -626,6 +636,9 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
   reviewedByName: varchar('reviewedByName', { length: 191 }),
   reviewedAt: datetime('reviewedAt', { mode: 'date', fsp: 3 }),
   reviewNote: text('reviewNote'),
+  // A send-back's comments on individual steps, written while going through
+  // them one by one: [{ section, stepTitle, comment }], in step order.
+  reviewCommentsJson: json('reviewCommentsJson'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -637,6 +650,9 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
 // needs more detail.
 export const bugReports = mysqlTable('BugReport', {
   id: varchar('id', { length: 36 }).primaryKey(),
+  // Short summary ("Can't save a leave request"); null on reports sent before titles existed.
+  title: varchar('title', { length: 120 }),
+  // The description: what went wrong and what they were doing.
   message: text('message').notNull(),
   // Where they were when they hit the issue — a path+query string, not a
   // full URL (this app has no need to distinguish hosts/origins).
@@ -834,6 +850,16 @@ export const sopCategories = mysqlTable('SopCategory', {
 // keeping for "this SOP had this label." A dangling row (pointing at a
 // since-deleted category) is harmless: listTemplates joins with
 // isNull(sopCategories.deletedAt), so it just stops resolving.
+// A person's favourite How-To Guides — the Guides page opens on these.
+export const sopFavorites = mysqlTable('SopFavorite', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  userId: varchar('userId', { length: 36 }).notNull(),
+  sopTemplateId: varchar('sopTemplateId', { length: 36 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+}, t => ({
+  userGuide: uniqueIndex('SopFavorite_user_guide_key').on(t.userId, t.sopTemplateId),
+}));
+
 export const sopTemplateCategories = mysqlTable('SopTemplateCategory', {
   id: varchar('id', { length: 36 }).primaryKey(),
   sopTemplateId: varchar('sopTemplateId', { length: 36 }).notNull(),

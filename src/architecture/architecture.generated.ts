@@ -2519,6 +2519,42 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "sop-favorites.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/sop-favorites",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.OPERATION)"
+          ],
+          "handler": "listMyFavorites",
+          "controller": "sop-favorites.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/sop-favorites/:sopTemplateId",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.OPERATION)"
+          ],
+          "handler": "addFavorite",
+          "controller": "sop-favorites.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sop-favorites/:sopTemplateId",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.OPERATION)"
+          ],
+          "handler": "removeFavorite",
+          "controller": "sop-favorites.controller"
+        }
+      ]
+    },
+    {
       "id": "sop-observations.routes",
       "mount": "/api",
       "endpoints": [
@@ -2633,6 +2669,35 @@ export const ARCHITECTURE: Architecture = {
             "requireView('OPERATION_SOP_APPROVE')"
           ],
           "handler": "rejectRevision",
+          "controller": "sop-revisions.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop-revisions/:id/trial",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
+          ],
+          "handler": "startTrial",
+          "controller": "sop-revisions.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop-revisions/:id/return",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
+          ],
+          "handler": "returnRevision",
+          "controller": "sop-revisions.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop-revisions/:id/resubmit",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "resubmitRevision",
           "controller": "sop-revisions.controller"
         }
       ]
@@ -3521,6 +3586,15 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "sop-favorites.controller",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "SopFavorite",
+        "SopTemplate"
+      ]
+    },
+    {
       "id": "sop-observations.controller",
       "services": [],
       "controllers": [],
@@ -3891,6 +3965,7 @@ export const ARCHITECTURE: Architecture = {
     "ScheduleBlock",
     "SensitiveAccessLog",
     "SopCategory",
+    "SopFavorite",
     "SopObservation",
     "SopObservationStepResult",
     "SopSection",

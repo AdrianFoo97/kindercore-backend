@@ -52,6 +52,7 @@ export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/sop-revisions': 'Guide improvement proposals — the handler shows non-reviewers only their own.',
   'GET /api/sop-revisions/:id': 'One proposal — scoped in the handler like the list.',
   'POST /api/sop-revisions': 'Any staff member can propose an improvement to a guide.',
+  'POST /api/sop-revisions/:id/resubmit': 'Resending your own suggestion after a send-back — the handler only allows the person who sent it.',
   'POST /api/upload/bug-report-photos': 'Screenshots attached to a bug report (anyone signed in can report a bug).',
   'POST /api/incidents': 'Any staff member must be able to report an incident with a child, straight away.',
   'GET /api/incidents/mine': 'The caller\'s own incident reports only.',

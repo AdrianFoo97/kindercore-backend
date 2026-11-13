@@ -12,8 +12,13 @@ function normalizeBugReport<T extends { photoUrls: unknown }>(row: T): T {
   return { ...row, photoUrls: typeof row.photoUrls === 'string' ? JSON.parse(row.photoUrls) : row.photoUrls };
 }
 
+const MAX_TITLE_LENGTH = 120;
+const MAX_DESCRIPTION_LENGTH = 2000;
+
+// A title (short summary) and a description — both required, trimmed.
 const createBugReportSchema = z.object({
-  message: z.string().min(1).max(2000),
+  title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
+  message: z.string().trim().min(1).max(MAX_DESCRIPTION_LENGTH),
   pageUrl: z.string().max(500).nullable().optional(),
   appVersion: z.string().max(20).nullable().optional(),
   photoUrls: z.array(z.string().max(500)).max(4).optional(),
@@ -32,6 +37,7 @@ export async function createBugReport(req: Request, res: Response): Promise<void
   const id = randomUUID();
   await db.insert(bugReports).values({
     id,
+    title: parsed.data.title,
     message: parsed.data.message,
     pageUrl: parsed.data.pageUrl ?? null,
     appVersion: parsed.data.appVersion ?? null,

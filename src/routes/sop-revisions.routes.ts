@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   listRevisions, getRevision, createRevision, updateRevision, approveRevision, rejectRevision,
+  returnRevision, resubmitRevision, startTrial,
 } from '../controllers/sop-revisions.controller.js';
 import { authMiddleware, requireView } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -18,3 +19,9 @@ sopRevisionsRouter.post('/sop-revisions', authMiddleware, asyncHandler(createRev
 sopRevisionsRouter.patch('/sop-revisions/:id', authMiddleware, requireView('OPERATION_SOP_APPROVE'), asyncHandler(updateRevision));
 sopRevisionsRouter.post('/sop-revisions/:id/approve', authMiddleware, requireView('OPERATION_SOP_APPROVE'), asyncHandler(approveRevision));
 sopRevisionsRouter.post('/sop-revisions/:id/reject', authMiddleware, requireView('OPERATION_SOP_APPROVE'), asyncHandler(rejectRevision));
+// Try it in practice before deciding — a review action like approve/reject.
+sopRevisionsRouter.post('/sop-revisions/:id/trial', authMiddleware, requireView('OPERATION_SOP_APPROVE'), asyncHandler(startTrial));
+// Send back to the proposer with feedback — a review action like approve/reject.
+sopRevisionsRouter.post('/sop-revisions/:id/return', authMiddleware, requireView('OPERATION_SOP_APPROVE'), asyncHandler(returnRevision));
+// The proposer's own changes after a send-back — the handler only lets the person who sent it resubmit.
+sopRevisionsRouter.post('/sop-revisions/:id/resubmit', authMiddleware, asyncHandler(resubmitRevision));
