@@ -1,64 +1,36 @@
 import { Request, Response } from 'express';
-import { computeMonthlyRevenue } from '../services/revenue.service.js';
-import { computeMonthlyPayroll } from '../services/payroll.service.js';
-import { computeMonthlyOperatingCost } from '../services/operatingCost.service.js';
+import { computeFinanceMonths, type FinanceMonth } from '../services/finance.service.js';
+import { teacherPayPools } from '../services/payPools.service.js';
+import { malaysiaDate } from '../services/staffAccess.service.js';
 
-export interface FinanceMonth {
-  month: string;
-  revenue: number;
-  staffCost: number;
-  operatingCost: number;
-  profit: number;
-  margin: number;
-  studentCount: number;
-  teacherCount: number;
-  isForecast: boolean;
-  /** True when operatingCost was substituted with the projected value because
-      the month has no saved entries. */
-  operatingIsProjected: boolean;
-  /** Recorded spend under categories/groups flagged out of the operating
-   *  cost sum (e.g. HR Benefits) — doesn't count toward operatingCost/profit. */
-  excludedOperatingCost: number;
-  /** Salary + employer contributions for teachers flagged
-   *  excludeFromStaffCost — doesn't count toward staffCost/profit. */
-  excludedStaffCost: number;
+export type { FinanceMonth };
+
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+const QUARTERS = 4;
+
+/**
+ * A teacher's own team-pool and annual-bonus progress (their Pay / Home
+ * pages). Only pool figures and their own share — never the school's
+ * finance numbers or colleagues' weights. Defaults to this quarter in Malaysia.
+ */
+export async function getTeacherPayPools(req: Request, res: Response): Promise<void> {
+  const today = malaysiaDate(new Date());
+  const thisYear = Number(today.slice(0, 4));
+  const thisQuarter = Math.floor((Number(today.slice(5, 7)) - 1) / 3);
+  const year = req.query.year === undefined ? thisYear : Number(req.query.year);
+  const quarter = req.query.quarter === undefined ? thisQuarter : Number(req.query.quarter);
+  if (!Number.isInteger(year) || year < MIN_YEAR || year > MAX_YEAR || !Number.isInteger(quarter) || quarter < 0 || quarter >= QUARTERS) {
+    res.status(400).json({ message: 'Pick a valid year and quarter.' });
+    return;
+  }
+  res.json(await teacherPayPools(req.params.teacherId, year, quarter));
 }
 
+/** The school's finance summary for a year — Finance / Analysis only (see finance.routes). */
 export async function getFinanceSummary(req: Request, res: Response): Promise<void> {
   const year = Number(req.query.year) || new Date().getFullYear();
-
-  const [revenue, payroll, opCost] = await Promise.all([
-    computeMonthlyRevenue(year),
-    computeMonthlyPayroll(year),
-    computeMonthlyOperatingCost(year),
-  ]);
-
-  // currentMonthIdx comes from revenue/payroll (both compute it the same way)
-  const currentMonthIdx = revenue.currentMonthIdx;
-
-  const months: FinanceMonth[] = revenue.months.map((r, i) => {
-    const p = payroll.months[i];
-    const o = opCost.months[i];
-    const staffCost = Math.round(p.staffCost + p.employerContributions);
-    const operatingCost = Math.round(o.projected);
-    const rev = Math.round(r.revenue);
-    const profit = rev - staffCost - operatingCost;
-    const margin = rev > 0 ? profit / rev : 0;
-    return {
-      month: r.month,
-      revenue: rev,
-      staffCost,
-      operatingCost,
-      profit,
-      margin,
-      studentCount: r.studentCount,
-      teacherCount: p.teacherCount,
-      isForecast: r.isForecast,
-      operatingIsProjected: o.isProjected,
-      excludedOperatingCost: Math.round(o.excludedCost),
-      excludedStaffCost: Math.round(p.excludedStaffCost),
-    };
-  });
+  const { currentMonthIdx, months } = await computeFinanceMonths(year);
 
   const sum = (pick: (m: FinanceMonth) => number, filter?: (m: FinanceMonth) => boolean) =>
     months.filter(filter ?? (() => true)).reduce((s, m) => s + pick(m), 0);

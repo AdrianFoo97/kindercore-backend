@@ -22,15 +22,22 @@ export function nextSpy(): (() => void) & { called: boolean } {
   return fn;
 }
 
+export interface CapturedCookie { value: string; options: Record<string, unknown>; cleared?: boolean }
+
 export interface CapturedResponse {
   statusCode: number;
   body: any;
+  /** Cookies the handler set or cleared, by name. */
+  cookies: Record<string, CapturedCookie>;
 }
 
-/** A Response that records status + JSON; read `.statusCode` / `.body` after awaiting the handler. */
+/** A Response that records status, JSON and cookies; read `.statusCode` / `.body` / `.cookies` after awaiting the handler. */
 export function res(): Response & CapturedResponse {
-  const r: any = { statusCode: 200, body: undefined };
+  const r: any = { statusCode: 200, body: undefined, cookies: {} };
   r.status = (code: number) => { r.statusCode = code; return r; };
   r.json = (payload: unknown) => { r.body = payload; return r; };
+  r.end = () => r;
+  r.cookie = (name: string, value: string, options: Record<string, unknown> = {}) => { r.cookies[name] = { value, options }; return r; };
+  r.clearCookie = (name: string, options: Record<string, unknown> = {}) => { r.cookies[name] = { value: '', options, cleared: true }; return r; };
   return r;
 }

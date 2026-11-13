@@ -6,7 +6,8 @@ import { db } from '../db/client.js';
 import {
   careerMissions, teacherMissionProgress, positions, teachers, careerRecords, missionCategories,
 } from '../db/schema.js';
-import { computeAverageAppraisal, APPRAISAL_PASS_THRESHOLD } from './teacher-appraisals.controller.js';
+import { computeAverageAppraisal } from './teacher-appraisals.controller.js';
+import { APPRAISAL_PASS_THRESHOLD } from '../services/appraisal.service.js';
 
 const DIFFICULTIES = ['BASIC', 'INTERMEDIATE', 'ADVANCED'] as const;
 const STATUSES = ['PENDING', 'IN_PROGRESS', 'UNDER_REVIEW', 'COMPLETED'] as const;

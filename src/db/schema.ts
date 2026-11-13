@@ -8,6 +8,7 @@ import {
   json,
   bigint,
   float,
+  decimal,
   mysqlEnum,
   primaryKey,
 } from 'drizzle-orm/mysql-core';
@@ -467,6 +468,9 @@ export const teachers = mysqlTable('Teacher', {
   dob: datetime('dob', { mode: 'date', fsp: 3 }),
   employmentType: varchar('employmentType', { length: 20 }).default('full-time'),
   resignedAt: datetime('resignedAt', { mode: 'date', fsp: 3 }),
+  // Who this staff member reports to (another Teacher row) — drives "their
+  // own team" scopes, e.g. who may assess their appraisal.
+  reportsToTeacherId: varchar('reportsToTeacherId', { length: 36 }),
   // Drives the "new grants" banner on the teacher's Rewards hub — earned
   // transactions newer than this timestamp are "new". Set via POST
   // /teachers/:teacherId/points/seen.
@@ -705,6 +709,76 @@ export const incidentReportLogs = mysqlTable('IncidentReportLog', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// Facility issues (Operation → Facilities): any staff member reports
+// something broken (door, leaking pipe, aircon…); facility managers move it
+// OPEN → IN_PROGRESS → RESOLVED. statusNote is the latest word from the
+// office ("plumber coming Thursday"), shown to the reporter too.
+export const facilityIssues = mysqlTable('FacilityIssue', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  title: varchar('title', { length: 191 }).notNull(),
+  category: varchar('category', { length: 20 }).notNull(),
+  location: varchar('location', { length: 191 }).notNull(),
+  description: text('description'),
+  urgency: mysqlEnum('urgency', ['NORMAL', 'URGENT']).notNull().default('NORMAL'),
+  status: mysqlEnum('status', ['OPEN', 'IN_PROGRESS', 'RESOLVED']).notNull().default('OPEN'),
+  statusNote: varchar('statusNote', { length: 1000 }),
+  // Photos / videos from the reporter — files live in the private upload
+  // root (facilityAttachments.service), served only to reporter + managers.
+  attachments: json('attachments').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }[]>(),
+  reportedByUserId: varchar('reportedByUserId', { length: 36 }).notNull(),
+  reportedByName: varchar('reportedByName', { length: 191 }).notNull(),
+  statusUpdatedByName: varchar('statusUpdatedByName', { length: 191 }),
+  statusUpdatedAt: datetime('statusUpdatedAt', { mode: 'date', fsp: 3 }),
+  resolvedAt: datetime('resolvedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Purchase requests (Operation → Shopping List): any staff member asks for
+// something to be bought; the supervisor works through the weekly list,
+// ticking items Bought (optional cost + receipt photo) or Not buying (with a
+// reason the requester sees). Unbought items carry over week to week.
+export const purchaseRequests = mysqlTable('PurchaseRequest', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  item: varchar('item', { length: 191 }).notNull(),
+  quantity: varchar('quantity', { length: 50 }).notNull(),
+  purpose: varchar('purpose', { length: 191 }).notNull(),
+  note: text('note'),
+  link: varchar('link', { length: 500 }),
+  status: mysqlEnum('status', ['REQUESTED', 'APPROVED', 'BOUGHT', 'NOT_BUYING', 'CANCELLED']).notNull().default('REQUESTED'),
+  // Who will buy it: the supervisor (default), or the requester themselves
+  // (after approval they tick it bought with cost + receipt, to be paid back).
+  buyer: mysqlEnum('buyer', ['SUPERVISOR', 'SELF']).notNull().default('SUPERVISOR'),
+  cost: decimal('cost', { precision: 10, scale: 2 }),
+  // Receipt photo — private upload root (purchaseReceipts.service), managers only.
+  receipt: json('receipt').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }>(),
+  declineReason: varchar('declineReason', { length: 500 }),
+  // The supervisor's note on the item ("Out of stock at MR DIY, trying again
+  // next week") — shown on the list and to the requester.
+  supervisorNote: varchar('supervisorNote', { length: 500 }),
+  supervisorNoteByName: varchar('supervisorNoteByName', { length: 191 }),
+  requestedByUserId: varchar('requestedByUserId', { length: 36 }).notNull(),
+  requestedByName: varchar('requestedByName', { length: 191 }).notNull(),
+  handledByName: varchar('handledByName', { length: 191 }),
+  handledAt: datetime('handledAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Every step a purchase request goes through — submitted, ticked bought,
+// unticked, cost added, noted, turned down — with who and when. Only ever
+// added to (never edited or deleted), so it settles "I asked for it on
+// Monday" / "it was bought on Wednesday" questions.
+export const purchaseRequestLogs = mysqlTable('PurchaseRequestLog', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  purchaseRequestId: varchar('purchaseRequestId', { length: 36 }).notNull(),
+  kind: mysqlEnum('kind', ['REQUESTED', 'EDITED', 'CANCELLED', 'APPROVED', 'BOUGHT', 'BACK_TO_LIST', 'NOT_BUYING', 'COST', 'NOTE']).notNull(),
+  detail: varchar('detail', { length: 500 }),
+  authorUserId: varchar('authorUserId', { length: 36 }).notNull(),
+  authorName: varchar('authorName', { length: 191 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 // New staff who didn't come through Recruitment fill in the public "New
 // staff" form (/join); HR approves (creating their staff record via
 // staffRecord.service) or rejects it under HR → New Staff.
@@ -841,6 +915,163 @@ export const teacherAppraisals = mysqlTable('TeacherAppraisal', {
   evaluatedBy: varchar('evaluatedBy', { length: 191 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Who looked at sensitive records (pay, finance, appraisals, applicants) and
+// when — Admin → Access Log. Add-only; one row per person, area and page per
+// few minutes (see accessLog.service), kept for a year.
+export const sensitiveAccessLogs = mysqlTable('SensitiveAccessLog', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  userId: varchar('userId', { length: 36 }).notNull(),
+  userEmail: varchar('userEmail', { length: 191 }).notNull(),
+  /** A key from ACCESS_AREAS (FINANCE, PAYROLL, STAFF_PAY…). */
+  area: varchar('area', { length: 30 }).notNull(),
+  /** What was opened, e.g. "GET /api/salary/teachers". */
+  action: varchar('action', { length: 191 }).notNull(),
+  /** Whose record it was, when it was one staff member's. */
+  subjectTeacherId: varchar('subjectTeacherId', { length: 36 }),
+  ip: varchar('ip', { length: 64 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// ── Customizable appraisals (template engine) ───────────────────────────────
+// A template says WHAT an appraisal measures (weighted sections → weighted
+// criteria, each manual or auto from a metric source) and WHO handles it
+// (stages assigned to positions). Editing a template makes a new version;
+// appraisals keep the version they were scored on. Scoring lives in one
+// place: services/appraisalScoring.service.ts.
+export const appraisalTemplates = mysqlTable('AppraisalTemplate', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 191 }).notNull(),
+  description: text('description'),
+  frequency: mysqlEnum('frequency', ['MONTHLY', 'QUARTERLY', 'YEARLY']).notNull().default('MONTHLY'),
+  status: mysqlEnum('status', ['DRAFT', 'ACTIVE', 'RETIRED']).notNull().default('DRAFT'),
+  version: int('version').notNull().default(1),
+  // Every version of one template shares the id of its first version.
+  familyId: varchar('familyId', { length: 36 }).notNull(),
+  // What a missing criterion does to the total: block submitting, or spread
+  // its weight over the rest.
+  missingPolicy: mysqlEnum('missingPolicy', ['REQUIRE_ALL', 'REWEIGHT']).notNull().default('REQUIRE_ALL'),
+  // The built-in one-criterion template that holds appraisals from before the engine.
+  isLegacy: boolean('isLegacy').notNull().default(false),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const appraisalSections = mysqlTable('AppraisalSection', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  templateId: varchar('templateId', { length: 36 }).notNull(),
+  name: varchar('name', { length: 191 }).notNull(),
+  /** % of the total (sections of a template add up to 100). */
+  weight: float('weight').notNull(),
+  sortOrder: int('sortOrder').notNull().default(0),
+});
+
+export const appraisalCriteria = mysqlTable('AppraisalCriterion', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  sectionId: varchar('sectionId', { length: 36 }).notNull(),
+  name: varchar('name', { length: 191 }).notNull(),
+  description: text('description'),
+  /** % of its section (criteria of a section add up to 100). */
+  weight: float('weight').notNull(),
+  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'NUMBER', 'AUTO']).notNull(),
+  // RATING: { max, levels: [{ value, label, description }] } · NUMBER: { target, higherIsBetter }
+  // AUTO: { bands?: [{ upTo, score }] } — see appraisalScoring.service.
+  scaleConfig: json('scaleConfig'),
+  // AUTO only — a key in the metric-source registry (e.g. "sop_observation_pass_rate").
+  metricSource: varchar('metricSource', { length: 64 }),
+  sortOrder: int('sortOrder').notNull().default(0),
+});
+
+// Optional third level: the points a criterion is judged on (e.g. "Love and
+// patience" → "Speaks calmly", "Comforts upset children"). Each is scored on
+// the criterion's own scale; the criterion's score is their average. A
+// criterion with no points is scored directly.
+export const appraisalCriterionPoints = mysqlTable('AppraisalCriterionPoint', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  criterionId: varchar('criterionId', { length: 36 }).notNull(),
+  name: varchar('name', { length: 191 }).notNull(),
+  sortOrder: int('sortOrder').notNull().default(0),
+});
+
+// Who handles an appraisal, in order: e.g. 1 Assess (Supervisor, Assistant
+// Supervisor — their own team) → 2 Sign off (Principal — anyone) → 3 Acknowledge
+// (the staff member). Stages are rows, so the chain is set in Settings.
+export const appraisalStages = mysqlTable('AppraisalStage', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  templateId: varchar('templateId', { length: 36 }).notNull(),
+  name: varchar('name', { length: 100 }).notNull(),
+  kind: mysqlEnum('kind', ['ASSESS', 'SIGN_OFF', 'ACKNOWLEDGE']).notNull(),
+  /** ANYONE in the positions, or only those the staff member reports to. Ignored for ACKNOWLEDGE. */
+  scope: mysqlEnum('scope', ['ANYONE', 'OWN_TEAM']).notNull().default('ANYONE'),
+  sortOrder: int('sortOrder').notNull().default(0),
+});
+
+export const appraisalStagePositions = mysqlTable('AppraisalStagePosition', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  stageId: varchar('stageId', { length: 36 }).notNull(),
+  positionId: varchar('positionId', { length: 10 }).notNull(),
+});
+
+// Which template applies to whom: a position, or one staff member (overrides their position's).
+export const appraisalAssignments = mysqlTable('AppraisalAssignment', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  /** The template family — the active version at the time an appraisal starts is used. */
+  templateFamilyId: varchar('templateFamilyId', { length: 36 }).notNull(),
+  positionId: varchar('positionId', { length: 10 }),
+  teacherId: varchar('teacherId', { length: 36 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const appraisals = mysqlTable('Appraisal', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  /** The exact template version it was scored on. */
+  templateId: varchar('templateId', { length: 36 }).notNull(),
+  periodYear: int('periodYear').notNull(),
+  /** 0–11 for monthly; first month of the period otherwise. */
+  periodMonth: int('periodMonth').notNull(),
+  status: mysqlEnum('status', ['IN_PROGRESS', 'SENT_BACK', 'AWAITING_SIGN_OFF', 'AWAITING_ACKNOWLEDGEMENT', 'COMPLETED']).notNull().default('IN_PROGRESS'),
+  /** Which stage it's at (AppraisalStage.sortOrder); null once completed. */
+  currentStageOrder: int('currentStageOrder'),
+  /** 0–100, set when scored (one decimal). */
+  totalScore: float('totalScore'),
+  comments: text('comments'),
+  assessedByUserId: varchar('assessedByUserId', { length: 36 }),
+  assessedByName: varchar('assessedByName', { length: 191 }),
+  /** The TeacherAppraisal row this came from, for appraisals from before the engine. */
+  legacyAppraisalId: varchar('legacyAppraisalId', { length: 36 }),
+  completedAt: datetime('completedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+export const appraisalScores = mysqlTable('AppraisalScore', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  appraisalId: varchar('appraisalId', { length: 36 }).notNull(),
+  criterionId: varchar('criterionId', { length: 36 }).notNull(),
+  /** Set when this is the score for one point of the criterion; null = the criterion as a whole. */
+  pointId: varchar('pointId', { length: 36 }),
+  /** What the assessor entered (rating level, %, 0/1, number) — or the accepted auto value. */
+  rawValue: float('rawValue'),
+  /** AUTO criteria: the value pulled from data when the appraisal started (kept even if overridden). */
+  autoValue: float('autoValue'),
+  /** Required when rawValue differs from autoValue. */
+  overrideReason: varchar('overrideReason', { length: 500 }),
+  /** 0–100. */
+  normalised: float('normalised'),
+  comment: text('comment'),
+});
+
+// Add-only record of every step (started, scored, sent back, signed off, acknowledged).
+export const appraisalLogs = mysqlTable('AppraisalLog', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  appraisalId: varchar('appraisalId', { length: 36 }).notNull(),
+  kind: varchar('kind', { length: 30 }).notNull(),
+  detail: varchar('detail', { length: 500 }),
+  authorUserId: varchar('authorUserId', { length: 36 }),
+  authorName: varchar('authorName', { length: 191 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 // Per-teacher progress on a single mission. One row per (teacherId, missionId)

@@ -1,12 +1,10 @@
 import 'dotenv/config';
+import { createApp } from './app.js';
 import { warnIfReaderKeyMissing } from './middlewares/reader.middleware.js';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import { purgeOldAccessLog } from './services/accessLog.service.js';
 import { randomUUID } from 'crypto';
 import { DEFAULT_STAFF_ONBOARDING_TASKS, DEFAULT_STAFF_SELF_ONBOARDING_TASKS } from './services/staffOnboarding.service.js';
-import { router } from './routes/index.js';
+import { syncLegacyAppraisals } from './services/appraisalLegacy.service.js';
 import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
 
@@ -756,9 +754,212 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       KEY \`StaffJoinRequest_status_idx\` (\`status\`, \`createdAt\`)
     )`,
+    // Facility issues (Operation → Facilities) — broken door, leaking pipe…
+    `CREATE TABLE IF NOT EXISTS \`FacilityIssue\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`title\` VARCHAR(191) NOT NULL,
+      \`category\` VARCHAR(20) NOT NULL,
+      \`location\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT NULL,
+      \`urgency\` ENUM('NORMAL','URGENT') NOT NULL DEFAULT 'NORMAL',
+      \`status\` ENUM('OPEN','IN_PROGRESS','RESOLVED') NOT NULL DEFAULT 'OPEN',
+      \`statusNote\` VARCHAR(1000) NULL,
+      \`attachments\` JSON NULL,
+      \`reportedByUserId\` VARCHAR(36) NOT NULL,
+      \`reportedByName\` VARCHAR(191) NOT NULL,
+      \`statusUpdatedByName\` VARCHAR(191) NULL,
+      \`statusUpdatedAt\` DATETIME(3) NULL,
+      \`resolvedAt\` DATETIME(3) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`FacilityIssue_status_idx\` (\`status\`, \`createdAt\`),
+      KEY \`FacilityIssue_reportedByUserId_idx\` (\`reportedByUserId\`)
+    )`,
+    // Purchase requests (Operation → Shopping List).
+    `CREATE TABLE IF NOT EXISTS \`PurchaseRequest\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`item\` VARCHAR(191) NOT NULL,
+      \`quantity\` VARCHAR(50) NOT NULL,
+      \`purpose\` VARCHAR(191) NOT NULL,
+      \`note\` TEXT NULL,
+      \`link\` VARCHAR(500) NULL,
+      \`status\` ENUM('REQUESTED','APPROVED','BOUGHT','NOT_BUYING','CANCELLED') NOT NULL DEFAULT 'REQUESTED',
+      \`buyer\` ENUM('SUPERVISOR','SELF') NOT NULL DEFAULT 'SUPERVISOR',
+      \`cost\` DECIMAL(10,2) NULL,
+      \`receipt\` JSON NULL,
+      \`declineReason\` VARCHAR(500) NULL,
+      \`supervisorNote\` VARCHAR(500) NULL,
+      \`supervisorNoteByName\` VARCHAR(191) NULL,
+      \`requestedByUserId\` VARCHAR(36) NOT NULL,
+      \`requestedByName\` VARCHAR(191) NOT NULL,
+      \`handledByName\` VARCHAR(191) NULL,
+      \`handledAt\` DATETIME(3) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`PurchaseRequest_status_idx\` (\`status\`, \`handledAt\`),
+      KEY \`PurchaseRequest_requestedByUserId_idx\` (\`requestedByUserId\`)
+    )`,
+    // Customizable appraisals — template engine (see db/schema.ts).
+    `CREATE TABLE IF NOT EXISTS \`AppraisalTemplate\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT NULL,
+      \`frequency\` ENUM('MONTHLY','QUARTERLY','YEARLY') NOT NULL DEFAULT 'MONTHLY',
+      \`status\` ENUM('DRAFT','ACTIVE','RETIRED') NOT NULL DEFAULT 'DRAFT',
+      \`version\` INT NOT NULL DEFAULT 1,
+      \`familyId\` VARCHAR(36) NOT NULL,
+      \`missingPolicy\` ENUM('REQUIRE_ALL','REWEIGHT') NOT NULL DEFAULT 'REQUIRE_ALL',
+      \`isLegacy\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalTemplate_family_idx\` (\`familyId\`, \`version\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalSection\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`templateId\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`weight\` FLOAT NOT NULL,
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalSection_template_idx\` (\`templateId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalCriterion\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`sectionId\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`description\` TEXT NULL,
+      \`weight\` FLOAT NOT NULL,
+      \`inputType\` ENUM('RATING','PERCENT','YES_NO','NUMBER','AUTO') NOT NULL,
+      \`scaleConfig\` JSON NULL,
+      \`metricSource\` VARCHAR(64) NULL,
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalCriterion_section_idx\` (\`sectionId\`)
+    )`,
+    // Admin → Access Log: who opened pay / finance / appraisal / applicant records.
+    `CREATE TABLE IF NOT EXISTS \`SensitiveAccessLog\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`userId\` VARCHAR(36) NOT NULL,
+      \`userEmail\` VARCHAR(191) NOT NULL,
+      \`area\` VARCHAR(30) NOT NULL,
+      \`action\` VARCHAR(191) NOT NULL,
+      \`subjectTeacherId\` VARCHAR(36) NULL,
+      \`ip\` VARCHAR(64) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`SensitiveAccessLog_created_idx\` (\`createdAt\`),
+      KEY \`SensitiveAccessLog_user_idx\` (\`userId\`)
+    )`,
+    // Optional points under a criterion (e.g. "Love and patience" → "Speaks calmly"…),
+    // each scored on the criterion's scale; the criterion is their average.
+    `CREATE TABLE IF NOT EXISTS \`AppraisalCriterionPoint\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`criterionId\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(191) NOT NULL,
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalCriterionPoint_criterion_idx\` (\`criterionId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalStage\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`templateId\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(100) NOT NULL,
+      \`kind\` ENUM('ASSESS','SIGN_OFF','ACKNOWLEDGE') NOT NULL,
+      \`scope\` ENUM('ANYONE','OWN_TEAM') NOT NULL DEFAULT 'ANYONE',
+      \`sortOrder\` INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalStage_template_idx\` (\`templateId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalStagePosition\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`stageId\` VARCHAR(36) NOT NULL,
+      \`positionId\` VARCHAR(10) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalStagePosition_stage_idx\` (\`stageId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalAssignment\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`templateFamilyId\` VARCHAR(36) NOT NULL,
+      \`positionId\` VARCHAR(10) NULL,
+      \`teacherId\` VARCHAR(36) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalAssignment_position_idx\` (\`positionId\`),
+      KEY \`AppraisalAssignment_teacher_idx\` (\`teacherId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`Appraisal\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`templateId\` VARCHAR(36) NOT NULL,
+      \`periodYear\` INT NOT NULL,
+      \`periodMonth\` INT NOT NULL,
+      \`status\` ENUM('IN_PROGRESS','SENT_BACK','AWAITING_SIGN_OFF','AWAITING_ACKNOWLEDGEMENT','COMPLETED') NOT NULL DEFAULT 'IN_PROGRESS',
+      \`currentStageOrder\` INT NULL,
+      \`totalScore\` FLOAT NULL,
+      \`comments\` TEXT NULL,
+      \`assessedByUserId\` VARCHAR(36) NULL,
+      \`assessedByName\` VARCHAR(191) NULL,
+      \`legacyAppraisalId\` VARCHAR(36) NULL,
+      \`completedAt\` DATETIME(3) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`Appraisal_teacher_period_uq\` (\`teacherId\`, \`templateId\`, \`periodYear\`, \`periodMonth\`),
+      UNIQUE KEY \`Appraisal_legacy_uq\` (\`legacyAppraisalId\`),
+      KEY \`Appraisal_period_idx\` (\`periodYear\`, \`periodMonth\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalScore\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`appraisalId\` VARCHAR(36) NOT NULL,
+      \`criterionId\` VARCHAR(36) NOT NULL,
+      \`rawValue\` FLOAT NULL,
+      \`autoValue\` FLOAT NULL,
+      \`overrideReason\` VARCHAR(500) NULL,
+      \`normalised\` FLOAT NULL,
+      \`comment\` TEXT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`AppraisalScore_criterion_uq\` (\`appraisalId\`, \`criterionId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`AppraisalLog\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`appraisalId\` VARCHAR(36) NOT NULL,
+      \`kind\` VARCHAR(30) NOT NULL,
+      \`detail\` VARCHAR(500) NULL,
+      \`authorUserId\` VARCHAR(36) NULL,
+      \`authorName\` VARCHAR(191) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalLog_appraisal_idx\` (\`appraisalId\`, \`createdAt\`)
+    )`,
+    // Add-only history of each purchase request (who did what, when).
+    `CREATE TABLE IF NOT EXISTS \`PurchaseRequestLog\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`purchaseRequestId\` VARCHAR(36) NOT NULL,
+      \`kind\` ENUM('REQUESTED','EDITED','CANCELLED','APPROVED','BOUGHT','BACK_TO_LIST','NOT_BUYING','COST','NOTE') NOT NULL,
+      \`detail\` VARCHAR(500) NULL,
+      \`authorUserId\` VARCHAR(36) NOT NULL,
+      \`authorName\` VARCHAR(191) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`PurchaseRequestLog_request_idx\` (\`purchaseRequestId\`, \`createdAt\`)
+    )`,
   ];
 
   const addColumns = [
+    // AppraisalScore — a score for one point of a criterion (null = the criterion itself).
+    `ALTER TABLE \`AppraisalScore\` ADD COLUMN \`pointId\` VARCHAR(36) NULL AFTER \`criterionId\``,
+    // Teacher — who they report to (appraisal "own team" scope).
+    `ALTER TABLE \`Teacher\` ADD COLUMN \`reportsToTeacherId\` VARCHAR(36) NULL`,
+    // PurchaseRequest — who buys it: the supervisor, or the requester themselves.
+    `ALTER TABLE \`PurchaseRequest\` ADD COLUMN \`buyer\` ENUM('SUPERVISOR','SELF') NOT NULL DEFAULT 'SUPERVISOR' AFTER \`status\``,
+    // PurchaseRequest — the supervisor's note on an item.
+    `ALTER TABLE \`PurchaseRequest\` ADD COLUMN \`supervisorNote\` VARCHAR(500) NULL AFTER \`declineReason\``,
+    `ALTER TABLE \`PurchaseRequest\` ADD COLUMN \`supervisorNoteByName\` VARCHAR(191) NULL AFTER \`supervisorNote\``,
+    // FacilityIssue — photos / videos attached to a report.
+    `ALTER TABLE \`FacilityIssue\` ADD COLUMN \`attachments\` JSON NULL AFTER \`statusNote\``,
     // Teacher — HR → Onboarding. Existing staff default to completed (1);
     // new staff get 0 from staffRecord.service.
     `ALTER TABLE \`Teacher\` ADD COLUMN \`onboardingProgress\` JSON NULL`,
@@ -912,6 +1113,9 @@ async function runMigrations() {
     `ALTER TABLE \`BugReport\` ADD COLUMN \`photoUrls\` JSON NULL`,
   ];
 
+  /** Every table uses this — the collation of the core tables (see Phase 1b). */
+  const TABLE_COLLATION = 'utf8mb4_unicode_ci';
+
   const conn = await pool.getConnection();
   try {
     // Phase 1: create tables
@@ -919,6 +1123,35 @@ async function runMigrations() {
       await conn.execute(sql);
     }
     console.log('[migrate] Tables verified (CREATE IF NOT EXISTS)');
+
+    // Phase 1b: one collation everywhere. Tables created here without an
+    // explicit collation got the server default (utf8mb4_0900_ai_ci) while the
+    // core tables (User, Teacher, Student, Lead…) are utf8mb4_unicode_ci — and
+    // MySQL refuses to compare text across the two ("Illegal mix of
+    // collations"), which broke joins such as Teacher ↔ Position. Make the
+    // database default unicode_ci (so new tables match) and convert any table
+    // that differs. Idempotent: once converted, nothing is selected.
+    try {
+      await conn.query(`ALTER DATABASE CHARACTER SET utf8mb4 COLLATE ${TABLE_COLLATION}`);
+    } catch (e: any) {
+      console.warn('[migrate] Could not set the database default collation (needs ALTER on the database):', e.message);
+    }
+    const [mismatched] = await conn.query<any[]>(
+      `SELECT TABLE_NAME AS name FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' AND TABLE_COLLATION <> ?`,
+      [TABLE_COLLATION],
+    );
+    if (mismatched.length) {
+      await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+      try {
+        for (const { name } of mismatched) {
+          await conn.query(`ALTER TABLE \`${name}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE ${TABLE_COLLATION}`);
+        }
+      } finally {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+      }
+      console.log(`[migrate] Converted ${mismatched.length} table(s) to ${TABLE_COLLATION}`);
+    }
 
     // Phase 2: add new columns (idempotent — skip if already exists)
     for (const sql of addColumns) {
@@ -1222,6 +1455,23 @@ async function runMigrations() {
       console.log('[migrate] Verified SopTemplateRevision.status enum includes DRAFT');
     } catch (e: any) {
       console.warn('[migrate] Failed to enforce SopTemplateRevision.status enum:', e.message);
+    }
+
+    // Phase 2f: purchase requests gained an approval step (APPROVED) and a
+    // teacher's own withdraw (CANCELLED); the log gained matching kinds.
+    // MODIFY COLUMN is idempotent.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`PurchaseRequest\` MODIFY \`status\`
+         ENUM('REQUESTED','APPROVED','BOUGHT','NOT_BUYING','CANCELLED') NOT NULL DEFAULT 'REQUESTED'`,
+      );
+      await conn.execute(
+        `ALTER TABLE \`PurchaseRequestLog\` MODIFY \`kind\`
+         ENUM('REQUESTED','EDITED','CANCELLED','APPROVED','BOUGHT','BACK_TO_LIST','NOT_BUYING','COST','NOTE') NOT NULL`,
+      );
+      console.log('[migrate] Verified PurchaseRequest status / log kinds include the approval step');
+    } catch (e: any) {
+      console.warn('[migrate] Failed to enforce PurchaseRequest enums:', e.message);
     }
 
     // Phase 3: seed default category groups & categories if none exist
@@ -2011,6 +2261,18 @@ async function runMigrations() {
         description: 'See every incident report (not just your own), correct the details, change the status and add to the follow-up log. For supervisors and the principal.',
         module: 'OPERATION',
       },
+      {
+        key: 'OPERATION_FACILITY_MANAGE',
+        label: 'Manage facility issues',
+        description: 'See every facility issue staff report (broken door, leaking pipe…) and mark it In progress or Resolved. For whoever looks after the building.',
+        module: 'OPERATION',
+      },
+      {
+        key: 'OPERATION_PURCHASE_MANAGE',
+        label: 'Manage the shopping list',
+        description: 'See everything staff have asked to be bought, as a weekly shopping list, and tick items Bought (with cost and receipt) or Not buying. For supervisors.',
+        module: 'OPERATION',
+      },
     ];
     for (const v of seededViews) {
       const [[exists]] = await conn.execute<any[]>(`SELECT \`id\` FROM \`AuthView\` WHERE \`key\` = ? LIMIT 1`, [v.key]);
@@ -2094,165 +2356,21 @@ async function runMigrations() {
   }
 }
 
-const app = express();
-app.set('trust proxy', 1);
+// The app itself (headers, limits, guards, routes) is built in app.ts so the
+// access-control tests can run the exact same chain.
+const app = createApp();
 const PORT = process.env.PORT ?? 4000;
-const isProd = process.env.NODE_ENV === 'production';
-
-// ── Security headers ──
-app.use(helmet());
-
-// ── CORS ──
-const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
-const allowedOrigins = [frontendUrl];
-if (frontendUrl.includes('://') && !frontendUrl.includes('localhost')) {
-  const url = new URL(frontendUrl);
-  if (url.hostname.startsWith('www.')) {
-    allowedOrigins.push(frontendUrl.replace('://www.', '://'));
-  } else {
-    allowedOrigins.push(frontendUrl.replace('://', '://www.'));
-  }
-}
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  }),
-);
-
-// ── Body size limit ──
-// 10 MB is the ceiling for the candidate-import endpoint (up to 500
-// rows × text fields ≈ a few MB of JSON). Regular API traffic is
-// nowhere near this — the limit is generous so imports don't fail
-// with "request entity too large" and require a redeploy to unblock.
-app.use(express.json({ limit: '10mb' }));
-
-// ── Rate limiting ──
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 login attempts per 15 min per IP
-  message: { message: 'Too many login attempts. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/auth/login', authLimiter);
-
-const leadCreateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 30, // 30 enquiries per hour per IP
-  message: { message: 'Too many submissions. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/leads', (req, _res, next) => {
-  // Only rate-limit unauthenticated POST (public enquiry form); skip for logged-in users (imports)
-  if (req.method === 'POST' && req.path === '/' && !req.headers.authorization) return leadCreateLimiter(req, _res, next);
-  next();
-});
-
-// Public-form candidate intake + resume upload. Both routes are unauth so
-// they must be rate-limited; the form-options GET is read-only and cheap so
-// we skip it. Body parsing for /resume happens via multer (multipart) so
-// the global express.json() doesn't touch it.
-const candidatePublicLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 30,
-  message: { message: 'Too many submissions. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/candidates', (req, _res, next) => {
-  if (req.headers.authorization) return next();           // admin: skip
-  if (req.method === 'GET' && req.path === '/form-options') return next();
-  if (req.method === 'POST') return candidatePublicLimiter(req, _res, next);
-  next();
-});
-
-// Public "New staff" form — a handful of joiners a month, so a tight cap.
-const staffJoinLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
-  message: { message: 'Too many submissions. Please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/staff-joins', (req, _res, next) => {
-  if (req.method === 'POST' && req.path === '/' && !req.headers.authorization) return staffJoinLimiter(req, _res, next);
-  next();
-});
-
-// ── Request logging ──
-app.use((req, res, next) => {
-  const start = Date.now();
-  const { method, originalUrl } = req;
-
-  res.on('finish', () => {
-    const ms = Date.now() - start;
-    const status = res.statusCode;
-    if (status >= 500) {
-      console.log(`[ERROR] ${method} ${originalUrl} ${status} ${ms}ms`);
-    } else if (status >= 400) {
-      console.log(`[WARNING] ${method} ${originalUrl} ${status} ${ms}ms`);
-    } else {
-      console.log(`${method} ${originalUrl} ${status} ${ms}ms`);
-    }
-  });
-
-  next();
-});
-
-// ── SSE: real-time event stream ──
-import { sseClients } from './sse.js';
-
-app.get('/api/events', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-  });
-  res.write(':\n\n'); // heartbeat
-  sseClients.add(res);
-  req.on('close', () => sseClients.delete(res));
-});
-
-// ── Static: uploaded files (badge images, etc.) ──
-// Override helmet's default `same-origin` CORP so the SPA on a different
-// origin (e.g. localhost:5173) can load these images via <img>.
-import { UPLOAD_ROOT } from './routes/upload.routes.js';
-app.use(
-  '/uploads',
-  (_req, res, next) => {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    next();
-  },
-  express.static(UPLOAD_ROOT, { maxAge: '7d', fallthrough: false }),
-);
-
-// ── Routes ──
-app.use('/api', router);
-
-// ── Global error handler ──
-app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const timestamp = new Date().toISOString();
-  const { method, originalUrl, ip } = req;
-
-  // Detect database connection errors
-  const isDbError = /ECONNREFUSED|ETIMEDOUT|ER_ACCESS_DENIED|PROTOCOL_CONNECTION_LOST|ER_BAD_DB_ERROR|ENOTFOUND|connect ECONN/i.test(err.message);
-
-  if (isDbError) {
-    console.log(`[ERROR] ${timestamp} DB_UNAVAILABLE | ${method} ${originalUrl} | IP: ${ip} | ${err.message}`);
-    res.status(503).json({ message: 'Service temporarily unavailable. Please try again shortly.', code: 'DB_UNAVAILABLE' });
-    return;
-  }
-
-  // Log full stack for 500 errors
-  console.log(`[ERROR] ${timestamp} INTERNAL_ERROR | ${method} ${originalUrl} | IP: ${ip}`);
-  console.log(err.stack ?? err.message);
-
-  res.status(500).json({ message: isProd ? 'Something went wrong. Please try again.' : err.message, code: 'INTERNAL_ERROR' });
-});
 
 runMigrations()
+  // Mirror pre-engine appraisals into the template engine (idempotent; see
+  // appraisalLegacy.service). A failure here must not stop the server.
+  .then(() => syncLegacyAppraisals()
+    .then(r => { if (r.added || r.updated || r.removed) console.log(`[migrate] Legacy appraisals mirrored: +${r.added} ~${r.updated} -${r.removed}`); })
+    .catch(e => console.warn('[migrate] Legacy appraisal mirror skipped:', e?.message ?? e)))
+  // Access log entries are kept for a year (accessLog.service).
+  .then(() => purgeOldAccessLog()
+    .then(n => { if (n) console.log(`[access-log] Removed ${n} entries older than a year`); })
+    .catch(e => console.warn('[access-log] Clean-up skipped:', e?.message ?? e)))
   .then(() => {
     app.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`[backend] Server running on http://localhost:${PORT}`);

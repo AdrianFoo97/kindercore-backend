@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { clearSession, issueSession } from '../services/session.service.js';
 import { randomUUID, randomBytes } from 'crypto';
 import { eq, ne } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { users } from '../db/schema.js';
+import { teachers, users } from '../db/schema.js';
+import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
 import { loginSchema } from '../validators/auth.validator.js';
 
 export async function login(req: Request, res: Response): Promise<void> {
@@ -27,19 +28,33 @@ export async function login(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role, teacherId: user.teacherId },
-    process.env.JWT_SECRET!,
-    { expiresIn: '8h' },
-  );
+  // Staff past their last working day can't sign in. Checked only after the
+  // password, so this answer never reveals anything to someone guessing.
+  if (user.teacherId) {
+    const [staff] = await db.select({ resignedAt: teachers.resignedAt }).from(teachers).where(eq(teachers.id, user.teacherId));
+    if (hasLeft(staff?.resignedAt)) {
+      res.status(403).json({ message: staffLeftMessage(staff!.resignedAt!), code: STAFF_LEFT_CODE });
+      return;
+    }
+  }
+
+  // The session goes in an httpOnly cookie — never in the response body,
+  // so the page's scripts never hold it (see session.service).
+  issueSession(res, { id: user.id, email: user.email, role: user.role, teacherId: user.teacherId });
 
   const now = new Date();
   await db.update(users).set({ lastLoginAt: now, lastSeenAt: now }).where(eq(users.id, user.id));
 
   res.json({
-    token,
     user: { id: user.id, email: user.email, name: user.name, role: user.role, teacherId: user.teacherId },
   });
+}
+
+// ── Sign out ──────────────────────────────────────────────────────────────
+/** Clears this browser's session cookie. Open to anyone: it only ever signs the caller out. */
+export async function logout(_req: Request, res: Response): Promise<void> {
+  clearSession(res);
+  res.status(204).end();
 }
 
 // ── Create invite ─────────────────────────────────────────────────────────
@@ -145,15 +160,10 @@ export async function activateAccount(req: Request, res: Response): Promise<void
     updatedAt: now,
   }).where(eq(users.id, user.id));
 
-  // Auto-login after activation
-  const jwtToken = jwt.sign(
-    { id: user.id, email: user.email, role: user.role, teacherId: user.teacherId },
-    process.env.JWT_SECRET!,
-    { expiresIn: '8h' },
-  );
+  // Signed straight in after setting a password (session cookie, as at login).
+  issueSession(res, { id: user.id, email: user.email, role: user.role, teacherId: user.teacherId });
 
   res.json({
-    token: jwtToken,
     user: { id: user.id, email: user.email, name: name.trim(), role: user.role, teacherId: user.teacherId },
   });
 }

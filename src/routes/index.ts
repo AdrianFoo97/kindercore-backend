@@ -34,8 +34,12 @@ import { bugReportsRouter } from './bug-reports.routes.js';
 import { marketingCampaignsRouter } from './marketing-campaigns.routes.js';
 import { leadLabelsRouter } from './lead-labels.routes.js';
 import { incidentsRouter } from './incidents.routes.js';
+import { facilityIssuesRouter } from './facility-issues.routes.js';
+import { purchaseRequestsRouter } from './purchase-requests.routes.js';
 import { staffJoinsRouter } from './staff-joins.routes.js';
 import { staffOnboardingRouter } from './staff-onboarding.routes.js';
+import { appraisalTemplatesRouter } from './appraisal-templates.routes.js';
+import { payPoolsRouter } from './pay-pools.routes.js';
 
 export const router = Router();
 
@@ -78,5 +82,9 @@ router.use('/', bugReportsRouter);
 router.use('/', marketingCampaignsRouter);
 router.use('/', leadLabelsRouter);
 router.use('/', incidentsRouter);
+router.use('/', facilityIssuesRouter);
+router.use('/', purchaseRequestsRouter);
 router.use('/', staffJoinsRouter);
 router.use('/', staffOnboardingRouter);
+router.use('/', appraisalTemplatesRouter);
+router.use('/', payPoolsRouter);

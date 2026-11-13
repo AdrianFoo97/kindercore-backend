@@ -3,8 +3,10 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
-import { users } from '../../db/schema.js';
-import { login, activateAccount } from '../../controllers/auth.controller.js';
+import { teachers, users } from '../../db/schema.js';
+import { login, logout, activateAccount } from '../../controllers/auth.controller.js';
+import { SESSION_COOKIE } from '../../services/session.service.js';
+import { malaysiaDate } from '../../services/staffAccess.service.js';
 import { resetTables } from './testDb.js';
 import { req, res } from './http.js';
 import { PASSWORD, activeUser, pendingInvite } from '../fixtures/users.js';
@@ -34,13 +36,25 @@ describe('Login', () => {
     });
   });
 
-  it('issues a signed token carrying the user\'s id, role and teacher link, valid for 8 hours', async () => {
+  it('signs in with a signed session cookie scripts can\'t read, carrying the user\'s id, role and teacher link, valid for 8 hours', async () => {
     const r = res();
     await login(req({ email: ADMIN_EMAIL, password: PASSWORD }), r);
 
-    const claims = jwt.verify(r.body.token, process.env.JWT_SECRET!) as jwt.JwtPayload;
+    const cookie = r.cookies[SESSION_COOKIE];
+    expect(cookie.options).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/', maxAge: 8 * 60 * 60 * 1000 });
+    const claims = jwt.verify(cookie.value, process.env.JWT_SECRET!) as jwt.JwtPayload;
     expect(claims).toMatchObject({ id: 'user-admin', email: ADMIN_EMAIL, role: 'ADMIN', teacherId: null });
     expect(claims.exp! - claims.iat!).toBe(8 * 60 * 60);
+    // The page's scripts never see the session: it isn't in the response body.
+    expect(r.body.token).toBeUndefined();
+    expect(JSON.stringify(r.body)).not.toContain(cookie.value);
+  });
+
+  it('signs out by clearing the session cookie', async () => {
+    const r = res();
+    await logout(req(), r);
+    expect(r.statusCode).toBe(204);
+    expect(r.cookies[SESSION_COOKIE]).toMatchObject({ cleared: true, options: { httpOnly: true, path: '/' } });
   });
 
   it('never sends the password hash back to the browser', async () => {
@@ -56,7 +70,7 @@ describe('Login', () => {
     await login(req({ email: ADMIN_EMAIL, password: 'Wrong-Password-1' }), r);
 
     expect(r.statusCode).toBe(401);
-    expect(r.body.token).toBeUndefined();
+    expect(r.cookies[SESSION_COOKIE]).toBeUndefined();
   });
 
   it('gives the same answer for an unknown email as for a wrong password', async () => {
@@ -93,7 +107,7 @@ describe('Login', () => {
       const r = res();
       await login(req({ email: 'new.teacher@kindertech.test', password }), r);
       expect(r.statusCode).not.toBe(200);
-      expect(r.body.token).toBeUndefined();
+      expect(r.cookies[SESSION_COOKIE]).toBeUndefined();
     }
   });
 
@@ -133,11 +147,57 @@ describe('Login', () => {
   });
 });
 
+describe('Login — staff who have left', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const STAFF_EMAIL = 'leaving@kindertech.test';
+  /** A teacher account whose staff record has the given Last Working Day. */
+  const staffWithLastDay = async (resignedAt: Date | null) => {
+    await resetTables(teachers);
+    await db.insert(teachers).values({ id: 't-leaving', name: 'Lia Leaving', color: '#7c3aed', resignedAt, createdAt: new Date(), updatedAt: new Date() });
+    await db.insert(users).values(await activeUser({ id: 'user-leaving', email: STAFF_EMAIL, name: 'Lia Leaving', role: 'USER', teacherId: 't-leaving' }));
+  };
+  const signIn = async () => {
+    const r = res();
+    await login(req({ email: STAFF_EMAIL, password: PASSWORD }), r);
+    return r;
+  };
+
+  it('refuses to sign in someone whose last working day has passed, saying why', async () => {
+    await staffWithLastDay(new Date(Date.now() - 2 * DAY_MS));
+    const r = await signIn();
+    expect(r.statusCode).toBe(403);
+    expect(r.body).toMatchObject({ code: 'STAFF_LEFT' });
+    expect(r.body.message).toMatch(/last working day was/);
+    expect(r.cookies[SESSION_COOKIE]).toBeUndefined();
+    const [u] = await db.select().from(users).where(eq(users.email, STAFF_EMAIL));
+    expect(u.lastLoginAt).toBeNull();
+  });
+
+  it('still signs in someone whose last working day is today or still ahead', async () => {
+    await staffWithLastDay(new Date(`${malaysiaDate(new Date())}T00:00:00Z`));
+    expect((await signIn()).statusCode).toBe(200);
+    await resetTables(users);
+    await staffWithLastDay(new Date(Date.now() + 7 * DAY_MS));
+    expect((await signIn()).statusCode).toBe(200);
+  });
+
+  it('gives a wrong password the usual answer, even for someone who has left', async () => {
+    await staffWithLastDay(new Date(Date.now() - 2 * DAY_MS));
+    const r = res();
+    await login(req({ email: STAFF_EMAIL, password: 'Wrong-Password-1' }), r);
+    expect(r.statusCode).toBe(401);
+    expect(r.body).toEqual({ message: 'Invalid credentials' });
+  });
+});
+
 describe('Account activation (setting a password from an invite)', () => {
   it('stores the new password hashed, never as plain text', async () => {
     const r = res();
     await activateAccount(req({ token: 'invite-token-123', name: 'Nina Teacher', password: 'Brand-New-Pass1' }), r);
     expect(r.statusCode).toBe(200);
+    // Signed straight in — by cookie, never a token in the body.
+    expect(r.cookies[SESSION_COOKIE]?.options).toMatchObject({ httpOnly: true });
+    expect(r.body.token).toBeUndefined();
 
     const [row] = await db.select().from(users).where(eq(users.id, 'user-pending'));
     expect(row.passwordHash).not.toBe('Brand-New-Pass1');

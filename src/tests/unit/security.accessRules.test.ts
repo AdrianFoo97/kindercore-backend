@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ARCHITECTURE } from '../../architecture/architecture.generated.js';
+import { APPROVED_ANY_SIGNED_IN } from '../securityPolicy.js';
 
 // Every endpoint that requires sign-in must ALSO say who among signed-in
 // users may use it — admin, a module (HR, Finance…), a view, or "this
@@ -11,38 +12,7 @@ import { ARCHITECTURE } from '../../architecture/architecture.generated.js';
 // reason, and make sure it's read-only reference data or scoped to the
 // caller inside the handler.
 
-const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
-  'GET /api/me/permissions': 'Your own permissions — scoped to the caller.',
-  'GET /api/settings': 'App-wide settings the whole app reads; secret.* settings are filtered out.',
-  'GET /api/packages': 'Fee package catalog (reference data).',
-  'GET /api/packages/years': 'Package years (reference data).',
-  'GET /api/packages/config': 'Package configuration (reference data).',
-  'GET /api/allowance-types': 'Allowance type names (reference data, no per-person amounts).',
-  'GET /api/auth-roles': 'Access role names for pickers (no permissions are granted by reading them).',
-  'POST /api/bug-reports': 'Anyone signed in can report a bug.',
-  'GET /api/career-missions': 'Mission catalog the teacher career page lists.',
-  'GET /api/mission-categories': 'Mission categories for the teacher career badges.',
-  'GET /api/points/rules': 'Earning-rule catalog shown on the teacher "Earn points" page.',
-  'GET /api/points/rewards': 'Reward catalog teachers redeem from.',
-  'GET /api/redemptions/:id': 'One redemption — the handler only returns it to its owner, HR or Admin.',
-  'GET /api/planner/teachers': 'Staff list — the handler returns colleagues as name/colour only unless the caller has HR/Tools/Finance/Analysis.',
-  'GET /api/salary/departments': 'Department names (reference data).',
-  'GET /api/salary/positions': 'Position salary bands — the same bands the public job application form shows.',
-  'GET /api/salary/level-incentives': 'Level incentive table (reference data, not per person).',
-  'GET /api/salary/teacher-weights-by-month': 'Profit-share weights — teachers need the team total to see their own pool share; contains no salary amounts.',
-  'GET /api/finance/summary': 'Company totals behind the profit-share pools teachers see on their Pay pages (by design).',
-  'GET /api/sop-templates': 'How-to guide library every staff member reads.',
-  'GET /api/sop-steps': 'Steps of the how-to guides.',
-  'GET /api/sop-sections': 'Guide section names.',
-  'GET /api/sop-categories': 'Guide category labels.',
-  'GET /api/sop-revisions': 'Guide improvement proposals — the handler shows non-reviewers only their own.',
-  'GET /api/sop-revisions/:id': 'One proposal — scoped in the handler like the list.',
-  'POST /api/sop-revisions': 'Any staff member can propose an improvement to a guide.',
-  'POST /api/upload/bug-report-photos': 'Screenshots attached to a bug report (anyone signed in can report a bug).',
-  'POST /api/incidents': 'Any staff member must be able to report an incident with a child, straight away.',
-  'GET /api/incidents/mine': 'The caller\'s own incident reports only.',
-  'GET /api/incidents/student-options': 'Current students\' names (id + name only) for picking who was involved in an incident.',
-};
+// The approved list lives in ../securityPolicy.ts (shared with the live HTTP sweep).
 
 const GATES = /^(adminMiddleware|superadminMiddleware|requireModule\(|requireAnyModule\(|requireView\(|selfOrModule\()/;
 const endpoints = ARCHITECTURE.routeGroups.flatMap(g => g.endpoints);
@@ -60,9 +30,29 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(Object.keys(APPROVED_ANY_SIGNED_IN).filter(k => !actual.has(k))).toEqual([]);
   });
 
-  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report or a guide proposal', () => {
+  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report, a facility issue, a purchase request (or editing your own) or a guide proposal', () => {
     const writes = signedInOnly.filter(e => e.method !== 'GET').map(key).sort();
-    expect(writes).toEqual(['POST /api/bug-reports', 'POST /api/incidents', 'POST /api/sop-revisions', 'POST /api/upload/bug-report-photos']);
+    expect(writes).toEqual([
+      'DELETE /api/purchase-requests/:id', 'PATCH /api/purchase-requests/:id',
+      'POST /api/bug-reports', 'POST /api/facility-issues', 'POST /api/incidents', 'POST /api/purchase-requests',
+      'POST /api/purchase-requests/:id/bought-myself', 'POST /api/sop-revisions', 'POST /api/upload/bug-report-photos',
+    ]);
+  });
+
+  it('only shopping-list managers can see the shopping list, approve it, tick items off or see receipts', () => {
+    for (const [m, p] of [
+      ['POST', '/api/purchase-requests/approve-all'], ['POST', '/api/purchase-requests/:id/approve'],
+      ['GET', '/api/purchase-requests/shopping-list'], ['POST', '/api/purchase-requests/:id/bought'],
+      ['POST', '/api/purchase-requests/:id/not-buying'], ['POST', '/api/purchase-requests/:id/back-to-list'],
+      ['GET', '/api/purchase-requests/:id/receipt'], ['PUT', '/api/purchase-requests/:id/note'],
+    ] as const) {
+      expect(gateOf(m, p)?.[0], `${m} ${p}`).toBe("requireView('OPERATION_PURCHASE_MANAGE')");
+    }
+  });
+
+  it('only facility managers can see every facility issue or change its status', () => {
+    expect(gateOf('GET', '/api/facility-issues')).toEqual(["requireView('OPERATION_FACILITY_MANAGE')"]);
+    expect(gateOf('PATCH', '/api/facility-issues/:id/status')).toEqual(["requireView('OPERATION_FACILITY_MANAGE')"]);
   });
 
   it('only incident managers can see every incident report or follow one up', () => {
@@ -71,8 +61,27 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(gateOf('POST', '/api/incidents/:id/log')).toEqual(["requireView('OPERATION_INCIDENT_MANAGE')"]);
   });
 
+  // The access gate(s) only — not sign-in, and not the access-log recorder.
   const gateOf = (method: string, path: string) =>
-    endpoints.find(e => e.method === method && e.path === path)?.middleware.filter(m => m !== 'authMiddleware') ?? null;
+    endpoints.find(e => e.method === method && e.path === path)?.middleware
+      .filter(m => m !== 'authMiddleware' && !m.startsWith('logSensitiveAccess(')) ?? null;
+
+  it('every read of pay, finance, appraisal or applicant records is written to the access log', () => {
+    const logged: [string, string, string][] = [
+      ['GET', '/api/finance/summary', 'FINANCE'],
+      ['GET', '/api/salary/teachers', 'PAYROLL'], ['GET', '/api/salary/payroll-by-month', 'PAYROLL'],
+      ['GET', '/api/salary/teacher-weights-by-month', 'PAYROLL'], ['GET', '/api/salary/employer-contributions', 'PAYROLL'],
+      ['GET', '/api/teachers/:teacherId/allowances', 'STAFF_PAY'], ['GET', '/api/teachers/:teacherId/pay-pools', 'STAFF_PAY'],
+      ['GET', '/api/teachers/:teacherId/appraisals', 'APPRAISALS'], ['GET', '/api/appraisals/overview', 'APPRAISALS'],
+      ['GET', '/api/candidates/:id/resume', 'APPLICANTS'],
+    ];
+    for (const [m, p, area] of logged) {
+      const mw = endpoints.find(e => e.method === m && e.path === p)?.middleware ?? [];
+      expect(mw, `${m} ${p}`).toContain(`logSensitiveAccess('${area}')`);
+      // Recorded only after the gate has let the request through.
+      expect(mw.indexOf(`logSensitiveAccess('${area}')`), `${m} ${p}`).toBe(mw.length - 1);
+    }
+  });
 
   it('only Admins can invite users, see the user list or delete users', () => {
     expect(gateOf('POST', '/api/auth/invite')).toEqual(['adminMiddleware']);
@@ -85,6 +94,12 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(gateOf('GET', '/api/salary/payroll-by-month')).toEqual(['requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)']);
     expect(gateOf('GET', '/api/teachers/:teacherId/allowances')).toEqual(['selfOrModule(MODULES.HR)']);
     expect(gateOf('PUT', '/api/teachers/:teacherId/allowances')).toEqual(['requireModule(MODULES.HR)']);
+  });
+
+  it('the school\'s finance figures are Finance / Analysis only; a teacher gets just their own pool figures', () => {
+    expect(gateOf('GET', '/api/finance/summary')).toEqual(['requireAnyModule(MODULES.FINANCE, MODULES.ANALYSIS)']);
+    expect(gateOf('GET', '/api/salary/teacher-weights-by-month')).toEqual(['requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)']);
+    expect(gateOf('GET', '/api/teachers/:teacherId/pay-pools')).toEqual(['selfOrModule(MODULES.HR)']);
   });
 
   it('granting and editing points is HR-only; a teacher\'s own points are theirs or HR\'s', () => {

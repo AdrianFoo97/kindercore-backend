@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { users, teachers, positions, authRoleModules, authRoleViews } from '../db/schema.js';
+import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
+import { sessionToken } from '../services/session.service.js';
 
 export interface AuthUser {
   id: string;
@@ -55,12 +57,14 @@ export async function authMiddleware(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) {
+  // The app sends its session as an httpOnly cookie; scripts and tests may
+  // still send "Authorization: Bearer …" (see session.service).
+  const session = sessionToken(req);
+  if (!session) {
     res.status(401).json({ message: 'Unauthorized' });
     return;
   }
-  const token = header.slice(7);
+  const token = session.token;
   let claims: AuthUser;
   try {
     claims = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as AuthUser;
@@ -70,12 +74,21 @@ export async function authMiddleware(
   }
   try {
     const [account] = await db
-      .select({ id: users.id, email: users.email, role: users.role, teacherId: users.teacherId, activated: users.activated, lastSeenAt: users.lastSeenAt })
+      .select({
+        id: users.id, email: users.email, role: users.role, teacherId: users.teacherId, activated: users.activated,
+        lastSeenAt: users.lastSeenAt, resignedAt: teachers.resignedAt,
+      })
       .from(users)
+      .leftJoin(teachers, eq(teachers.id, users.teacherId))
       .where(eq(users.id, claims.id))
       .limit(1);
     if (!account || !account.activated) {
       res.status(401).json({ message: 'Account no longer active' });
+      return;
+    }
+    // Past their last working day — end the session even mid-token.
+    if (hasLeft(account.resignedAt)) {
+      res.status(401).json({ message: staffLeftMessage(account.resignedAt!), code: STAFF_LEFT_CODE });
       return;
     }
     await markSeen(account.id, account.lastSeenAt);

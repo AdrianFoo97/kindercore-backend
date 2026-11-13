@@ -25,6 +25,7 @@ import {
 import { authMiddleware, adminMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
 import { testEnvOnly } from '../middlewares/testEnv.middleware.js';
 import { MODULES } from '../constants/authModules.js';
+import { logSensitiveAccess } from '../middlewares/accessLog.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PRIVATE_UPLOAD_ROOT } from './upload.routes.js';
 
@@ -87,7 +88,7 @@ candidatesRouter.patch('/:id', authMiddleware, requireModule(MODULES.HR), asyncH
 // separate from the generic PATCH because it also writes to Teacher/CareerRecord.
 candidatesRouter.post('/:id/hire', authMiddleware, requireModule(MODULES.HR), asyncHandler(hireCandidate));
 candidatesRouter.delete('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(deleteCandidate));
-candidatesRouter.get('/:id/resume', authMiddleware, requireModule(MODULES.HR), asyncHandler(downloadCandidateResume));
+candidatesRouter.get('/:id/resume', authMiddleware, requireModule(MODULES.HR), logSensitiveAccess('APPLICANTS'), asyncHandler(downloadCandidateResume));
 // Interview scheduling with Google Calendar sync. The frontend calls
 // /schedule-interview by default; if the calendar step fails, it retries
 // with skipCalendar: true which persists to the DB only.

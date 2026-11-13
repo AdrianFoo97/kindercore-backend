@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { runYearRollover, undoYearRollover, repairRollover } from '../controllers/admin.controller.js';
 import { getDbSchema } from '../controllers/db-schema.controller.js';
 import { getArchitecture } from '../controllers/architecture.controller.js';
+import { getAccessLog } from '../controllers/access-log.controller.js';
 import { getReaderKey, createReaderKey, deleteReaderKey } from '../controllers/attendance-reader.controller.js';
 import { getTestRunner, createTestRun } from '../controllers/test-runner.controller.js';
 import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
@@ -16,6 +17,9 @@ adminRouter.post('/year-rollover/repair', authMiddleware, adminMiddleware, async
 
 // Live database structure for the Admin → Database Design page (read-only).
 adminRouter.get('/db-schema', authMiddleware, adminMiddleware, asyncHandler(getDbSchema));
+
+// Who opened pay / finance / appraisal / applicant records (Admin → Access Log).
+adminRouter.get('/access-log', authMiddleware, adminMiddleware, asyncHandler(getAccessLog));
 
 // Backend layered structure for the Admin → Backend Architecture page (read-only).
 adminRouter.get('/architecture', authMiddleware, adminMiddleware, asyncHandler(getArchitecture));

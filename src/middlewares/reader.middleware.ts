@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { authMiddleware } from './auth.middleware.js';
 import { checkReaderKey } from '../services/readerKey.service.js';
+import { sessionToken } from '../services/session.service.js';
 
 // Guards POST /api/attendance/scan, which two kinds of caller use:
 //   • the physical RFID readers at the door — no user login, so they send
@@ -20,8 +21,9 @@ export async function readerOrStaffMiddleware(req: Request, res: Response, next:
     const given = req.headers['x-reader-key'];
     const result = await checkReaderKey(typeof given === 'string' ? given : undefined);
     if (result === 'ok') { next(); return; }
-    // A signed-in staff member — full sign-in check (account must still be active).
-    if (req.headers.authorization?.startsWith('Bearer ')) {
+    // A signed-in staff member (session cookie, or a Bearer token) — full
+    // sign-in check (account must still be active).
+    if (sessionToken(req)) {
       await authMiddleware(req, res, next);
       return;
     }

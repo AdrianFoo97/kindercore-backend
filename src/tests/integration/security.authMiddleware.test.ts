@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
-import { users } from '../../db/schema.js';
+import { teachers, users } from '../../db/schema.js';
 import { authMiddleware, adminMiddleware } from '../../middlewares/auth.middleware.js';
+import { SESSION_COOKIE } from '../../services/session.service.js';
 import { resetTables } from './testDb.js';
 import { reqWith, res, nextSpy } from './http.js';
 
@@ -45,6 +46,21 @@ describe('Security — sign-in check (authMiddleware)', () => {
     const { next, request } = await runAuth(`Bearer ${sign(USER)}`);
     expect(next.called).toBe(true);
     expect(request.user).toMatchObject({ id: 'user-1', role: 'USER' });
+  });
+
+  it('lets the app in with its session cookie, and refuses a forged or expired one', async () => {
+    const withCookie = async (token: string) => {
+      const r = res();
+      const next = nextSpy();
+      const request = reqWith({ headers: { cookie: `theme=dark; ${SESSION_COOKIE}=${token}` } });
+      await authMiddleware(request, r, next);
+      return { r, next, request };
+    };
+    const ok = await withCookie(sign(USER));
+    expect(ok.next.called).toBe(true);
+    expect(ok.request.user).toMatchObject({ id: 'user-1', role: 'USER' });
+    expect((await withCookie(sign(USER, 'an-attackers-secret'))).r.statusCode).toBe(401);
+    expect((await withCookie(sign(USER, SECRET, { expiresIn: -10 }))).r.statusCode).toBe(401);
   });
 
   it('refuses a request with no token', async () => {
@@ -132,6 +148,30 @@ describe('Security — sign-in check (authMiddleware)', () => {
     await db.update(users).set({ teacherId: 't-new' }).where(eq(users.id, USER.id));
     const { request } = await runAuth(`Bearer ${token}`);
     expect(request.user?.teacherId).toBe('t-new');
+  });
+});
+
+describe('Security — staff who have left (authMiddleware)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  /** Links USER to a staff record with the given Last Working Day. */
+  const linkToStaff = async (resignedAt: Date | null) => {
+    await resetTables(teachers);
+    await db.insert(teachers).values({ id: 't-1', name: 'Tina', color: '#7c3aed', resignedAt, createdAt: NOW, updatedAt: NOW });
+    await db.update(users).set({ teacherId: 't-1' }).where(eq(users.id, USER.id));
+  };
+
+  it('ends an open session once the last working day has passed, saying why', async () => {
+    const token = sign(USER); // signed in while still employed
+    await linkToStaff(new Date(Date.now() - 2 * DAY_MS));
+    const { r, next } = await runAuth(`Bearer ${token}`);
+    expect(next.called).toBe(false);
+    expect(r.statusCode).toBe(401);
+    expect(r.body).toMatchObject({ code: 'STAFF_LEFT' });
+  });
+
+  it('keeps letting them in while the last working day is still ahead', async () => {
+    await linkToStaff(new Date(Date.now() + 7 * DAY_MS));
+    expect((await runAuth(`Bearer ${sign(USER)}`)).next.called).toBe(true);
   });
 });
 

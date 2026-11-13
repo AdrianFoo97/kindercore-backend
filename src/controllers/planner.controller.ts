@@ -6,6 +6,7 @@ import { db } from '../db/client.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords } from '../db/schema.js';
 import { freshStaffChecklists } from '../services/staffOnboarding.service.js';
+import { managerChainOf } from '../services/appraisalScoring.service.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TEACHERS
@@ -23,6 +24,8 @@ export const HR_ONLY_TEACHER_FIELDS = [
   'positionId', 'level', 'isFixedSalary', 'fixedSalaryAmount', 'salaryType', 'hourlyRate',
   'excludeFromProfitShare', 'excludeFromStaffCost', 'overrideProfitShareWeight', 'customProfitShareWeight',
   'hasEpf', 'hasSocso', 'hasEis', 'isActive', 'resignedAt', 'createdAt', 'phone', 'dob',
+  // Who they report to decides who may appraise them — HR's call.
+  'reportsToTeacherId',
 ] as const;
 
 async function hasAnyModule(req: Request, modules: string[]): Promise<boolean> {
@@ -173,7 +176,24 @@ const updateTeacherSchema = z.object({
   isActive: z.boolean().optional(),
   resignedAt: z.string().nullable().optional(),
   createdAt: z.string().nullable().optional(),
+  reportsToTeacherId: z.string().max(36).nullable().optional(),
 });
+
+/**
+ * Why `teacherId` can't report to `managerId` — not themselves, a real staff
+ * member, and no loop (their manager can't, somewhere up the line, report to
+ * them). null when it's fine.
+ */
+async function reportsToProblem(teacherId: string, managerId: string): Promise<string | null> {
+  if (managerId === teacherId) return 'Someone can’t report to themselves';
+  const all = await db.select({ id: teachers.id, reportsTo: teachers.reportsToTeacherId }).from(teachers);
+  if (!all.some(t => t.id === managerId)) return 'That staff member doesn’t exist';
+  const reportsTo = new Map(all.map(t => [t.id, t.id === teacherId ? managerId : t.reportsTo]));
+  // With the change in place, walking up from the manager must never reach this person.
+  return managerChainOf(managerId, reportsTo).includes(teacherId)
+    ? 'That would make a loop — they already report (directly or further up) to this person'
+    : null;
+}
 
 export async function updateTeacher(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
@@ -194,6 +214,11 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
       res.status(403).json({ message: `Only HR can change: ${changed.join(', ')}` });
       return;
     }
+  }
+
+  if (parsed.data.reportsToTeacherId) {
+    const problem = await reportsToProblem(id, parsed.data.reportsToTeacherId);
+    if (problem) { res.status(400).json({ message: problem }); return; }
   }
 
   const { resignedAt, createdAt, dob, ...rest } = parsed.data;

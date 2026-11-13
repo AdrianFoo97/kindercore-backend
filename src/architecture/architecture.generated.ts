@@ -50,6 +50,16 @@ export const ARCHITECTURE: Architecture = {
         },
         {
           "method": "GET",
+          "path": "/api/admin/access-log",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getAccessLog",
+          "controller": "access-log.controller"
+        },
+        {
+          "method": "GET",
           "path": "/api/admin/architecture",
           "middleware": [
             "authMiddleware",
@@ -158,7 +168,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/teachers/:teacherId/allowances",
           "middleware": [
             "authMiddleware",
-            "selfOrModule(MODULES.HR)"
+            "selfOrModule(MODULES.HR)",
+            "logSensitiveAccess('STAFF_PAY')"
           ],
           "handler": "getTeacherAllowances",
           "controller": "allowance.controller"
@@ -172,6 +183,102 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "upsertTeacherAllowances",
           "controller": "allowance.controller"
+        }
+      ]
+    },
+    {
+      "id": "appraisal-templates.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/appraisal-templates",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "listAppraisalTemplates",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-templates",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "createAppraisalTemplate",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/appraisal-templates/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getAppraisalTemplate",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-templates/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "updateAppraisalTemplate",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/appraisal-templates/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "deleteAppraisalTemplate",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-templates/:id/new-version",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "newAppraisalTemplateVersion",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-templates/:id/activate",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "activateAppraisalTemplate",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-templates/:id/retire",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "retireAppraisalTemplate",
+          "controller": "appraisal-templates.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-template-families/:familyId/positions",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "setAppraisalTemplatePositions",
+          "controller": "appraisal-templates.controller"
         }
       ]
     },
@@ -330,6 +437,13 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/auth/login",
           "middleware": [],
           "handler": "login",
+          "controller": "auth.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/logout",
+          "middleware": [],
+          "handler": "logout",
           "controller": "auth.controller"
         },
         {
@@ -545,7 +659,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/candidates/:id/resume",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "requireModule(MODULES.HR)",
+            "logSensitiveAccess('APPLICANTS')"
           ],
           "handler": "downloadCandidateResume",
           "controller": "candidates.controller"
@@ -772,6 +887,60 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "facility-issues.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/facility-issues",
+          "middleware": [
+            "authMiddleware",
+            "facilityAttachmentsUpload"
+          ],
+          "handler": "createFacilityIssue",
+          "controller": "facility-issues.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/facility-issues/mine",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "listMyFacilityIssues",
+          "controller": "facility-issues.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/facility-issues/:id/attachments/:fileId",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getFacilityAttachment",
+          "controller": "facility-issues.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/facility-issues",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_FACILITY_MANAGE')"
+          ],
+          "handler": "listFacilityIssues",
+          "controller": "facility-issues.controller"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/facility-issues/:id/status",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_FACILITY_MANAGE')"
+          ],
+          "handler": "updateFacilityIssueStatus",
+          "controller": "facility-issues.controller"
+        }
+      ]
+    },
+    {
       "id": "finance.routes",
       "mount": "/api/finance",
       "endpoints": [
@@ -779,7 +948,9 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/finance/summary",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.FINANCE, MODULES.ANALYSIS)",
+            "logSensitiveAccess('FINANCE')"
           ],
           "handler": "getFinanceSummary",
           "controller": "finance.controller"
@@ -1493,6 +1664,23 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "pay-pools.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/teachers/:teacherId/pay-pools",
+          "middleware": [
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)",
+            "logSensitiveAccess('STAFF_PAY')"
+          ],
+          "handler": "getTeacherPayPools",
+          "controller": "finance.controller"
+        }
+      ]
+    },
+    {
       "id": "planner.routes",
       "mount": "/api/planner",
       "endpoints": [
@@ -1991,6 +2179,139 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "purchase-requests.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "createPurchaseRequest",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/purchase-requests/mine",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "listMyPurchaseRequests",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/purchase-requests/:id",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "updatePurchaseRequest",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/purchase-requests/:id",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "cancelPurchaseRequest",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests/:id/bought-myself",
+          "middleware": [
+            "authMiddleware",
+            "purchaseReceiptUpload"
+          ],
+          "handler": "markBoughtMyself",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/purchase-requests/shopping-list",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "getShoppingList",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests/approve-all",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "approveAllPurchases",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests/:id/approve",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "approvePurchase",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests/:id/bought",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')",
+            "purchaseReceiptUpload"
+          ],
+          "handler": "markPurchaseBought",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests/:id/not-buying",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "markPurchaseNotBuying",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/purchase-requests/:id/back-to-list",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "returnPurchaseToList",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/purchase-requests/:id/note",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "setPurchaseNote",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/purchase-requests/:id/receipt",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_PURCHASE_MANAGE')"
+          ],
+          "handler": "getPurchaseReceipt",
+          "controller": "purchase-requests.controller"
+        }
+      ]
+    },
+    {
       "id": "salary.routes",
       "mount": "/api/salary",
       "endpoints": [
@@ -2076,7 +2397,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/salary/teachers",
           "middleware": [
             "authMiddleware",
-            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)"
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)",
+            "logSensitiveAccess('PAYROLL')"
           ],
           "handler": "getTeachersWithSalary",
           "controller": "salary.controller"
@@ -2086,7 +2408,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/salary/payroll-by-month",
           "middleware": [
             "authMiddleware",
-            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)"
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)",
+            "logSensitiveAccess('PAYROLL')"
           ],
           "handler": "getPayrollByMonth",
           "controller": "salary.controller"
@@ -2095,7 +2418,9 @@ export const ARCHITECTURE: Architecture = {
           "method": "GET",
           "path": "/api/salary/teacher-weights-by-month",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)",
+            "logSensitiveAccess('PAYROLL')"
           ],
           "handler": "getTeacherWeightsByMonth",
           "controller": "salary.controller"
@@ -2105,7 +2430,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/salary/employer-contributions",
           "middleware": [
             "authMiddleware",
-            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)"
+            "requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)",
+            "logSensitiveAccess('PAYROLL')"
           ],
           "handler": "getEmployerContributions",
           "controller": "salary.controller"
@@ -2777,7 +3103,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/teachers/:teacherId/appraisals",
           "middleware": [
             "authMiddleware",
-            "selfOrModule(MODULES.HR)"
+            "selfOrModule(MODULES.HR)",
+            "logSensitiveAccess('APPRAISALS')"
           ],
           "handler": "listAppraisals",
           "controller": "teacher-appraisals.controller"
@@ -2800,6 +3127,17 @@ export const ARCHITECTURE: Architecture = {
             "requireModule(MODULES.HR)"
           ],
           "handler": "deleteAppraisal",
+          "controller": "teacher-appraisals.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/appraisals/overview",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)",
+            "logSensitiveAccess('APPRAISALS')"
+          ],
+          "handler": "listAppraisalOverview",
           "controller": "teacher-appraisals.controller"
         }
       ]
@@ -2834,6 +3172,14 @@ export const ARCHITECTURE: Architecture = {
   ],
   "controllers": [
     {
+      "id": "access-log.controller",
+      "services": [
+        "accessLog.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "admin.controller",
       "services": [
         "rollover.service"
@@ -2849,6 +3195,14 @@ export const ARCHITECTURE: Architecture = {
         "AllowanceType",
         "TeacherAllowance"
       ]
+    },
+    {
+      "id": "appraisal-templates.controller",
+      "services": [
+        "appraisalTemplates.service"
+      ],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "architecture.controller",
@@ -2899,9 +3253,13 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "auth.controller",
-      "services": [],
+      "services": [
+        "session.service",
+        "staffAccess.service"
+      ],
       "controllers": [],
       "tables": [
+        "Teacher",
         "User"
       ]
     },
@@ -2929,7 +3287,9 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "career-missions.controller",
-      "services": [],
+      "services": [
+        "appraisal.service"
+      ],
       "controllers": [
         "teacher-appraisals.controller"
       ],
@@ -2969,11 +3329,22 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "facility-issues.controller",
+      "services": [
+        "facilityAttachments.service"
+      ],
+      "controllers": [],
+      "tables": [
+        "FacilityIssue",
+        "User"
+      ]
+    },
+    {
       "id": "finance.controller",
       "services": [
-        "operatingCost.service",
-        "payroll.service",
-        "revenue.service"
+        "finance.service",
+        "payPools.service",
+        "staffAccess.service"
       ],
       "controllers": [],
       "tables": []
@@ -3074,6 +3445,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "planner.controller",
       "services": [
+        "appraisalScoring.service",
         "staffOnboarding.service"
       ],
       "controllers": [],
@@ -3099,6 +3471,19 @@ export const ARCHITECTURE: Architecture = {
         "RewardRedemption",
         "Teacher",
         "TeacherRewardGoal"
+      ]
+    },
+    {
+      "id": "purchase-requests.controller",
+      "services": [
+        "purchaseLog.service",
+        "purchaseReceipts.service",
+        "purchaseWeek.service"
+      ],
+      "controllers": [],
+      "tables": [
+        "PurchaseRequest",
+        "User"
       ]
     },
     {
@@ -3235,9 +3620,12 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "teacher-appraisals.controller",
-      "services": [],
+      "services": [
+        "appraisal.service"
+      ],
       "controllers": [],
       "tables": [
+        "Position",
         "Teacher",
         "TeacherAppraisal"
       ]
@@ -3253,7 +3641,69 @@ export const ARCHITECTURE: Architecture = {
   ],
   "services": [
     {
+      "id": "accessLog.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "SensitiveAccessLog",
+        "Teacher",
+        "User"
+      ]
+    },
+    {
+      "id": "appraisal.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisalLegacy.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "Appraisal",
+        "AppraisalCriterion",
+        "AppraisalScore",
+        "AppraisalSection",
+        "AppraisalTemplate",
+        "TeacherAppraisal"
+      ]
+    },
+    {
+      "id": "appraisalScoring.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisalTemplates.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AppraisalAssignment",
+        "AppraisalCriterion",
+        "AppraisalCriterionPoint",
+        "AppraisalSection",
+        "AppraisalStage",
+        "AppraisalStagePosition",
+        "AppraisalTemplate",
+        "Position"
+      ]
+    },
+    {
       "id": "elevenlabs.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "facilityAttachments.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "finance.service",
       "services": [],
       "controllers": [],
       "tables": []
@@ -3269,6 +3719,14 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "payPools.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "SystemSetting"
+      ]
+    },
+    {
       "id": "payroll.service",
       "services": [],
       "controllers": [],
@@ -3281,6 +3739,38 @@ export const ARCHITECTURE: Architecture = {
         "Teacher",
         "TeacherAllowance"
       ]
+    },
+    {
+      "id": "poolMath.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "privateUploads.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "purchaseLog.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "PurchaseRequestLog"
+      ]
+    },
+    {
+      "id": "purchaseReceipts.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "purchaseWeek.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "readerKey.service",
@@ -3313,6 +3803,18 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "session.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "staffAccess.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "staffOnboarding.service",
       "services": [],
       "controllers": [],
@@ -3341,6 +3843,16 @@ export const ARCHITECTURE: Architecture = {
   ],
   "tables": [
     "AllowanceType",
+    "Appraisal",
+    "AppraisalAssignment",
+    "AppraisalCriterion",
+    "AppraisalCriterionPoint",
+    "AppraisalLog",
+    "AppraisalScore",
+    "AppraisalSection",
+    "AppraisalStage",
+    "AppraisalStagePosition",
+    "AppraisalTemplate",
     "AuthRole",
     "AuthRoleModule",
     "AuthRoleView",
@@ -3352,6 +3864,7 @@ export const ARCHITECTURE: Architecture = {
     "CareerRecord",
     "Classroom",
     "Department",
+    "FacilityIssue",
     "GoogleConnection",
     "IncidentReport",
     "IncidentReportLog",
@@ -3371,9 +3884,12 @@ export const ARCHITECTURE: Architecture = {
     "PointsRewardItem",
     "PointsTransaction",
     "Position",
+    "PurchaseRequest",
+    "PurchaseRequestLog",
     "RewardRedemption",
     "SavedTimetable",
     "ScheduleBlock",
+    "SensitiveAccessLog",
     "SopCategory",
     "SopObservation",
     "SopObservationStepResult",
