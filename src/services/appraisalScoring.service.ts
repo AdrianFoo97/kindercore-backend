@@ -5,7 +5,17 @@
 //  - scoreAppraisal: weighted total + per-section scores, with the template's missing-criterion policy
 //  - canActOnStage: who may assess / sign off / acknowledge, from positions + reports-to
 
-export type InputType = 'RATING' | 'PERCENT' | 'YES_NO' | 'NUMBER' | 'AUTO';
+/** POINTS = the average of the criterion's points, each scored its own way. */
+/** FORM = a scoring form's weighted total (scaleConfig holds a copy of its sections). */
+export type InputType = 'RATING' | 'PERCENT' | 'YES_NO' | 'PASS_FAIL' | 'NUMBER' | 'AUTO' | 'POINTS' | 'FORM';
+
+/**
+ * Pass / Fail / N/A (PASS_FAIL) — how an SOP step is checked, as in SOP
+ * observations: 1 = pass, 0 = fail, -1 = N/A. N/A doesn't count at all — it's
+ * left out and the rest share its weight (appraisalRun.logic withoutNotApplicable).
+ */
+export const NOT_APPLICABLE = -1;
+export const isNotApplicable = (inputType: string, raw: number | null | undefined) => inputType === 'PASS_FAIL' && raw === NOT_APPLICABLE;
 export type MissingPolicy = 'REQUIRE_ALL' | 'REWEIGHT';
 
 export interface RatingConfig { max: number; levels?: { value: number; label: string; description?: string }[] }
@@ -19,7 +29,10 @@ export interface CriterionDef {
   weight: number;
   inputType: InputType;
   scaleConfig?: RatingConfig | NumberConfig | AutoConfig | null;
+  /** Points it's judged on, each scored its own way (normaliseCriterion works on a point too). */
+  points?: PointDef[];
 }
+export interface PointDef { /** Set where an entered score refers to it (a point id, or a copied form item's key). */ id?: string; name: string; inputType: InputType; scaleConfig?: RatingConfig | NumberConfig | AutoConfig | Record<string, unknown> | null }
 export interface SectionDef { id: string; name: string; weight: number; criteria: CriterionDef[] }
 export interface TemplateDef { sections: SectionDef[]; missingPolicy: MissingPolicy }
 
@@ -48,8 +61,16 @@ export function checkTemplate(t: TemplateDef): string[] {
     }
     for (const c of s.criteria) {
       if (c.weight <= 0) problems.push(`"${c.name}" needs a weight above 0%.`);
-      if (c.inputType === 'NUMBER' && !((c.scaleConfig as NumberConfig | undefined)?.target! > 0)) {
-        problems.push(`"${c.name}" needs a target above 0.`);
+      // "On several points" was replaced by scoring forms: an old one is kept (so drafts still save) but can't go live —
+      // except an SOP checked step by step (every item pass / fail / N/A), which is how SOP scoring forms are built.
+      const sopSteps = !!c.points?.length && c.points.every(p => p.inputType === 'PASS_FAIL');
+      if (c.inputType === 'POINTS' && !sopSteps) problems.push(`"${c.name}" is scored on several points, which is no longer offered — pick how it's scored.`);
+      // With points, each point is scored its own way; without, the criterion is.
+      const scored = c.points?.length ? c.points : [c];
+      for (const p of scored) {
+        if (p.inputType === 'NUMBER' && !((p.scaleConfig as NumberConfig | undefined)?.target! > 0)) {
+          problems.push(`"${p.name}" needs a target above 0.`);
+        }
       }
     }
   }
@@ -69,12 +90,19 @@ export function normaliseCriterion(c: Pick<CriterionDef, 'inputType' | 'scaleCon
       return clamp(raw);
     case 'YES_NO':
       return raw > 0 ? FULL : 0;
+    case 'PASS_FAIL':
+      // N/A has no score — it's left out (see isNotApplicable).
+      return raw === NOT_APPLICABLE ? null : raw > 0 ? FULL : 0;
     case 'NUMBER': {
       const { target, higherIsBetter } = c.scaleConfig as NumberConfig;
       if (higherIsBetter) return clamp((raw / target) * FULL);
       // Lower is better: at or under target = full marks; each target's-worth over loses everything.
       return raw <= target ? FULL : clamp(FULL * (1 - (raw - target) / target));
     }
+    case 'POINTS':
+    case 'FORM':
+      // Scored from its points (combinePoints) / its scoring form's criteria — never entered directly.
+      return null;
     case 'AUTO': {
       const bands = (c.scaleConfig as AutoConfig | undefined)?.bands;
       if (!bands?.length) return clamp(raw);
@@ -169,10 +197,21 @@ export function checkStages(stages: (StageDef & { name: string })[]): string[] {
       problems.push(`"${s.name || 'A step'}" needs at least one position to do it.`);
     }
   }
+  // One person scores each appraisal, so marks never clash.
+  if (assess.some(s => s.positionIds.length > 1)) problems.push('Only one position can score it — pick one.');
   return problems;
 }
 
 /** The staff member's managers, nearest first, from a reports-to map — stops on a loop. */
+/** Everyone who reports to this person — directly, or further down the line (never themselves). */
+export function teamOf(teacherId: string, reportsTo: Map<string, string | null>): Set<string> {
+  const team = new Set<string>();
+  for (const id of reportsTo.keys()) {
+    if (id !== teacherId && managerChainOf(id, reportsTo).includes(teacherId)) team.add(id);
+  }
+  return team;
+}
+
 export function managerChainOf(teacherId: string, reportsTo: Map<string, string | null>): string[] {
   const chain: string[] = [];
   const seen = new Set([teacherId]);

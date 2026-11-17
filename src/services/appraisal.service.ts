@@ -40,6 +40,33 @@ export function previousAppraisal<T extends YearMonth>(rows: T[], month: YearMon
   return before.reduce((latest, r) => (monthNumber(r) > monthNumber(latest) ? r : latest));
 }
 
+const MONTHS_PER_QUARTER = 3;
+
+/** Average of the scores in `rows` (whole percent), or null when there are none. */
+const averageOf = (rows: { score: number }[]) => (rows.length ? Math.round(rows.reduce((a, r) => a + r.score, 0) / rows.length) : null);
+
+/**
+ * So far this quarter and this year, up to and including `month` — shown
+ * beside each person on HRMS → Appraisals. Months with none aren't counted.
+ */
+export function periodAverages(rows: (YearMonth & { score: number })[], month: YearMonth): { quarter: number | null; year: number | null } {
+  const quarterStart = month.month - (month.month % MONTHS_PER_QUARTER);
+  const yearToDate = rows.filter(r => r.year === month.year && r.month <= month.month);
+  return { quarter: averageOf(yearToDate.filter(r => r.month >= quarterStart)), year: averageOf(yearToDate) };
+}
+
+/**
+ * Each quarter that has appraisals, newest first, with its average (the same
+ * rule as periodAverages: that quarter's months) — e.g. for the teacher's
+ * history grouped by quarter. Quarter is 1–4.
+ */
+export function quarterAverages(rows: (YearMonth & { score: number })[]): { year: number; quarter: number; average: number | null }[] {
+  const keys = [...new Set(rows.map(r => `${r.year}:${Math.floor(r.month / MONTHS_PER_QUARTER)}`))];
+  return keys
+    .map(k => { const [year, q] = k.split(':').map(Number); return { year, quarter: q + 1, average: periodAverages(rows, { year, month: q * MONTHS_PER_QUARTER + MONTHS_PER_QUARTER - 1 }).quarter }; })
+    .sort((a, b) => b.year - a.year || b.quarter - a.quarter);
+}
+
 /** Average score over the 12 months ending with `end`, rounded to a whole percent. */
 export function averageOverWindow(rows: (YearMonth & { score: number })[], end: YearMonth): AppraisalAverage {
   const inWindow = rows.filter(r => isInAverageWindow(r, end));

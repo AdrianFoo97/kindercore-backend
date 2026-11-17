@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { sopTemplates, sopTemplateCategories, sopCategories } from '../db/schema.js';
+import { sopTemplates, sopTemplateCategories, sopCategories, sopSteps } from '../db/schema.js';
 
 // Flat, organization-wide library — not scoped per position (many SOPs
 // apply to everyone), so listing/reordering/displayOrder are all global.
@@ -47,7 +47,12 @@ export async function listTemplates(_req: Request, res: Response): Promise<void>
     byTemplate.get(link.sopTemplateId)!.push({ id: link.id, name: link.name, color: link.color });
   }
 
-  res.json(rows.map(r => ({ ...r, categories: byTemplate.get(r.id) ?? [] })));
+  // How many (live) steps each has — so pickers can leave out SOPs with nothing to check yet.
+  const counts = await db.select({ sopTemplateId: sopSteps.sopTemplateId, n: sql<number>`COUNT(*)` })
+    .from(sopSteps).where(isNull(sopSteps.deletedAt)).groupBy(sopSteps.sopTemplateId);
+  const stepsOf = new Map(counts.map(c => [c.sopTemplateId, Number(c.n)]));
+
+  res.json(rows.map(r => ({ ...r, categories: byTemplate.get(r.id) ?? [], stepCount: stepsOf.get(r.id) ?? 0 })));
 }
 
 const setCategoriesSchema = z.object({

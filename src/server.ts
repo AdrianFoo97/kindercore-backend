@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { createApp } from './app.js';
 import { warnIfReaderKeyMissing } from './middlewares/reader.middleware.js';
 import { purgeOldAccessLog } from './services/accessLog.service.js';
+import { runDueSchedules } from './services/appraisalSchedules.service.js';
+import { ensureStarterRatingScale } from './services/appraisalRatingScales.service.js';
 import { randomUUID } from 'crypto';
 import { DEFAULT_STAFF_ONBOARDING_TASKS, DEFAULT_STAFF_SELF_ONBOARDING_TASKS } from './services/staffOnboarding.service.js';
 import { syncLegacyAppraisals } from './services/appraisalLegacy.service.js';
@@ -806,7 +808,7 @@ async function runMigrations() {
       \`id\` VARCHAR(36) NOT NULL,
       \`name\` VARCHAR(191) NOT NULL,
       \`description\` TEXT NULL,
-      \`frequency\` ENUM('MONTHLY','QUARTERLY','YEARLY') NOT NULL DEFAULT 'MONTHLY',
+      \`frequency\` ENUM('MONTHLY','QUARTERLY','YEARLY','MANUAL') NOT NULL DEFAULT 'MONTHLY',
       \`status\` ENUM('DRAFT','ACTIVE','RETIRED') NOT NULL DEFAULT 'DRAFT',
       \`version\` INT NOT NULL DEFAULT 1,
       \`familyId\` VARCHAR(36) NOT NULL,
@@ -832,7 +834,7 @@ async function runMigrations() {
       \`name\` VARCHAR(191) NOT NULL,
       \`description\` TEXT NULL,
       \`weight\` FLOAT NOT NULL,
-      \`inputType\` ENUM('RATING','PERCENT','YES_NO','NUMBER','AUTO') NOT NULL,
+      \`inputType\` ENUM('RATING','PERCENT','YES_NO','NUMBER','AUTO','POINTS') NOT NULL,
       \`scaleConfig\` JSON NULL,
       \`metricSource\` VARCHAR(64) NULL,
       \`sortOrder\` INT NOT NULL DEFAULT 0,
@@ -871,6 +873,26 @@ async function runMigrations() {
       \`sortOrder\` INT NOT NULL DEFAULT 0,
       PRIMARY KEY (\`id\`),
       KEY \`AppraisalCriterionPoint_criterion_idx\` (\`criterionId\`)
+    )`,
+    // Rating scales a criterion can copy its levels from (one is the default).
+    `CREATE TABLE IF NOT EXISTS \`AppraisalRatingScale\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(100) NOT NULL,
+      \`max\` INT NOT NULL,
+      \`levels\` JSON NOT NULL,
+      \`isDefault\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    )`,
+    // Scoring forms: reusable sets of points a criterion can copy.
+    `CREATE TABLE IF NOT EXISTS \`AppraisalScoringForm\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`name\` VARCHAR(100) NOT NULL,
+      \`sections\` JSON NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
     )`,
     `CREATE TABLE IF NOT EXISTS \`AppraisalStage\` (
       \`id\` VARCHAR(36) NOT NULL,
@@ -924,13 +946,32 @@ async function runMigrations() {
       \`id\` VARCHAR(36) NOT NULL,
       \`appraisalId\` VARCHAR(36) NOT NULL,
       \`criterionId\` VARCHAR(36) NOT NULL,
+      \`pointId\` VARCHAR(36) NULL,
       \`rawValue\` FLOAT NULL,
       \`autoValue\` FLOAT NULL,
       \`overrideReason\` VARCHAR(500) NULL,
       \`normalised\` FLOAT NULL,
       \`comment\` TEXT NULL,
       PRIMARY KEY (\`id\`),
-      UNIQUE KEY \`AppraisalScore_criterion_uq\` (\`appraisalId\`, \`criterionId\`)
+      UNIQUE KEY \`AppraisalScore_point_uq\` (\`appraisalId\`, \`criterionId\`, \`pointId\`)
+    )`,
+    // HRMS → Appraisal schedule: a staff member on an appraisal form, repeating or once. The scheduler
+    // (appraisalSchedules.service) creates each appraisal when its day comes; lastPeriodKey stops repeats.
+    `CREATE TABLE IF NOT EXISTS \`AppraisalSchedule\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`teacherId\` VARCHAR(36) NOT NULL,
+      \`templateFamilyId\` VARCHAR(36) NOT NULL,
+      \`repeatEvery\` ENUM('ONCE','MONTHLY','QUARTERLY','YEARLY') NOT NULL,
+      \`dayOfMonth\` INT NOT NULL DEFAULT 1,
+      \`monthOfYear\` INT NULL,
+      \`startsOn\` VARCHAR(10) NOT NULL,
+      \`lastPeriodKey\` INT NULL,
+      \`createdByUserId\` VARCHAR(36) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`AppraisalSchedule_teacher_idx\` (\`teacherId\`),
+      KEY \`AppraisalSchedule_family_idx\` (\`templateFamilyId\`)
     )`,
     `CREATE TABLE IF NOT EXISTS \`AppraisalLog\` (
       \`id\` VARCHAR(36) NOT NULL,
@@ -967,8 +1008,31 @@ async function runMigrations() {
     `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`trialStartedAt\` DATETIME(3) NULL AFTER \`status\``,
     `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`trialStartedByName\` VARCHAR(191) NULL AFTER \`trialStartedAt\``,
     `ALTER TABLE \`SopTemplateRevision\` ADD COLUMN \`reviewCommentsJson\` JSON NULL AFTER \`reviewNote\``,
+    // Rating scales and scoring forms can be made inactive (kept, but not offered when picking).
+    `ALTER TABLE \`AppraisalRatingScale\` ADD COLUMN \`isActive\` TINYINT(1) NOT NULL DEFAULT 1 AFTER \`isDefault\``,
+    `ALTER TABLE \`AppraisalScoringForm\` ADD COLUMN \`isActive\` TINYINT(1) NOT NULL DEFAULT 1`,
+    // TeacherAppraisal — a month's score written by an appraisal done with a form.
+    `ALTER TABLE \`TeacherAppraisal\` ADD COLUMN \`engineAppraisalId\` VARCHAR(36) NULL AFTER \`evaluatedBy\``,
+    // AppraisalScoringForm — optional: which positions it's meant for.
+    `ALTER TABLE \`AppraisalScoringForm\` ADD COLUMN \`positionIds\` JSON NULL AFTER \`sections\``,
+    // Department — organisational structure: its head position (the one that reports outside it).
+    `ALTER TABLE \`Department\` ADD COLUMN \`headPositionId\` VARCHAR(10) NULL AFTER \`hasCareerPath\``,
+    // Department — a management department: the one other departments' heads report into.
+    `ALTER TABLE \`Department\` ADD COLUMN \`isManagement\` TINYINT(1) NOT NULL DEFAULT 0 AFTER \`headPositionId\``,
+    // Position — total pay range: basic plus allowances and incentives (null = not set).
+    `ALTER TABLE \`Position\` ADD COLUMN \`payRangeMin\` FLOAT NULL AFTER \`basicSalary\``,
+    `ALTER TABLE \`Position\` ADD COLUMN \`payRangeMax\` FLOAT NULL AFTER \`payRangeMin\``,
+    // Position — organisational structure: the position it reports to (null = top of its line).
+    `ALTER TABLE \`Position\` ADD COLUMN \`reportsToPositionId\` VARCHAR(10) NULL AFTER \`authRoleId\``,
+    // AppraisalScoringForm — made from SOPs: which ones (null = built by hand).
+    `ALTER TABLE \`AppraisalScoringForm\` ADD COLUMN \`sopTemplateIds\` JSON NULL AFTER \`positionIds\``,
     // AppraisalScore — a score for one point of a criterion (null = the criterion itself).
     `ALTER TABLE \`AppraisalScore\` ADD COLUMN \`pointId\` VARCHAR(36) NULL AFTER \`criterionId\``,
+    // Appraisal — the period it covers: a month, quarter or year (from its schedule; null = month).
+    `ALTER TABLE \`Appraisal\` ADD COLUMN \`periodType\` VARCHAR(10) NULL AFTER \`periodMonth\``,
+    // AppraisalCriterionPoint — each point scored its own way (null = the criterion's way).
+    `ALTER TABLE \`AppraisalCriterionPoint\` ADD COLUMN \`inputType\` ENUM('RATING','PERCENT','YES_NO','NUMBER') NULL AFTER \`name\``,
+    `ALTER TABLE \`AppraisalCriterionPoint\` ADD COLUMN \`scaleConfig\` JSON NULL AFTER \`inputType\``,
     // Teacher — who they report to (appraisal "own team" scope).
     `ALTER TABLE \`Teacher\` ADD COLUMN \`reportsToTeacherId\` VARCHAR(36) NULL`,
     // PurchaseRequest — who buys it: the supervisor, or the requester themselves.
@@ -1474,6 +1538,64 @@ async function runMigrations() {
       console.log('[migrate] Verified SopTemplateRevision.status enum includes DRAFT + TRIAL + CHANGES_REQUESTED');
     } catch (e: any) {
       console.warn('[migrate] Failed to enforce SopTemplateRevision.status enum:', e.message);
+    }
+
+    // Phase 2e2: a criterion can be scored "on several points" (POINTS) — chosen
+    // before any points are added — or from a scoring form (FORM). MODIFY COLUMN is idempotent.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`AppraisalCriterion\` MODIFY \`inputType\`
+         ENUM('RATING','PERCENT','YES_NO','NUMBER','AUTO','POINTS','FORM') NOT NULL`,
+      );
+    } catch (e: any) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') console.warn('[migrate] AppraisalCriterion.inputType MODIFY skipped:', e.message);
+    }
+
+    // Position.titleWeight: up to 2 decimals (e.g. 1.25) — was whole numbers. MODIFY is idempotent.
+    try {
+      await conn.execute('ALTER TABLE `Position` MODIFY `titleWeight` DOUBLE NOT NULL DEFAULT 0');
+    } catch (e: any) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') console.warn('[migrate] Position.titleWeight MODIFY skipped:', e.message);
+    }
+
+    // Phase 2e2c: Pass / Fail / N/A (PASS_FAIL) — how an SOP step is checked, as in SOP observations.
+    // N/A doesn't count: it drops out and the rest share its weight. MODIFY COLUMN is idempotent.
+    for (const [table, col] of [
+      ['AppraisalCriterion', "ENUM('RATING','PERCENT','YES_NO','PASS_FAIL','NUMBER','AUTO','POINTS','FORM') NOT NULL"],
+      ['AppraisalCriterionPoint', "ENUM('RATING','PERCENT','YES_NO','PASS_FAIL','NUMBER') NULL"],
+    ]) {
+      try {
+        await conn.execute(`ALTER TABLE \`${table}\` MODIFY \`inputType\` ${col}`);
+      } catch (e: any) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') console.warn(`[migrate] ${table}.inputType PASS_FAIL MODIFY skipped:`, e.message);
+      }
+    }
+
+    // Phase 2e2b: an appraisal form can have no schedule — started by hand when needed (MANUAL). Idempotent.
+    try {
+      await conn.execute(
+        `ALTER TABLE \`AppraisalTemplate\` MODIFY \`frequency\` ENUM('MONTHLY','QUARTERLY','YEARLY','MANUAL') NOT NULL DEFAULT 'MONTHLY'`,
+      );
+    } catch (e: any) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') console.warn('[migrate] AppraisalTemplate.frequency MODIFY skipped:', e.message);
+    }
+
+    // A criterion scored on several parts (a copied scoring form) has one score per part, so scores are
+    // unique per (appraisal, criterion, part) — the old per-criterion key refused the second part. Idempotent.
+    try {
+      const [idx] = await conn.query(`SHOW INDEX FROM \`AppraisalScore\` WHERE Key_name = 'AppraisalScore_criterion_uq'`) as any;
+      if ((idx as unknown[]).length) {
+        await conn.execute(`ALTER TABLE \`AppraisalScore\` DROP INDEX \`AppraisalScore_criterion_uq\`, ADD UNIQUE KEY \`AppraisalScore_point_uq\` (\`appraisalId\`, \`criterionId\`, \`pointId\`)`);
+      }
+    } catch (e: any) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') console.warn('[migrate] AppraisalScore key change skipped:', e.message);
+    }
+
+    // Phase 2e3: a starting rating scale, so step 3 of "Add criterion" always has one to pick.
+    try {
+      await ensureStarterRatingScale();
+    } catch (e: any) {
+      console.warn('[migrate] Starter rating scale skipped:', e.message);
     }
 
     // Phase 2f: purchase requests gained an approval step (APPROVED) and a
@@ -2292,6 +2414,13 @@ async function runMigrations() {
         description: 'See everything staff have asked to be bought, as a weekly shopping list, and tick items Bought (with cost and receipt) or Not buying. For supervisors.',
         module: 'OPERATION',
       },
+      {
+        // performanceScope.service SEE_ALL_STAFF_VIEW.
+        key: 'HR_SEE_ALL_STAFF',
+        label: 'See every staff member in Performance Management',
+        description: 'In HRMS → Performance Management (Appraisals, Appraisal schedule, Practice Observations), see and act on every staff member — not just the people who report to you. For HR. Admins always can.',
+        module: 'HR',
+      },
     ];
     for (const v of seededViews) {
       const [[exists]] = await conn.execute<any[]>(`SELECT \`id\` FROM \`AuthView\` WHERE \`key\` = ? LIMIT 1`, [v.key]);
@@ -2380,6 +2509,18 @@ async function runMigrations() {
 const app = createApp();
 const PORT = process.env.PORT ?? 4000;
 
+/** How often the appraisal schedule checks for appraisals whose day has come. */
+const APPRAISAL_SCHEDULER_EVERY_MS = 60 * 60 * 1000;
+
+/** HRMS → Appraisal schedule: create due appraisals now, then every hour. Each schedule makes one per period at most. */
+function startAppraisalScheduler() {
+  const tick = () => runDueSchedules()
+    .then(r => { if (r.created || r.skipped) console.log(`[appraisal-schedule] Created ${r.created}, skipped ${r.skipped} (form not live or staff left)`); })
+    .catch(e => console.warn('[appraisal-schedule] Run failed:', e?.message ?? e));
+  void tick();
+  setInterval(tick, APPRAISAL_SCHEDULER_EVERY_MS).unref();
+}
+
 runMigrations()
   // Mirror pre-engine appraisals into the template engine (idempotent; see
   // appraisalLegacy.service). A failure here must not stop the server.
@@ -2397,6 +2538,7 @@ runMigrations()
       const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
       console.log(`[backend] DATABASE_URL: ${masked}`);
       warnIfReaderKeyMissing();
+      startAppraisalScheduler();
     });
   })
   .catch(err => {

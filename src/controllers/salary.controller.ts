@@ -5,6 +5,15 @@ import { z } from 'zod';
 import { db, pool } from '../db/client.js';
 import { positions, departments, levelIncentives, teachers, teacherAllowances, allowanceTypes, careerRecords, careerMissions, systemSettings } from '../db/schema.js';
 import { computeMonthlyPayroll, computeTeacherWeightsByMonth, isTeacherActiveInMonth } from '../services/payroll.service.js';
+import { reportingProblem, type DepartmentHeads } from '../services/orgStructure.logic.js';
+import { payRangeProblem } from '../services/payRange.logic.js';
+
+/** Every position's place in the organisation (for the reporting-line rules). */
+const orgPositions = () => db.select({ positionId: positions.positionId, reportsToPositionId: positions.reportsToPositionId, departmentId: positions.departmentId, titleWeight: positions.titleWeight }).from(positions);
+/** Each department's head position. */
+const departmentHeads = async (): Promise<DepartmentHeads> => new Map((await db.select({ id: departments.departmentId, head: departments.headPositionId }).from(departments)).map(d => [d.id, d.head]));
+/** The management departments (other departments' heads report into them). */
+const managementDepartments = async () => new Set((await db.select({ id: departments.departmentId, m: departments.isManagement }).from(departments)).filter(d => d.m).map(d => d.id));
 
 // Snapshot helper — "is the teacher active this calendar month?"
 function isTeacherActiveNow(t: { isActive: boolean; createdAt: Date | string | null; resignedAt: Date | string | null }): boolean {
@@ -25,6 +34,10 @@ const upsertDepartmentSchema = z.object({
   name: z.string().min(1),
   sortOrder: z.number().int().min(0).optional(),
   hasCareerPath: z.boolean().optional(),
+  // Organisational structure: the department's head position (reports outside the department).
+  headPositionId: z.string().max(10).nullable().optional(),
+  // Management department: other departments' heads report into it.
+  isManagement: z.boolean().optional(),
 });
 
 export async function upsertDepartment(req: Request, res: Response): Promise<void> {
@@ -37,6 +50,10 @@ export async function upsertDepartment(req: Request, res: Response): Promise<voi
   if (!parsed.success) {
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
+  }
+  if (parsed.data.headPositionId) {
+    const [head] = await db.select({ departmentId: positions.departmentId }).from(positions).where(eq(positions.positionId, parsed.data.headPositionId));
+    if (!head || head.departmentId !== departmentId) { res.status(400).json({ message: 'The head has to be a position in this department.' }); return; }
   }
   const now = new Date();
   const [existing] = await db.select().from(departments).where(eq(departments.departmentId, departmentId));
@@ -76,8 +93,12 @@ export async function getPositions(_req: Request, res: Response): Promise<void> 
 
 const upsertPositionSchema = z.object({
   name: z.string().min(1),
-  titleWeight: z.number().int().min(0),
+  // Up to 2 decimals, e.g. 1.25.
+  titleWeight: z.number().min(0).refine(n => Math.round(n * 100) === n * 100 || Math.abs(Math.round(n * 100) - n * 100) < 1e-9, 'Title weight can have at most 2 decimals.'),
   basicSalary: z.number().min(0),
+  // Total pay range (basic + allowances + incentives); both or neither.
+  payRangeMin: z.number().min(0).nullable().optional(),
+  payRangeMax: z.number().min(0).nullable().optional(),
   maxLevel: z.number().int().min(0).max(10),
   sortOrder: z.number().int().min(0).optional(),
   inCareerProgression: z.boolean().optional(),
@@ -87,6 +108,7 @@ const upsertPositionSchema = z.object({
   roleFocus: z.string().max(191).nullable().optional(),
   departmentId: z.string().max(20).nullable().optional(),
   authRoleId: z.string().max(36).nullable().optional(),
+  reportsToPositionId: z.string().max(10).nullable().optional(),
 });
 
 export async function upsertPosition(req: Request, res: Response): Promise<void> {
@@ -100,6 +122,15 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
+  if (parsed.data.payRangeMin !== undefined || parsed.data.payRangeMax !== undefined) {
+    const problem = payRangeProblem(parsed.data.basicSalary, parsed.data.payRangeMin ?? null, parsed.data.payRangeMax ?? null);
+    if (problem) { res.status(400).json({ message: problem }); return; }
+  }
+  if (parsed.data.reportsToPositionId !== undefined) {
+    const self = { positionId, departmentId: parsed.data.departmentId ?? null, titleWeight: parsed.data.titleWeight };
+    const problem = reportingProblem(await orgPositions(), await departmentHeads(), self, parsed.data.reportsToPositionId ?? null, await managementDepartments());
+    if (problem) { res.status(400).json({ message: problem }); return; }
+  }
   const now = new Date();
   const [existing] = await db.select().from(positions).where(eq(positions.positionId, positionId));
   if (existing) {
@@ -110,6 +141,8 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
       name: parsed.data.name,
       titleWeight: parsed.data.titleWeight,
       basicSalary: parsed.data.basicSalary,
+      payRangeMin: parsed.data.payRangeMin ?? null,
+      payRangeMax: parsed.data.payRangeMax ?? null,
       maxLevel: parsed.data.maxLevel,
       sortOrder: parsed.data.sortOrder ?? 0,
       inCareerProgression: parsed.data.inCareerProgression ?? true,
@@ -119,6 +152,7 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
       roleFocus: parsed.data.roleFocus ?? null,
       departmentId: parsed.data.departmentId ?? null,
       authRoleId: parsed.data.authRoleId ?? null,
+      reportsToPositionId: parsed.data.reportsToPositionId ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -323,7 +357,8 @@ export async function getTeacherWeightsByMonth(req: Request, res: Response): Pro
   res.json(result);
 }
 
-export async function getTeachersWithSalary(_req: Request, res: Response): Promise<void> {
+/** Each staff member's pay as configured (basic, level incentive, allowances) — everyone, or just one. */
+async function teachersWithSalary(onlyTeacherId?: string) {
   const [allTeachers, allPositions, allIncentives, allAllowances, allTypes, allCareerRecords] = await Promise.all([
     db.select().from(teachers),
     db.select().from(positions),
@@ -384,6 +419,7 @@ export async function getTeachersWithSalary(_req: Request, res: Response): Promi
     // counted in *this month's* payroll cost yet, which is what
     // `activeThisMonth` below is for.
     .filter(t => t.isActive || !!t.resignedAt)
+    .filter(t => !onlyTeacherId || t.id === onlyTeacherId)
     .map(t => {
       const allowances = teacherAllowanceMap.get(t.id) ?? [];
       const totalAllowances = allowances.reduce((s, a) => s + a.amount, 0);
@@ -433,6 +469,38 @@ export async function getTeachersWithSalary(_req: Request, res: Response): Promi
         activeThisMonth: isTeacherActiveNow(t),
       };
     });
+  return result;
+}
 
-  res.json(result);
+export async function getTeachersWithSalary(_req: Request, res: Response): Promise<void> {
+  res.json(await teachersWithSalary());
+}
+
+/**
+ * One staff member's own pay record — for their Pay tab (the whole staff list
+ * is HR / Finance / Analysis only). Their own, or HR: see the route.
+ */
+export async function getTeacherSalary(req: Request, res: Response): Promise<void> {
+  const [one] = await teachersWithSalary(req.params.teacherId);
+  if (!one) { res.status(404).json({ message: 'Staff member not found' }); return; }
+  res.json(one);
+}
+
+
+const reportsToSchema = z.object({ reportsToPositionId: z.string().max(10).nullable() });
+
+/** Settings → HR Planning: set only who a position reports to (the org chart's lines). Admins only. */
+export async function setPositionReportsTo(req: Request, res: Response): Promise<void> {
+  const parsed = reportsToSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ message: 'Validation error', errors: parsed.error.errors }); return; }
+  const { positionId } = req.params;
+  const all = await orgPositions();
+  const self = all.find(p => p.positionId === positionId);
+  if (!self) { res.status(404).json({ message: 'Position not found' }); return; }
+  const parentId = parsed.data.reportsToPositionId ?? null;
+  const problem = reportingProblem(all, await departmentHeads(), self, parentId, await managementDepartments());
+  if (problem) { res.status(400).json({ message: problem }); return; }
+  await db.update(positions).set({ reportsToPositionId: parentId, updatedAt: new Date() }).where(eq(positions.positionId, positionId));
+  const [updated] = await db.select().from(positions).where(eq(positions.positionId, positionId));
+  res.json(updated);
 }

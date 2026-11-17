@@ -40,7 +40,8 @@ export async function ensureLegacyTemplate(exec: Exec = db): Promise<void> {
 export async function syncLegacyAppraisals(): Promise<{ added: number; updated: number; removed: number }> {
   return db.transaction(async tx => {
     await ensureLegacyTemplate(tx);
-    const sources = await tx.select().from(teacherAppraisals);
+    // Scores written by appraisals done with a form already live in the engine — they aren't copied again.
+    const sources = (await tx.select().from(teacherAppraisals)).filter(s => !s.engineAppraisalId);
     const copies = await tx.select().from(appraisals).where(eq(appraisals.templateId, LEGACY_TEMPLATE_ID));
     const copyBySource = new Map(copies.filter(c => c.legacyAppraisalId).map(c => [c.legacyAppraisalId!, c]));
     const sourceIds = new Set(sources.map(s => s.id));

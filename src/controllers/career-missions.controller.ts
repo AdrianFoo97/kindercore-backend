@@ -4,8 +4,9 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import {
-  careerMissions, teacherMissionProgress, positions, teachers, careerRecords, missionCategories,
+  careerMissions, teacherMissionProgress, positions, teachers, careerRecords, missionCategories, departments,
 } from '../db/schema.js';
+import { careerLadder, nextOnLadder } from '../services/orgStructure.logic.js';
 import { computeAverageAppraisal } from './teacher-appraisals.controller.js';
 import { APPRAISAL_PASS_THRESHOLD } from '../services/appraisal.service.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
@@ -169,21 +170,19 @@ export async function getTeacherCareer(req: Request, res: Response): Promise<voi
   if (!teacher) { res.status(404).json({ message: 'Teacher not found' }); return; }
 
   const allPositions = await db.select().from(positions).orderBy(asc(positions.titleWeight));
-  // Career-progression positions only. Used for the Journey Map and for
-  // determining the next promotion target. Non-progression roles like
-  // "Staff" are configured on the Position itself and excluded here.
-  const ladder = allPositions.filter(p => p.inCareerProgression);
-
   const currentPosition = teacher.positionId
     ? allPositions.find(p => p.positionId === teacher.positionId) ?? null
     : null;
   const isCurrentInLadder = currentPosition?.inCareerProgression ?? false;
 
-  // "Next" follows the ladder. If current isn't on the ladder, next is the
-  // first ladder rung above the current titleWeight.
-  const nextPosition = currentPosition
-    ? ladder.find(p => p.titleWeight > currentPosition.titleWeight) ?? null
-    : ladder[0] ?? null;
+  // The career path (Journey Map + next promotion): the teacher's department by rank up to its head, then the
+  // head's reporting line upwards — e.g. Assistant EI → Junior EI → Senior EI → Supervisor → Shadow Principal →
+  // Principal. Positions off the career path (e.g. "Staff") are skipped. No position yet: every on-path position.
+  const heads = new Map((await db.select({ id: departments.departmentId, head: departments.headPositionId }).from(departments)).map(d => [d.id, d.head]));
+  const ladder = currentPosition ? careerLadder(allPositions, heads, currentPosition.positionId) : allPositions.filter(p => p.inCareerProgression);
+
+  // "Next" is the step after the current one on that path (off the path: the first step above its rank).
+  const nextPosition = currentPosition ? nextOnLadder(ladder, currentPosition) : ladder[0] ?? null;
 
   // Mission scope: current position + every position above it on the
   // ladder (future promotions). Future-position missions render on the
@@ -191,7 +190,7 @@ export async function getTeacherCareer(req: Request, res: Response): Promise<voi
   // counts toward those future positions' achievements when the teacher
   // gets there (progress is keyed by missionId, not by position).
   const futureLadderIds = currentPosition && isCurrentInLadder
-    ? ladder.filter(p => p.titleWeight > currentPosition.titleWeight).map(p => p.positionId)
+    ? ladder.slice(ladder.findIndex(p => p.positionId === currentPosition.positionId) + 1).map(p => p.positionId)
     : [];
   const missionScopeIds = currentPosition
     ? [currentPosition.positionId, ...futureLadderIds]

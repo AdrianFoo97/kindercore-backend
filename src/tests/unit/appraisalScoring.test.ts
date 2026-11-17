@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  canActOnStage, checkStages, checkTemplate, combinePoints, managerChainOf, normaliseCriterion, scoreAppraisal, type TemplateDef,
+  canActOnStage, checkStages, checkTemplate, combinePoints, managerChainOf, teamOf, normaliseCriterion, scoreAppraisal, type TemplateDef,
 } from '../../services/appraisalScoring.service.js';
 
 // The customizable appraisal engine: template checks, 0–100 normalising,
@@ -79,6 +79,13 @@ describe('Appraisal engine — who may act on each stage', () => {
   const tinasManagers = managerChainOf('tina', reportsTo);
   const who = (teacherId: string, positionId: string | null, isAdmin = false) => ({ teacherId, positionId, isAdmin });
 
+  it('finds someone\'s whole team — everyone who reports to them, directly or further down', () => {
+    const reportsTo = new Map<string, string | null>([['sam', null], ['tina', 'sam'], ['ben', 'tina'], ['oli', null], ['zed', 'oli'], ['loop', 'loop']]);
+    expect([...teamOf('sam', reportsTo)].sort()).toEqual(['ben', 'tina']);
+    expect([...teamOf('ben', reportsTo)]).toEqual([]);
+    expect([...teamOf('oli', reportsTo)]).toEqual(['zed']);
+  });
+
   it('follows the reports-to chain upwards, and stops if it loops', () => {
     expect(tinasManagers).toEqual(['sam', 'pat']);
     expect(managerChainOf('a', new Map([['a', 'b'], ['b', 'a']]))).toEqual(['b']);
@@ -127,11 +134,52 @@ describe('Appraisal engine — the approval chain', () => {
   });
 });
 
+describe('Appraisal engine — who scores', () => {
+  it('lets only one position score an appraisal, so marks never clash', () => {
+    const chain = (assessIds: string[]) => [
+      { name: 'Assessed by', kind: 'ASSESS' as const, scope: 'OWN_TEAM' as const, positionIds: assessIds },
+      { name: 'Signed off by', kind: 'SIGN_OFF' as const, scope: 'ANYONE' as const, positionIds: ['P-P', 'P-D'] },
+    ];
+    expect(checkStages(chain(['P-S', 'P-T']))).toEqual(['Only one position can score it — pick one.']);
+    expect(checkStages(chain(['P-S']))).toEqual([]);
+  });
+});
+
 describe('Appraisal engine — criteria judged on several points', () => {
   it('scores a criterion with points as the plain average of its points', () => {
     // Love and patience on 1–5: speaks calmly 4 (80), comforts children 5 (100), waits patiently 3 (60) → 80.
     expect(combinePoints([80, 100, 60], 'REQUIRE_ALL')).toBe(80);
     expect(combinePoints([100], 'REQUIRE_ALL')).toBe(100);
+  });
+
+  it('turns each point into 0–100 its own way before averaging', () => {
+    // Cares (rating 4/5 = 80) + doesn't scold (yes = 100) → 90.
+    const cares = normaliseCriterion({ inputType: 'RATING', scaleConfig: { max: 5 } }, 4);
+    const noScold = normaliseCriterion({ inputType: 'YES_NO' }, 1);
+    expect(combinePoints([cares, noScold], 'REQUIRE_ALL')).toBe(90);
+  });
+
+  it('asks for a target on a number point, not on the criterion above it', () => {
+    const t: TemplateDef = { missingPolicy: 'REQUIRE_ALL', sections: [{ id: 's', name: 'Care', weight: 100, criteria: [{
+      id: 'c', name: 'Love', weight: 100, inputType: 'RATING', scaleConfig: { max: 5 },
+      points: [{ name: 'Cares', inputType: 'RATING', scaleConfig: { max: 5 } }, { name: 'Raised voice', inputType: 'NUMBER', scaleConfig: null }],
+    }] }] };
+    expect(checkTemplate(t)).toEqual(['"Raised voice" needs a target above 0.']);
+  });
+
+  it('never lets an old "on several points" criterion go live — it must be changed first — except an SOP checked step by step', () => {
+    const t: TemplateDef = { missingPolicy: 'REQUIRE_ALL', sections: [{ id: 's', name: 'Care', weight: 100, criteria: [
+      { id: 'c', name: 'Love', weight: 100, inputType: 'POINTS', points: [] },
+    ] }] };
+    const retired = '"Love" is scored on several points, which is no longer offered — pick how it\'s scored.';
+    expect(checkTemplate(t)).toEqual([retired]);
+    t.sections[0].criteria[0].points = [{ name: 'Cares', inputType: 'YES_NO' }];
+    expect(checkTemplate(t)).toEqual([retired]);
+    // …except an SOP checked step by step: every item pass / fail / N/A.
+    t.sections[0].criteria[0].points = [{ name: 'Greet', inputType: 'PASS_FAIL' }, { name: 'Check in', inputType: 'PASS_FAIL' }];
+    expect(checkTemplate(t)).toEqual([]);
+    // Its score only ever comes from its points.
+    expect(normaliseCriterion({ inputType: 'POINTS' }, 80)).toBeNull();
   });
 
   it('waits for every point unless the form lets unscored ones drop out', () => {

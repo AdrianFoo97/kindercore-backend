@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { appraisalSectionsSchema } from './appraisalScoringSchemas.js';
 import {
   STARTER_STAGES, activateTemplate, createTemplate, deleteDraft, listTemplateFamilies, loadTemplate, retireTemplate,
   saveDraft, setFamilyPositions, startNewVersion, unknownPositionIds, type TemplateInput,
@@ -9,75 +10,21 @@ import {
 // Drafts are edited as one whole document; live versions are read-only and
 // "Edit" opens a new draft version. Rules live in appraisalTemplates.service.
 
-const MAX_SECTIONS = 10;
-const MAX_CRITERIA_PER_SECTION = 30;
 const MAX_STAGES = 8;
-const MAX_POINTS_PER_CRITERION = 20;
-const MAX_RATING_LEVELS = 10;
-const MIN_RATING_LEVELS = 2;
-const DEFAULT_RATING_MAX = 5;
-const FULL_WEIGHT = 100;
-const WEIGHT_TOLERANCE = 0.01;
-
-const ratingConfig = z.object({
-  max: z.number().int().min(MIN_RATING_LEVELS).max(MAX_RATING_LEVELS),
-  levels: z.array(z.object({
-    value: z.number().int().min(1).max(MAX_RATING_LEVELS),
-    label: z.string().trim().max(60),
-    description: z.string().trim().max(300).optional(),
-  })).max(MAX_RATING_LEVELS).optional(),
-});
-const numberConfig = z.object({ target: z.number().positive('A target has to be above 0'), higherIsBetter: z.boolean() });
-
-// Automatic scores (from SOP checks, incidents…) arrive in a later update, so
-// only manually entered kinds can be chosen for now.
-const MANUAL_INPUTS = ['RATING', 'PERCENT', 'YES_NO', 'NUMBER'] as const;
-
-const criterionSchema = z.object({
-  name: z.string().trim().min(1, 'Every criterion needs a name').max(191),
-  description: z.string().trim().max(1000).nullable().optional(),
-  weight: z.number().min(0).max(100),
-  inputType: z.enum(MANUAL_INPUTS),
-  scaleConfig: z.unknown().optional(),
-  points: z.array(z.object({ name: z.string().trim().min(1, 'Every point needs a name').max(191) })).max(MAX_POINTS_PER_CRITERION).default([]),
-}).transform((c, ctx) => {
-  // Keep only the settings that belong to the chosen kind of input.
-  let scaleConfig: Record<string, unknown> | null = null;
-  if (c.inputType === 'RATING') {
-    const parsed = ratingConfig.safeParse(c.scaleConfig ?? { max: DEFAULT_RATING_MAX });
-    if (!parsed.success) { ctx.addIssue({ code: 'custom', message: `"${c.name}": ${parsed.error.errors[0].message}` }); return z.NEVER; }
-    scaleConfig = { max: parsed.data.max, levels: (parsed.data.levels ?? []).filter(l => l.value <= parsed.data.max && (l.label || l.description)) };
-  } else if (c.inputType === 'NUMBER') {
-    const parsed = numberConfig.safeParse(c.scaleConfig);
-    if (!parsed.success) { ctx.addIssue({ code: 'custom', message: `"${c.name}" needs a target above 0` }); return z.NEVER; }
-    scaleConfig = parsed.data;
-  }
-  return { name: c.name, description: c.description || null, weight: c.weight, inputType: c.inputType, scaleConfig, points: c.points ?? [] };
-});
 
 const templateSchema = z.object({
   name: z.string().trim().min(1, 'Give the form a name').max(191),
   description: z.string().trim().max(2000).nullable().optional(),
-  frequency: z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY']).default('MONTHLY'),
+  frequency: z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY', 'MANUAL']).default('MONTHLY'),
   missingPolicy: z.enum(['REQUIRE_ALL', 'REWEIGHT']).default('REQUIRE_ALL'),
-  sections: z.array(z.object({
-    name: z.string().trim().min(1, 'Every section needs a name').max(191),
-    weight: z.number().min(0).max(100),
-    criteria: z.array(criterionSchema).max(MAX_CRITERIA_PER_SECTION),
-  })).max(MAX_SECTIONS),
+  // Sections → criteria (→ points), with weights never over 100% — shared with scoring forms.
+  sections: appraisalSectionsSchema,
   stages: z.array(z.object({
     name: z.string().trim().min(1, 'Every step needs a name').max(100),
     kind: z.enum(['ASSESS', 'SIGN_OFF', 'ACKNOWLEDGE']),
     scope: z.enum(['ANYONE', 'OWN_TEAM']).default('ANYONE'),
     positionIds: z.array(z.string().max(10)).max(50),
   })).min(1, 'Add who assesses it').max(MAX_STAGES),
-}).superRefine((t, ctx) => {
-  // A draft may still be short of 100% while being built, but never over it.
-  const over = (weights: number[]) => weights.reduce((a, b) => a + b, 0) > FULL_WEIGHT + WEIGHT_TOLERANCE;
-  if (over(t.sections.map(s => s.weight))) ctx.addIssue({ code: 'custom', message: 'Section weights add up to more than 100%.' });
-  for (const s of t.sections) {
-    if (over(s.criteria.map(c => c.weight))) ctx.addIssue({ code: 'custom', message: `Criteria in "${s.name}" add up to more than 100%.` });
-  }
 });
 
 const createSchema = z.object({

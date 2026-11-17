@@ -29,8 +29,11 @@ const MATRIX: { what: string; path: string; allowed: Who[] }[] = [
   { what: 'Employer contributions', path: '/api/salary/employer-contributions', allowed: ['hr', 'finance', 'analysis', 'admin'] },
   { what: 'One person\'s allowances', path: `/api/teachers/${OWNER}/allowances`, allowed: ['owner', 'hr', 'admin'] },
   { what: 'One person\'s pay pools', path: `/api/teachers/${OWNER}/pay-pools`, allowed: ['owner', 'hr', 'admin'] },
+  { what: 'One person\'s own pay record', path: `/api/salary/teachers/${OWNER}`, allowed: ['owner', 'hr', 'admin'] },
   { what: 'One person\'s appraisals', path: `/api/teachers/${OWNER}/appraisals`, allowed: ['owner', 'hr', 'admin'] },
   { what: 'Appraisals of all staff', path: '/api/appraisals/overview', allowed: ['hr', 'admin'] },
+  { what: 'Who is scheduled for appraisal, on which form', path: '/api/appraisal-schedules', allowed: ['hr', 'admin'] },
+  { what: 'Every appraisal the schedule has created', path: '/api/appraisal-schedules/created', allowed: ['hr', 'admin'] },
   { what: 'Job applicants', path: '/api/candidates', allowed: ['hr', 'admin'] },
   { what: 'User accounts', path: '/api/auth/users', allowed: ['admin'] },
   { what: 'The access log', path: '/api/admin/access-log', allowed: ['admin'] },
@@ -46,6 +49,7 @@ beforeAll(async () => {
   const rows = await personaRows();
   await db.insert(authRoles).values(rows.authRoles);
   await db.insert(authRoleModules).values(rows.authRoleModules);
+  await db.insert(authRoleViews).values(rows.authRoleViews);
   await db.insert(positions).values(rows.positions);
   await db.insert(teachers).values(rows.teachers);
   await db.insert(users).values(rows.users);

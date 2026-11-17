@@ -187,6 +187,304 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "appraisal-rating-scales.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/appraisal-rating-scales",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "listAppraisalRatingScales",
+          "controller": "appraisal-rating-scales.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-rating-scales",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "createAppraisalRatingScale",
+          "controller": "appraisal-rating-scales.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-rating-scales/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "updateAppraisalRatingScale",
+          "controller": "appraisal-rating-scales.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/appraisal-rating-scales/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "deleteAppraisalRatingScale",
+          "controller": "appraisal-rating-scales.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-rating-scales/:id/active",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "setAppraisalRatingScaleActive",
+          "controller": "appraisal-rating-scales.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-rating-scales/:id/default",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "setDefaultAppraisalRatingScale",
+          "controller": "appraisal-rating-scales.controller"
+        }
+      ]
+    },
+    {
+      "id": "appraisal-runs.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "DELETE",
+          "path": "/api/appraisal-runs/:id",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "cancelAppraisalRun",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/appraisal-runs/tasks",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)",
+            "logSensitiveAccess('APPRAISALS')"
+          ],
+          "handler": "getMyAppraisalTasks",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/appraisal-runs/:id",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)",
+            "logSensitiveAccess('APPRAISALS')"
+          ],
+          "handler": "getAppraisalRun",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-runs/:id/scores",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)"
+          ],
+          "handler": "saveAppraisalRunScores",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-runs/:id/submit",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)"
+          ],
+          "handler": "submitAppraisalRun",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-runs/:id/approve",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)"
+          ],
+          "handler": "approveAppraisalRun",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-runs/:id/send-back",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)"
+          ],
+          "handler": "sendBackAppraisalRun",
+          "controller": "appraisal-runs.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-runs/:id/acknowledge",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.HR, MODULES.OPERATION)"
+          ],
+          "handler": "acknowledgeAppraisalRun",
+          "controller": "appraisal-runs.controller"
+        }
+      ]
+    },
+    {
+      "id": "appraisal-schedules.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/appraisal-schedules",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)",
+            "logSensitiveAccess('APPRAISALS')"
+          ],
+          "handler": "getAppraisalSchedules",
+          "controller": "appraisal-schedules.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/appraisal-schedules/created",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)",
+            "logSensitiveAccess('APPRAISALS')"
+          ],
+          "handler": "getCreatedAppraisals",
+          "controller": "appraisal-schedules.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/performance/staff",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "getPerformanceStaff",
+          "controller": "appraisal-schedules.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-schedules",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "createAppraisalSchedules",
+          "controller": "appraisal-schedules.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/appraisal-schedules/:id",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "deleteAppraisalSchedule",
+          "controller": "appraisal-schedules.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-schedules/:id/create-now",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "createAppraisalNow",
+          "controller": "appraisal-schedules.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisals/start",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "startAppraisalOneOff",
+          "controller": "appraisal-schedules.controller"
+        }
+      ]
+    },
+    {
+      "id": "appraisal-scoring-forms.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/appraisal-scoring-forms",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "listAppraisalScoringForms",
+          "controller": "appraisal-scoring-forms.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/appraisal-scoring-forms/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getAppraisalScoringForm",
+          "controller": "appraisal-scoring-forms.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/appraisal-scoring-forms",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "createAppraisalScoringForm",
+          "controller": "appraisal-scoring-forms.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-scoring-forms/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "updateAppraisalScoringForm",
+          "controller": "appraisal-scoring-forms.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/appraisal-scoring-forms/:id/active",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "setAppraisalScoringFormActive",
+          "controller": "appraisal-scoring-forms.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/appraisal-scoring-forms/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "deleteAppraisalScoringForm",
+          "controller": "appraisal-scoring-forms.controller"
+        }
+      ]
+    },
+    {
       "id": "appraisal-templates.routes",
       "mount": "/api",
       "endpoints": [
@@ -2364,6 +2662,16 @@ export const ARCHITECTURE: Architecture = {
           "controller": "salary.controller"
         },
         {
+          "method": "PUT",
+          "path": "/api/salary/positions/:positionId/reports-to",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "setPositionReportsTo",
+          "controller": "salary.controller"
+        },
+        {
           "method": "DELETE",
           "path": "/api/salary/positions/:positionId",
           "middleware": [
@@ -2401,6 +2709,17 @@ export const ARCHITECTURE: Architecture = {
             "logSensitiveAccess('PAYROLL')"
           ],
           "handler": "getTeachersWithSalary",
+          "controller": "salary.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/salary/teachers/:teacherId",
+          "middleware": [
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)",
+            "logSensitiveAccess('STAFF_PAY')"
+          ],
+          "handler": "getTeacherSalary",
           "controller": "salary.controller"
         },
         {
@@ -2600,12 +2919,42 @@ export const ARCHITECTURE: Architecture = {
         },
         {
           "method": "POST",
+          "path": "/api/sop-observations/:id/send-back",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "sendBackForTraining",
+          "controller": "sop-observations.controller"
+        },
+        {
+          "method": "POST",
           "path": "/api/sop-observations/:id/step-results",
           "middleware": [
             "authMiddleware",
             "requireModule(MODULES.HR)"
           ],
           "handler": "saveStepResultsDraft",
+          "controller": "sop-observations.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/teachers/:teacherId/training",
+          "middleware": [
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
+          ],
+          "handler": "getTeacherTraining",
+          "controller": "sop-observations.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/teachers/:teacherId/training/:observationId/trained",
+          "middleware": [
+            "authMiddleware",
+            "selfOrModule(MODULES.HR)"
+          ],
+          "handler": "recordTrainingGiven",
           "controller": "sop-observations.controller"
         }
       ]
@@ -3262,10 +3611,56 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "appraisal-rating-scales.controller",
+      "services": [
+        "appraisalRatingScales.service",
+        "appraisalUsage.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisal-runs.controller",
+      "services": [
+        "appraisalRuns.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisal-schedules.controller",
+      "services": [
+        "appraisalRuns.service",
+        "appraisalSchedule.logic",
+        "appraisalSchedules.service",
+        "performanceScope.service"
+      ],
+      "controllers": [
+        "appraisal-runs.controller"
+      ],
+      "tables": []
+    },
+    {
+      "id": "appraisal-scoring-forms.controller",
+      "services": [
+        "appraisalScoringForms.service",
+        "appraisalTemplates.service",
+        "appraisalUsage.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "appraisal-templates.controller",
       "services": [
         "appraisalTemplates.service"
       ],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisalScoringSchemas",
+      "services": [],
       "controllers": [],
       "tables": []
     },
@@ -3340,12 +3735,14 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "candidates.controller",
       "services": [
+        "recruitmentOpenings.logic",
         "staffRecord.service"
       ],
       "controllers": [],
       "tables": [
         "Candidate",
         "GoogleConnection",
+        "Position",
         "SystemSetting",
         "Teacher"
       ]
@@ -3353,7 +3750,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "career-missions.controller",
       "services": [
-        "appraisal.service"
+        "appraisal.service",
+        "orgStructure.logic"
       ],
       "controllers": [
         "teacher-appraisals.controller"
@@ -3361,6 +3759,7 @@ export const ARCHITECTURE: Architecture = {
       "tables": [
         "CareerMission",
         "CareerRecord",
+        "Department",
         "MissionCategory",
         "Position",
         "Teacher",
@@ -3526,7 +3925,9 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "points.controller",
-      "services": [],
+      "services": [
+        "orgStructure.logic"
+      ],
       "controllers": [],
       "tables": [
         "PointsEarningRule",
@@ -3554,6 +3955,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "salary.controller",
       "services": [
+        "orgStructure.logic",
+        "payRange.logic",
         "payroll.service"
       ],
       "controllers": [],
@@ -3596,14 +3999,19 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "sop-observations.controller",
-      "services": [],
+      "services": [
+        "appraisalSchedule.logic",
+        "performanceScope.service",
+        "sopTraining.logic"
+      ],
       "controllers": [],
       "tables": [
         "SopObservation",
         "SopObservationStepResult",
         "SopStep",
         "SopTemplate",
-        "Teacher"
+        "Teacher",
+        "User"
       ]
     },
     {
@@ -3641,6 +4049,7 @@ export const ARCHITECTURE: Architecture = {
       "controllers": [],
       "tables": [
         "SopCategory",
+        "SopStep",
         "SopTemplate",
         "SopTemplateCategory"
       ]
@@ -3695,7 +4104,9 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "teacher-appraisals.controller",
       "services": [
-        "appraisal.service"
+        "appraisal.service",
+        "appraisalRuns.service",
+        "performanceScope.service"
       ],
       "controllers": [],
       "tables": [
@@ -3744,10 +4155,64 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "appraisalRatingScales.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AppraisalRatingScale"
+      ]
+    },
+    {
+      "id": "appraisalRun.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisalRuns.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "Appraisal",
+        "AppraisalLog",
+        "AppraisalScore",
+        "AppraisalTemplate",
+        "Teacher",
+        "TeacherAppraisal",
+        "User"
+      ]
+    },
+    {
+      "id": "appraisalSchedule.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "appraisalSchedules.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AppraisalAssignment",
+        "AppraisalSchedule",
+        "AppraisalTemplate",
+        "Position",
+        "Teacher"
+      ]
+    },
+    {
       "id": "appraisalScoring.service",
       "services": [],
       "controllers": [],
       "tables": []
+    },
+    {
+      "id": "appraisalScoringForms.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AppraisalScoringForm"
+      ]
     },
     {
       "id": "appraisalTemplates.service",
@@ -3762,6 +4227,17 @@ export const ARCHITECTURE: Architecture = {
         "AppraisalStagePosition",
         "AppraisalTemplate",
         "Position"
+      ]
+    },
+    {
+      "id": "appraisalUsage.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AppraisalCriterion",
+        "AppraisalCriterionPoint",
+        "AppraisalSection",
+        "AppraisalTemplate"
       ]
     },
     {
@@ -3793,12 +4269,24 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "orgStructure.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "payPools.service",
       "services": [],
       "controllers": [],
       "tables": [
         "SystemSetting"
       ]
+    },
+    {
+      "id": "payRange.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "payroll.service",
@@ -3812,6 +4300,14 @@ export const ARCHITECTURE: Architecture = {
         "SystemSetting",
         "Teacher",
         "TeacherAllowance"
+      ]
+    },
+    {
+      "id": "performanceScope.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "Teacher"
       ]
     },
     {
@@ -3855,6 +4351,12 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "recruitmentOpenings.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "revenue.service",
       "services": [],
       "controllers": [],
@@ -3878,6 +4380,12 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "session.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "sopTraining.logic",
       "services": [],
       "controllers": [],
       "tables": []
@@ -3922,7 +4430,10 @@ export const ARCHITECTURE: Architecture = {
     "AppraisalCriterion",
     "AppraisalCriterionPoint",
     "AppraisalLog",
+    "AppraisalRatingScale",
+    "AppraisalSchedule",
     "AppraisalScore",
+    "AppraisalScoringForm",
     "AppraisalSection",
     "AppraisalStage",
     "AppraisalStagePosition",

@@ -12,6 +12,7 @@ import {
   mysqlEnum,
   primaryKey,
   uniqueIndex,
+  double,
 } from 'drizzle-orm/mysql-core';
 
 export const users = mysqlTable('User', {
@@ -238,6 +239,11 @@ export const departments = mysqlTable('Department', {
   // ladder (e.g. a single flat "Admin" role) — new positions created
   // under such a department default inCareerProgression to false.
   hasCareerPath: boolean('hasCareerPath').notNull().default(true),
+  // Organisational structure: the department's head position — the one that reports outside it
+  // (e.g. Academic's Supervisor → Management's Principal). Null = not set.
+  headPositionId: varchar('headPositionId', { length: 10 }),
+  // A management department (e.g. Management: Principal, Shadow Principal): other departments' heads report to it.
+  isManagement: boolean('isManagement').notNull().default(false),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -249,8 +255,12 @@ export const positions = mysqlTable('Position', {
   // row is backfilled to 'ACADEMIC' by the migration in server.ts.
   departmentId: varchar('departmentId', { length: 20 }),
   name: varchar('name', { length: 191 }).notNull(),
-  titleWeight: int('titleWeight').notNull().default(0),
+  // Up to 2 decimals (e.g. 1.25) — the profit-sharing weight multiplier.
+  titleWeight: double('titleWeight').notNull().default(0),
   basicSalary: float('basicSalary').notNull().default(0),
+  // Total pay range — basic plus every allowance and incentive (null = not set). Basic has no allowances.
+  payRangeMin: float('payRangeMin'),
+  payRangeMax: float('payRangeMax'),
   maxLevel: int('maxLevel').notNull().default(5),
   sortOrder: int('sortOrder').notNull().default(0),
   // Whether this position is part of the teacher's career progression
@@ -281,6 +291,9 @@ export const positions = mysqlTable('Position', {
   // Position gets backfilled onto a seeded "All Access" AuthRole by the
   // migration in server.ts, so nothing loses access on rollout.
   authRoleId: varchar('authRoleId', { length: 36 }),
+  // Organisational structure: the position this one reports to (e.g. Junior EI → Supervisor). Null = top of its line.
+  // A staff member's own "reports to" (Teacher.reportsToTeacherId) is suggested from it and can differ.
+  reportsToPositionId: varchar('reportsToPositionId', { length: 10 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -939,6 +952,8 @@ export const teacherAppraisals = mysqlTable('TeacherAppraisal', {
   score: float('score').notNull(),
   notes: text('notes'),
   evaluatedBy: varchar('evaluatedBy', { length: 191 }),
+  /** Set when this month's score came from an appraisal done with a form (Appraisal.id) — not copied back into the engine. */
+  engineAppraisalId: varchar('engineAppraisalId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -970,7 +985,8 @@ export const appraisalTemplates = mysqlTable('AppraisalTemplate', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 191 }).notNull(),
   description: text('description'),
-  frequency: mysqlEnum('frequency', ['MONTHLY', 'QUARTERLY', 'YEARLY']).notNull().default('MONTHLY'),
+  // MANUAL = no schedule: an appraisal with this form is started by hand when needed.
+  frequency: mysqlEnum('frequency', ['MONTHLY', 'QUARTERLY', 'YEARLY', 'MANUAL']).notNull().default('MONTHLY'),
   status: mysqlEnum('status', ['DRAFT', 'ACTIVE', 'RETIRED']).notNull().default('DRAFT'),
   version: int('version').notNull().default(1),
   // Every version of one template shares the id of its first version.
@@ -1000,7 +1016,9 @@ export const appraisalCriteria = mysqlTable('AppraisalCriterion', {
   description: text('description'),
   /** % of its section (criteria of a section add up to 100). */
   weight: float('weight').notNull(),
-  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'NUMBER', 'AUTO']).notNull(),
+  // POINTS = scored as the average of its points (AppraisalCriterionPoint), each scored its own way.
+  // FORM = scored as a scoring form's weighted total — scaleConfig holds a copy: { scoringFormId, name, sections }.
+  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER', 'AUTO', 'POINTS', 'FORM']).notNull(),
   // RATING: { max, levels: [{ value, label, description }] } · NUMBER: { target, higherIsBetter }
   // AUTO: { bands?: [{ upTo, score }] } — see appraisalScoring.service.
   scaleConfig: json('scaleConfig'),
@@ -1010,14 +1028,53 @@ export const appraisalCriteria = mysqlTable('AppraisalCriterion', {
 });
 
 // Optional third level: the points a criterion is judged on (e.g. "Love and
-// patience" → "Speaks calmly", "Comforts upset children"). Each is scored on
-// the criterion's own scale; the criterion's score is their average. A
-// criterion with no points is scored directly.
+// patience" → "Speaks calmly", "Doesn't scold"). Each point is scored its own
+// way (a rating, yes/no…); the criterion's score is the average of their
+// 0–100 scores. A criterion with no points is scored directly.
 export const appraisalCriterionPoints = mysqlTable('AppraisalCriterionPoint', {
   id: varchar('id', { length: 36 }).primaryKey(),
   criterionId: varchar('criterionId', { length: 36 }).notNull(),
   name: varchar('name', { length: 191 }).notNull(),
+  // How this point is scored; null (points saved before this existed) = the criterion's own way.
+  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER']),
+  scaleConfig: json('scaleConfig'),
   sortOrder: int('sortOrder').notNull().default(0),
+});
+
+// Rating scales to pick from when a criterion (or point) is scored on a rating:
+// a name and a word + "what it looks like" for each level. A criterion takes a
+// COPY of the levels, so changing a scale never changes a form already built.
+// Exactly one is the default (preselected for new criteria).
+export const appraisalRatingScales = mysqlTable('AppraisalRatingScale', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  /** Levels 1…max. */
+  max: int('max').notNull(),
+  /** [{ value, label, description? }], one per level. */
+  levels: json('levels').notNull(),
+  isDefault: boolean('isDefault').notNull().default(false),
+  /** Inactive = kept, but not offered when picking a scale. The default is always active. */
+  isActive: boolean('isActive').notNull().default(true),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+// Scoring forms: reusable "What's scored" bodies — weighted sections and
+// criteria, built like an appraisal form's — that an appraisal criterion can be
+// scored from. The criterion keeps a copy, so editing one never changes a form.
+export const appraisalScoringForms = mysqlTable('AppraisalScoringForm', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  /** [{ name, weight, criteria: [{ name, weight, inputType, scaleConfig, points }] }] — same shape as an appraisal form's. */
+  sections: json('sections').notNull(),
+  /** Optional: which positions it's meant for (a hint when picking it — not a restriction). */
+  positionIds: json('positionIds'),
+  /** Made from SOPs (each step pass / fail / N/A, as in an SOP observation): their ids. Its steps aren't edited by hand. */
+  sopTemplateIds: json('sopTemplateIds'),
+  /** Inactive = kept, but not offered when picking a scoring form. */
+  isActive: boolean('isActive').notNull().default(true),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
 // Who handles an appraisal, in order: e.g. 1 Assess (Supervisor, Assistant
@@ -1057,6 +1114,8 @@ export const appraisals = mysqlTable('Appraisal', {
   periodYear: int('periodYear').notNull(),
   /** 0–11 for monthly; first month of the period otherwise. */
   periodMonth: int('periodMonth').notNull(),
+  /** The period it covers: MONTHLY / QUARTERLY / YEARLY / ONCE (a month), from its schedule. Null = a month. */
+  periodType: varchar('periodType', { length: 10 }),
   status: mysqlEnum('status', ['IN_PROGRESS', 'SENT_BACK', 'AWAITING_SIGN_OFF', 'AWAITING_ACKNOWLEDGEMENT', 'COMPLETED']).notNull().default('IN_PROGRESS'),
   /** Which stage it's at (AppraisalStage.sortOrder); null once completed. */
   currentStageOrder: int('currentStageOrder'),
@@ -1068,6 +1127,29 @@ export const appraisals = mysqlTable('Appraisal', {
   /** The TeacherAppraisal row this came from, for appraisals from before the engine. */
   legacyAppraisalId: varchar('legacyAppraisalId', { length: 36 }),
   completedAt: datetime('completedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
+/**
+ * HRMS → Appraisal schedule: one staff member on one appraisal form, repeating (every month / quarter /
+ * year on a day) or once on a date. The scheduler creates each appraisal when its day comes.
+ */
+export const appraisalSchedules = mysqlTable('AppraisalSchedule', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  teacherId: varchar('teacherId', { length: 36 }).notNull(),
+  /** The form family — its live version when each appraisal is created. */
+  templateFamilyId: varchar('templateFamilyId', { length: 36 }).notNull(),
+  repeatEvery: mysqlEnum('repeatEvery', ['ONCE', 'MONTHLY', 'QUARTERLY', 'YEARLY']).notNull(),
+  /** 1–28. */
+  dayOfMonth: int('dayOfMonth').notNull().default(1),
+  /** YEARLY: which month (0–11). */
+  monthOfYear: int('monthOfYear'),
+  /** 'YYYY-MM-DD' — nothing before this day (ONCE: the day). */
+  startsOn: varchar('startsOn', { length: 10 }).notNull(),
+  /** The last period it created one for (year*12+month), so it never makes the same one twice. */
+  lastPeriodKey: int('lastPeriodKey'),
+  createdByUserId: varchar('createdByUserId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });

@@ -21,9 +21,12 @@ beforeEach(async () => {
 });
 afterAll(async () => { await pool.end(); });
 
+// Called as an admin (sees everyone) — who may see whom is in hr.performanceTeam.test.
+const ADMIN = { id: 'u-admin', email: 'admin@kindertech.test', role: 'ADMIN', teacherId: null };
+
 async function overview(year: number, month: number) {
   const r = res();
-  const request = reqWith({});
+  const request = reqWith({ user: ADMIN });
   (request as unknown as { query: Record<string, string> }).query = { year: String(year), month: String(month) };
   await listAppraisalOverview(request, r);
   return r.body as { staff: { teacherId: string; positionName: string | null; appraisal: { score: number } | null; twelveMonth: { average: number | null; recordCount: number } }[] };
@@ -76,7 +79,7 @@ describe('HR — appraisals overview', () => {
     await db.insert(teachers).values(staff('t-helper', 'Helper Hana', { positionId: 'P-NONE' }));
     const record = async (score: number) => {
       const r = res();
-      await upsertAppraisal(reqWith({ params: { teacherId: 't-helper' }, body: { year: 2026, month: 10, score, evaluatedBy: 'Principal' } }), r);
+      await upsertAppraisal(reqWith({ params: { teacherId: 't-helper' }, body: { year: 2026, month: 10, score, evaluatedBy: 'Principal' }, user: ADMIN }), r);
       return r;
     };
     expect((await record(60)).body).toMatchObject({ score: 60 });

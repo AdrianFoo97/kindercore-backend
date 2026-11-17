@@ -39,6 +39,7 @@ beforeAll(async () => {
   const rows = await personaRows();
   await db.insert(authRoles).values(rows.authRoles);
   await db.insert(authRoleModules).values(rows.authRoleModules);
+  await db.insert(authRoleViews).values(rows.authRoleViews);
   await db.insert(positions).values(rows.positions);
   await db.insert(teachers).values(rows.teachers);
   await db.insert(users).values(rows.users);

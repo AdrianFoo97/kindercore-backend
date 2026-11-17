@@ -13,7 +13,8 @@ import { checkStages, checkTemplate, type InputType, type MissingPolicy, type St
 // draft, so finished appraisals keep the exact version they were scored on.
 // Which positions use a form is set per family, so it carries across versions.
 
-export type Frequency = 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+/** MANUAL = no schedule: started by hand when needed. */
+export type Frequency = 'MONTHLY' | 'QUARTERLY' | 'YEARLY' | 'MANUAL';
 export type Scope = 'ANYONE' | 'OWN_TEAM';
 
 export interface CriterionInput {
@@ -22,9 +23,11 @@ export interface CriterionInput {
   weight: number;
   inputType: InputType;
   scaleConfig: Record<string, unknown> | null;
-  /** Optional points it's judged on — scored on its scale and averaged. Empty = scored directly. */
-  points: { name: string }[];
+  /** Optional points it's judged on — each scored its own way, then averaged. Empty = scored directly. */
+  points: PointInput[];
 }
+export interface PointInput { name: string; inputType: ManualInputType; scaleConfig: Record<string, unknown> | null }
+type ManualInputType = Exclude<InputType, 'AUTO' | 'POINTS' | 'FORM'>;
 export interface SectionInput { name: string; weight: number; criteria: CriterionInput[] }
 export interface StageInput { name: string; kind: StageKind; scope: Scope; positionIds: string[] }
 export interface TemplateInput {
@@ -72,7 +75,12 @@ async function sectionsOf(exec: Exec, templateId: string) {
     criteria: criteria.filter(c => c.sectionId === s.id).map(c => ({
       id: c.id, name: c.name, description: c.description, weight: c.weight,
       inputType: c.inputType, scaleConfig: (c.scaleConfig ?? null) as Record<string, unknown> | null, metricSource: c.metricSource,
-      points: points.filter(p => p.criterionId === c.id).map(p => ({ id: p.id, name: p.name })),
+      // A point saved before points had their own scoring is scored the criterion's way.
+      points: points.filter(p => p.criterionId === c.id).map(p => ({
+        id: p.id, name: p.name,
+        inputType: (p.inputType ?? (c.inputType === 'POINTS' ? 'RATING' : c.inputType)) as ManualInputType,
+        scaleConfig: ((p.inputType ? p.scaleConfig : c.scaleConfig) ?? null) as Record<string, unknown> | null,
+      })),
     })),
   }));
 }
@@ -83,9 +91,16 @@ async function familyPositionIds(exec: Exec, familyId: string): Promise<string[]
   return rows.map(r => r.positionId!);
 }
 
+export const NO_POSITIONS = 'Pick who it’s for — at least one position.';
+
+/** A form is for staff in some position — without one, nobody would be appraised with it. */
+const checkPositions = (positionIds: string[]) => (positionIds.length ? [] : [NO_POSITIONS]);
+
 /** Everything that stops a template going live, in plain words. */
-export function templateProblems(t: { missingPolicy: MissingPolicy; sections: Awaited<ReturnType<typeof sectionsOf>>; stages: Awaited<ReturnType<typeof stagesOf>> }): string[] {
-  return [...checkTemplate(t), ...checkStages(t.stages)];
+export function templateProblems(t: {
+  missingPolicy: MissingPolicy; sections: Awaited<ReturnType<typeof sectionsOf>>; stages: Awaited<ReturnType<typeof stagesOf>>; positionIds: string[];
+}): string[] {
+  return [...checkPositions(t.positionIds), ...checkTemplate(t), ...checkStages(t.stages)];
 }
 
 /** One template version in full, with what stops it going live and its family's other versions. */
@@ -101,7 +116,13 @@ export async function loadTemplate(id: string, exec: Exec = db) {
     id: t.id, familyId: t.familyId, name: t.name, description: t.description, frequency: t.frequency,
     status: t.status, version: t.version, missingPolicy: t.missingPolicy, updatedAt: t.updatedAt,
     sections, stages, positionIds,
-    problems: templateProblems({ missingPolicy: t.missingPolicy, sections, stages }),
+    problems: templateProblems({ missingPolicy: t.missingPolicy, sections, stages, positionIds }),
+    // The same problems, by the editor step they belong to, so each step can show its own.
+    problemsByArea: {
+      basics: checkPositions(positionIds),
+      scoring: checkTemplate({ missingPolicy: t.missingPolicy, sections }),
+      approval: checkStages(stages),
+    },
     draftId: family.find(v => v.status === 'DRAFT' && v.id !== t.id)?.id ?? null,
     activeId: family.find(v => v.status === 'ACTIVE' && v.id !== t.id)?.id ?? null,
   };
@@ -171,7 +192,7 @@ async function writeContents(tx: Tx, templateId: string, input: Pick<TemplateInp
         inputType: c.inputType, scaleConfig: c.scaleConfig, metricSource: null, sortOrder: j,
       });
       if (c.points.length) {
-        await tx.insert(appraisalCriterionPoints).values(c.points.map((p, k) => ({ id: randomUUID(), criterionId, name: p.name, sortOrder: k })));
+        await tx.insert(appraisalCriterionPoints).values(c.points.map((p, k) => ({ id: randomUUID(), criterionId, name: p.name, inputType: p.inputType, scaleConfig: p.scaleConfig, sortOrder: k })));
       }
     }
   }
@@ -251,8 +272,8 @@ export async function activateTemplate(id: string): Promise<WriteResult | { prob
     const t = await lockTemplate(tx, id);
     if (!t) return 'not-found';
     if (t.status !== 'DRAFT') return 'not-draft';
-    const [sections, stages] = await Promise.all([sectionsOf(tx, id), stagesOf(tx, id)]);
-    const problems = templateProblems({ missingPolicy: t.missingPolicy, sections, stages });
+    const [sections, stages, positionIds] = await Promise.all([sectionsOf(tx, id), stagesOf(tx, id), familyPositionIds(tx, t.familyId)]);
+    const problems = templateProblems({ missingPolicy: t.missingPolicy, sections, stages, positionIds });
     if (problems.length) return { problems };
     const now = new Date();
     await tx.update(appraisalTemplates).set({ status: 'RETIRED', updatedAt: now })

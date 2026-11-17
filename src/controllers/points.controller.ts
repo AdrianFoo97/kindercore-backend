@@ -8,6 +8,10 @@ import {
   pointsEarningRules, pointsRewardItems, pointsTransactions,
   rewardRedemptions, teacherRewardGoals, teachers, positions,
 } from '../db/schema.js';
+import { entryTiers } from '../services/orgStructure.logic.js';
+
+/** The leaderboard compares staff on the first few career steps only (seniors aren't in the same race). */
+const LEADERBOARD_ENTRY_TIERS = 3;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Points & Rewards. Points only ever move via a manual supervisor grant
@@ -234,7 +238,7 @@ export async function getStandings(req: Request, res: Response): Promise<void> {
   const compareSums = sumFor(compareYM);
 
   // Visible universe — only career-path teachers at the entry tiers
-  // (titleWeight 1, 2, 3 + inCareerProgression). Keeps the competition
+  // (each department's first LEADERBOARD_ENTRY_TIERS career steps). Keeps the competition
   // fair: senior/management roles aren't in the same race as juniors,
   // and non-progression positions (e.g. STAFF) sit outside the ladder.
   // Resigned teachers vanish — they're no longer competing.
@@ -242,11 +246,8 @@ export async function getStandings(req: Request, res: Response): Promise<void> {
     db.select().from(teachers),
     db.select().from(positions),
   ]);
-  const eligiblePositionIds = new Set(
-    allPositions
-      .filter(p => p.inCareerProgression && [1, 2, 3].includes(p.titleWeight))
-      .map(p => p.positionId),
-  );
+  // The first three steps of each department's career path (works with any rank values, decimals too).
+  const eligiblePositionIds = entryTiers(allPositions, LEADERBOARD_ENTRY_TIERS);
   const visible = allTeachers.filter(t =>
     (!t.resignedAt || new Date(t.resignedAt) >= targetStart)
     && t.positionId !== null

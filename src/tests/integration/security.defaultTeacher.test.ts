@@ -97,6 +97,9 @@ describe('Security — a default teacher cannot approve, decide or manage', () =
   const MANAGER_ACTIONS: [string, string, unknown?][] = [
     // How-To Guides — reviewing suggestions and editing the live guides.
     ['POST', '/api/sop-revisions/any/approve'],
+    // Practice observations — certifying a trainee, or sending them back for more training.
+    ['POST', '/api/sop-observations/any/advance', {}],
+    ['POST', '/api/sop-observations/any/send-back', { stepResults: [] }],
     ['POST', '/api/sop-revisions/any/reject', { reviewNote: 'no' }],
     ['POST', '/api/sop-revisions/any/trial'],
     ['POST', '/api/sop-revisions/any/return', { reviewNote: 'change it' }],
@@ -119,6 +122,17 @@ describe('Security — a default teacher cannot approve, decide or manage', () =
     ['POST', `/api/teachers/${ME.teacherId}/points/grant`, { amount: 100, reason: 'self' }],
     ['PATCH', '/api/redemptions/any', { status: 'delivered' }],
     ['POST', `/api/teachers/${ME.teacherId}/appraisals`, { score: 100 }],
+    // Appraising with a form: running the schedule, and signing off someone else's.
+    ['GET', '/api/appraisal-schedules'],
+    ['GET', '/api/appraisal-schedules/created'],
+    ['GET', '/api/performance/staff'],
+    ['POST', '/api/appraisals/start', { teacherId: ME.teacherId, familyId: 'any', year: 2026, month: 0 }],
+    ['POST', '/api/appraisal-schedules', { familyId: 'any', teacherIds: [ME.teacherId], repeat: 'MONTHLY', dayOfMonth: 1, monthOfYear: null, startsOn: '2026-01-01' }],
+    ['DELETE', '/api/appraisal-schedules/any'],
+    ['POST', '/api/appraisal-schedules/any/create-now'],
+    ['POST', '/api/appraisal-runs/any/approve'],
+    ['POST', '/api/appraisal-runs/any/send-back', { reason: 'redo' }],
+    ['DELETE', '/api/appraisal-runs/any'],
     ['POST', '/api/staff-joins/any/approve'],
     ['POST', '/api/career-missions', { title: 'x' }],
     // Bug reports are fixed by the Tools team.

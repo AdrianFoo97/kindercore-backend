@@ -1,12 +1,12 @@
 import bcrypt from 'bcryptjs';
-import { authRoleModules, authRoles, positions, teachers, users } from '../../db/schema.js';
+import { authRoleModules, authRoleViews, authRoles, positions, teachers, users } from '../../db/schema.js';
 
 // The people in the access-control tests, each with exactly one kind of
 // access — granted the way the app grants it (an Access Role carrying a
 // module), so the real permission lookup runs:
 //   teacher  — a plain teacher, no modules (Tina, record t-tina)
 //   owner    — another plain teacher whose record the others try to open (Olive, t-olive)
-//   hr / finance / analysis — office staff with just that one module
+//   hr / finance / analysis — office staff with just that one module (HR may also see every staff member's performance)
 //   admin    — an Admin
 
 export const PERSONA_PASSWORD = 'Persona-Pass-42';
@@ -35,6 +35,8 @@ export async function personaRows() {
   return {
     authRoles: officeModules.map(p => ({ id: role(p.module), name: `${p.module} only`, createdAt: NOW, updatedAt: NOW })) as (typeof authRoles.$inferInsert)[],
     authRoleModules: officeModules.map(p => ({ id: `arm-${p.module}`, authRoleId: role(p.module), module: p.module, createdAt: NOW })) as (typeof authRoleModules.$inferInsert)[],
+    // An HR officer: sees every staff member in Performance Management, not just a team of their own.
+    authRoleViews: [{ id: 'arv-hr-all', authRoleId: role('HR'), view: 'HR_SEE_ALL_STAFF', createdAt: NOW }] as (typeof authRoleViews.$inferInsert)[],
     positions: [{ positionId: 'P-PLAIN', name: 'Teacher (no access role)', authRoleId: null, createdAt: NOW, updatedAt: NOW }] as (typeof positions.$inferInsert)[],
     teachers: [
       { id: 't-tina', name: 'Tina Teacher', color: '#7c3aed', positionId: 'P-PLAIN', createdAt: NOW, updatedAt: NOW },

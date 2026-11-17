@@ -71,8 +71,9 @@ describe('Security — every sensitive area is limited to the right role', () =>
       ['GET', '/api/finance/summary', 'FINANCE'],
       ['GET', '/api/salary/teachers', 'PAYROLL'], ['GET', '/api/salary/payroll-by-month', 'PAYROLL'],
       ['GET', '/api/salary/teacher-weights-by-month', 'PAYROLL'], ['GET', '/api/salary/employer-contributions', 'PAYROLL'],
-      ['GET', '/api/teachers/:teacherId/allowances', 'STAFF_PAY'], ['GET', '/api/teachers/:teacherId/pay-pools', 'STAFF_PAY'],
+      ['GET', '/api/teachers/:teacherId/allowances', 'STAFF_PAY'], ['GET', '/api/teachers/:teacherId/pay-pools', 'STAFF_PAY'], ['GET', '/api/salary/teachers/:teacherId', 'STAFF_PAY'],
       ['GET', '/api/teachers/:teacherId/appraisals', 'APPRAISALS'], ['GET', '/api/appraisals/overview', 'APPRAISALS'],
+      ['GET', '/api/appraisal-schedules', 'APPRAISALS'], ['GET', '/api/appraisal-schedules/created', 'APPRAISALS'], ['GET', '/api/appraisal-runs/tasks', 'APPRAISALS'], ['GET', '/api/appraisal-runs/:id', 'APPRAISALS'],
       ['GET', '/api/candidates/:id/resume', 'APPLICANTS'],
     ];
     for (const [m, p, area] of logged) {

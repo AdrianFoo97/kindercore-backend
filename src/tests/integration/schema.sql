@@ -31,6 +31,7 @@ CREATE TABLE `Appraisal` (
   `templateId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `periodYear` int NOT NULL,
   `periodMonth` int NOT NULL,
+  `periodType` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` enum('IN_PROGRESS','SENT_BACK','AWAITING_SIGN_OFF','AWAITING_ACKNOWLEDGEMENT','COMPLETED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'IN_PROGRESS',
   `currentStageOrder` int DEFAULT NULL,
   `totalScore` float DEFAULT NULL,
@@ -50,10 +51,10 @@ CREATE TABLE `Appraisal` (
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `AppraisalAssignment` (
-  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `templateFamilyId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `positionId` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `teacherId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `templateFamilyId` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `positionId` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `teacherId` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `createdAt` datetime(3) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `AppraisalAssignment_position_idx` (`positionId`),
@@ -68,7 +69,7 @@ CREATE TABLE `AppraisalCriterion` (
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text COLLATE utf8mb4_unicode_ci,
   `weight` float NOT NULL,
-  `inputType` enum('RATING','PERCENT','YES_NO','NUMBER','AUTO') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `inputType` enum('RATING','PERCENT','YES_NO','PASS_FAIL','NUMBER','AUTO','POINTS','FORM') COLLATE utf8mb4_unicode_ci NOT NULL,
   `scaleConfig` json DEFAULT NULL,
   `metricSource` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sortOrder` int NOT NULL DEFAULT '0',
@@ -82,6 +83,8 @@ CREATE TABLE `AppraisalCriterionPoint` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `criterionId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `inputType` enum('RATING','PERCENT','YES_NO','PASS_FAIL','NUMBER') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `scaleConfig` json DEFAULT NULL,
   `sortOrder` int NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   KEY `AppraisalCriterionPoint_criterion_idx` (`criterionId`)
@@ -103,6 +106,39 @@ CREATE TABLE `AppraisalLog` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `AppraisalRatingScale` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `max` int NOT NULL,
+  `levels` json NOT NULL,
+  `isDefault` tinyint(1) NOT NULL DEFAULT '0',
+  `isActive` tinyint(1) NOT NULL DEFAULT '1',
+  `createdAt` datetime(3) NOT NULL,
+  `updatedAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `AppraisalSchedule` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `teacherId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `templateFamilyId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `repeatEvery` enum('ONCE','MONTHLY','QUARTERLY','YEARLY') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `dayOfMonth` int NOT NULL DEFAULT '1',
+  `monthOfYear` int DEFAULT NULL,
+  `startsOn` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `lastPeriodKey` int DEFAULT NULL,
+  `createdByUserId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  `updatedAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `AppraisalSchedule_teacher_idx` (`teacherId`),
+  KEY `AppraisalSchedule_family_idx` (`templateFamilyId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `AppraisalScore` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `appraisalId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -114,7 +150,21 @@ CREATE TABLE `AppraisalScore` (
   `normalised` float DEFAULT NULL,
   `comment` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `AppraisalScore_criterion_uq` (`appraisalId`,`criterionId`)
+  UNIQUE KEY `AppraisalScore_point_uq` (`appraisalId`,`criterionId`,`pointId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `AppraisalScoringForm` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sections` json NOT NULL,
+  `positionIds` json DEFAULT NULL,
+  `sopTemplateIds` json DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  `updatedAt` datetime(3) NOT NULL,
+  `isActive` tinyint(1) NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -158,7 +208,7 @@ CREATE TABLE `AppraisalTemplate` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text COLLATE utf8mb4_unicode_ci,
-  `frequency` enum('MONTHLY','QUARTERLY','YEARLY') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MONTHLY',
+  `frequency` enum('MONTHLY','QUARTERLY','YEARLY','MANUAL') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MONTHLY',
   `status` enum('DRAFT','ACTIVE','RETIRED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DRAFT',
   `version` int NOT NULL DEFAULT '1',
   `familyId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -358,6 +408,8 @@ CREATE TABLE `Department` (
   `createdAt` datetime(3) NOT NULL,
   `updatedAt` datetime(3) NOT NULL,
   `hasCareerPath` tinyint(1) NOT NULL DEFAULT '1',
+  `headPositionId` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `isManagement` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`departmentId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -681,8 +733,10 @@ CREATE TABLE `PointsTransaction` (
 CREATE TABLE `Position` (
   `positionId` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `titleWeight` int NOT NULL DEFAULT '0',
+  `titleWeight` double NOT NULL DEFAULT '0',
   `basicSalary` float NOT NULL DEFAULT '0',
+  `payRangeMin` float DEFAULT NULL,
+  `payRangeMax` float DEFAULT NULL,
   `maxLevel` int NOT NULL DEFAULT '5',
   `sortOrder` int NOT NULL DEFAULT '0',
   `createdAt` datetime(3) NOT NULL,
@@ -695,6 +749,7 @@ CREATE TABLE `Position` (
   `maxSalary` float DEFAULT NULL,
   `departmentId` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `authRoleId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reportsToPositionId` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`positionId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1138,13 +1193,14 @@ CREATE TABLE `TeacherAllowance` (
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `TeacherAppraisal` (
-  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `teacherId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `teacherId` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `year` int NOT NULL,
   `month` int NOT NULL,
   `score` float NOT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
-  `evaluatedBy` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `evaluatedBy` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `engineAppraisalId` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `createdAt` datetime(3) NOT NULL,
   `updatedAt` datetime(3) NOT NULL,
   PRIMARY KEY (`id`),

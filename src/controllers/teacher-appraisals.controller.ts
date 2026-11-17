@@ -4,7 +4,13 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { positions, teacherAppraisals, teachers } from '../db/schema.js';
-import { averageOverWindow, currentMalaysiaMonth, previousAppraisal, type AppraisalAverage, type YearMonth } from '../services/appraisal.service.js';
+import { averageOverWindow, currentMalaysiaMonth, periodAverages, previousAppraisal, quarterAverages, type AppraisalAverage, type YearMonth } from '../services/appraisal.service.js';
+import { runsCovering } from '../services/appraisalRuns.service.js';
+import { OUTSIDE_TEAM, inStaffScope, staffScopeFor } from '../services/performanceScope.service.js';
+import { isOwnTeacher } from '../middlewares/auth.middleware.js';
+
+/** Whose appraisals this person may see as HR: their team, or everyone (performanceScope). */
+const scopeOf = (req: Request) => staffScopeFor({ id: req.user!.id, role: req.user!.role, teacherId: req.user!.teacherId ?? null });
 
 // A teacher's average over the 12 months up to this month. Drives the
 // "Average appraisal > 75%" promotion gate (getTeacherCareer) and the
@@ -18,13 +24,18 @@ export async function computeAverageAppraisal(teacherId: string, end: YearMonth 
 
 export async function listAppraisals(req: Request, res: Response): Promise<void> {
   const { teacherId } = req.params;
+  // Your own always; someone else's only if they're in your scope (your team, unless you may see everyone).
+  if (!isOwnTeacher(req) && !inStaffScope(await scopeOf(req), teacherId)) { res.status(403).json({ message: OUTSIDE_TEAM }); return; }
   const rows = await db
     .select()
     .from(teacherAppraisals)
     .where(eq(teacherAppraisals.teacherId, teacherId))
     .orderBy(desc(teacherAppraisals.year), desc(teacherAppraisals.month));
   const summary = await computeAverageAppraisal(teacherId);
-  res.json({ items: rows, summary });
+  // Year to date (this year's months so far, Malaysia time) and each quarter's average — the one rule in appraisal.service.
+  const today = currentMalaysiaMonth();
+  const yearToDate = { year: today.year, average: periodAverages(rows, { year: today.year, month: today.month }).year };
+  res.json({ items: rows, summary, yearToDate, quarters: quarterAverages(rows) });
 }
 
 // ── Overview (HR → Appraisals) ──────────────────────────────────────────────
@@ -47,19 +58,22 @@ export async function listAppraisalOverview(req: Request, res: Response): Promis
   const monthStart = new Date(Date.UTC(target.year, target.month, 1));
   const monthEnd = new Date(Date.UTC(target.year, target.month + 1, 1));
 
-  const [staff, appraisals, positionRows] = await Promise.all([
+  const [staff, appraisals, positionRows, runs] = await Promise.all([
     db.select({ id: teachers.id, name: teachers.name, color: teachers.color, positionId: teachers.positionId, isActive: teachers.isActive, resignedAt: teachers.resignedAt, createdAt: teachers.createdAt })
       .from(teachers),
     db.select().from(teacherAppraisals),
     // Looked up separately: Teacher.positionId and Position.positionId have different collations.
     db.select({ id: positions.positionId, name: positions.name }).from(positions),
+    // Appraisals the schedule created whose period includes this month — pending, ongoing or done.
+    runsCovering(target.year, target.month),
   ]);
   const positionName = new Map(positionRows.map(p => [p.id, p.name]));
   const byTeacher = new Map<string, typeof appraisals>();
   for (const a of appraisals) byTeacher.set(a.teacherId, [...(byTeacher.get(a.teacherId) ?? []), a]);
 
+  const scope = await scopeOf(req);
   const rows = staff
-    .filter(t => t.createdAt < monthEnd && (t.resignedAt ? t.resignedAt >= monthStart : t.isActive))
+    .filter(t => t.createdAt < monthEnd && (t.resignedAt ? t.resignedAt >= monthStart : t.isActive) && inStaffScope(scope, t.id))
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(t => {
       const own = byTeacher.get(t.id) ?? [];
@@ -71,14 +85,23 @@ export async function listAppraisalOverview(req: Request, res: Response): Promis
         color: t.color,
         positionName: t.positionId ? positionName.get(t.positionId) ?? null : null,
         appraisal: thisMonth,
+        runs: runs.filter(r => r.teacherId === t.id).map(({ teacherId: _t, ...r }) => r),
         previous: previous ? { year: previous.year, month: previous.month, score: previous.score } : null,
         twelveMonth: averageOverWindow(own, target),
+        // This quarter and this year so far, up to the month shown.
+        averages: periodAverages(own, target),
+        // The scores behind those averages: each month of the year so far (for the hover breakdown).
+        yearScores: own.filter(a => a.year === target.year && a.month <= target.month)
+          .sort((a, b) => a.month - b.month).map(a => ({ month: a.month, score: a.score })),
       };
     });
   res.json({ year: target.year, month: target.month, staff: rows });
 }
 
 // ── Upsert ───────────────────────────────────────────────────────────────────
+
+/** A month scored with an appraisal form stays as that form worked it out — so it always matches the scores behind it. */
+export const FROM_FORM_MESSAGE = 'This month was scored with an appraisal form, so it can’t be changed here — open the appraisal instead.';
 
 const upsertSchema = z.object({
   year: z.number().int().min(2000).max(2100),
@@ -99,6 +122,7 @@ export async function upsertAppraisal(req: Request, res: Response): Promise<void
   }
   const [teacher] = await db.select().from(teachers).where(eq(teachers.id, teacherId));
   if (!teacher) { res.status(404).json({ message: 'Teacher not found' }); return; }
+  if (!inStaffScope(await scopeOf(req), teacherId)) { res.status(403).json({ message: OUTSIDE_TEAM }); return; }
 
   const now = new Date();
   const [existing] = await db.select().from(teacherAppraisals)
@@ -108,6 +132,7 @@ export async function upsertAppraisal(req: Request, res: Response): Promise<void
       eq(teacherAppraisals.month, parsed.data.month),
     ));
 
+  if (existing?.engineAppraisalId) { res.status(409).json({ message: FROM_FORM_MESSAGE }); return; }
   if (existing) {
     await db.update(teacherAppraisals).set({
       score: parsed.data.score,
@@ -142,6 +167,8 @@ export async function deleteAppraisal(req: Request, res: Response): Promise<void
   const { id } = req.params;
   const [existing] = await db.select().from(teacherAppraisals).where(eq(teacherAppraisals.id, id));
   if (!existing) { res.status(404).json({ message: 'Appraisal not found' }); return; }
+  if (!inStaffScope(await scopeOf(req), existing.teacherId)) { res.status(403).json({ message: OUTSIDE_TEAM }); return; }
+  if (existing.engineAppraisalId) { res.status(409).json({ message: FROM_FORM_MESSAGE }); return; }
   await db.delete(teacherAppraisals).where(eq(teacherAppraisals.id, id));
   res.json({ ok: true });
 }

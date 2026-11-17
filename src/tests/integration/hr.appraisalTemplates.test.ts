@@ -42,6 +42,10 @@ const complete = (name = 'Monthly teacher appraisal') => ({
 });
 
 const newDraft = async (name?: string) => (await call(createAppraisalTemplate, {}, { name: name ?? 'Monthly teacher appraisal' })).body;
+/** Who the form is for — needed before it can go live. */
+const forPositions = (draft: { familyId: string }, positionIds = ['P-NONE']) =>
+  call(setAppraisalTemplatePositions, { familyId: draft.familyId }, { positionIds });
+const NO_POSITIONS = 'Pick who it’s for — at least one position.';
 
 beforeEach(async () => {
   await resetTables(appraisalAssignments, appraisalStagePositions, appraisalStages, appraisalCriterionPoints, appraisalCriteria, appraisalSections, appraisalTemplates, positions);
@@ -69,7 +73,18 @@ describe('Appraisal templates — building a form', () => {
       ['Team spirit', 'YES_NO', null],
     ]);
     expect(r.body.stages[0].positionIds).toEqual(['P-CT']);
-    expect(r.body.problems).toEqual(['Section weights add up to 90% — they need to make 100%.']);
+    expect(r.body.problems).toEqual([NO_POSITIONS, 'Section weights add up to 90% — they need to make 100%.']);
+  });
+
+  it('groups what stops it going live by the editor step it belongs to', async () => {
+    const r = await call(createAppraisalTemplate, {}, { name: 'Monthly teacher appraisal' });
+    expect(r.body.problemsByArea.scoring).toEqual(['Add at least one section.']);
+    // The new chain's steps have no positions yet — that belongs to "who appraises".
+    expect(r.body.problemsByArea.approval.length).toBeGreaterThan(0);
+    expect(r.body.problemsByArea.approval.every((p: string) => /position/.test(p))).toBe(true);
+    // Who it's for belongs to "basics".
+    expect(r.body.problemsByArea.basics).toEqual([NO_POSITIONS]);
+    expect([...r.body.problemsByArea.basics, ...r.body.problemsByArea.scoring, ...r.body.problemsByArea.approval].sort()).toEqual([...r.body.problems].sort());
   });
 
   it('lets a criterion be judged on its own points while others are scored directly, and keeps them in new versions', async () => {
@@ -87,6 +102,63 @@ describe('Appraisal templates — building a form', () => {
     // A point without a name is refused.
     (body.sections[0].criteria[0] as any).points = [{ name: ' ' }];
     expect((await call(updateAppraisalTemplate, { id: v2.id }, body)).statusCode).toBe(400);
+  });
+
+  it('scores each point its own way — a rating for one, yes or no for another', async () => {
+    const draft = await newDraft();
+    const body = complete();
+    (body.sections[0].criteria[0] as any).points = [
+      { name: 'Cares about the student', inputType: 'RATING', scaleConfig: { max: 4 } },
+      { name: "Doesn't scold the student", inputType: 'YES_NO' },
+      { name: 'Times raised voice', inputType: 'NUMBER', scaleConfig: { target: 1, higherIsBetter: false } },
+      { name: 'Old-style point' },
+    ];
+    const r = await call(updateAppraisalTemplate, { id: draft.id }, body);
+    expect(r.statusCode).toBe(200);
+    expect(r.body.sections[0].criteria[0].points.map((p: any) => [p.name, p.inputType, p.scaleConfig])).toEqual([
+      ['Cares about the student', 'RATING', { max: 4, levels: [] }],
+      ["Doesn't scold the student", 'YES_NO', null],
+      ['Times raised voice', 'NUMBER', { target: 1, higherIsBetter: false }],
+      // A point with no scoring of its own is scored the criterion's way.
+      ['Old-style point', 'RATING', { max: 5, levels: [{ value: 5, label: 'Outstanding' }] }],
+    ]);
+    // A number point needs its own target.
+    (body.sections[0].criteria[0] as any).points = [{ name: 'Times raised voice', inputType: 'NUMBER' }];
+    expect((await call(updateAppraisalTemplate, { id: draft.id }, body)).statusCode).toBe(400);
+  });
+
+  it('still saves an old "on several points" criterion, but says it must be changed before going live', async () => {
+    const draft = await newDraft();
+    const body = complete();
+    body.sections[0].criteria[0] = { name: 'Love for children', weight: 60, inputType: 'POINTS', points: [] } as any;
+    const r = await call(updateAppraisalTemplate, { id: draft.id }, body);
+    expect(r.statusCode).toBe(200);
+    expect(r.body.sections[0].criteria[0]).toMatchObject({ inputType: 'POINTS', scaleConfig: null, points: [] });
+    expect(r.body.problemsByArea.scoring).toContain('"Love for children" is scored on several points, which is no longer offered — pick how it\'s scored.');
+  });
+
+  it('scores a criterion from a copy of a scoring form, and refuses one with nothing to score', async () => {
+    const draft = await newDraft();
+    const body = complete();
+    const snapshot = {
+      scoringFormId: 'sf-1', name: 'Classroom care',
+      sections: [{ name: 'Care', weight: 100, criteria: [{ name: 'Patience', weight: 100, inputType: 'RATING', scaleConfig: { max: 5 } }] }],
+    };
+    body.sections[0].criteria[0] = { name: 'Love for children', weight: 60, inputType: 'FORM', scaleConfig: snapshot } as any;
+    const r = await call(updateAppraisalTemplate, { id: draft.id }, body);
+    expect(r.statusCode).toBe(200);
+    expect(r.body.sections[0].criteria[0].inputType).toBe('FORM');
+    expect(r.body.sections[0].criteria[0].scaleConfig).toMatchObject({ scoringFormId: 'sf-1', name: 'Classroom care' });
+    expect(r.body.sections[0].criteria[0].scaleConfig.sections[0].criteria[0].name).toBe('Patience');
+    (body.sections[0].criteria[0] as any).scaleConfig = { ...snapshot, sections: [] };
+    expect((await call(updateAppraisalTemplate, { id: draft.id }, body)).statusCode).toBe(400);
+  });
+
+  it('can be set to "when needed" — no schedule', async () => {
+    const draft = await newDraft();
+    const r = await call(updateAppraisalTemplate, { id: draft.id }, { ...complete(), frequency: 'MANUAL' });
+    expect(r.statusCode).toBe(200);
+    expect(r.body.frequency).toBe('MANUAL');
   });
 
   it('refuses weights that add up to more than 100%', async () => {
@@ -120,14 +192,26 @@ describe('Appraisal templates — going live and versions', () => {
     expect(refused.body.problems).toContain('Add at least one section.');
 
     await call(updateAppraisalTemplate, { id: draft.id }, complete());
+    await forPositions(draft);
     const live = await call(activateAppraisalTemplate, { id: draft.id });
     expect(live.statusCode).toBe(200);
     expect(live.body.status).toBe('ACTIVE');
   });
 
+  it('will not put a form live until it is for at least one position', async () => {
+    const draft = await newDraft();
+    await call(updateAppraisalTemplate, { id: draft.id }, complete());
+    const refused = await call(activateAppraisalTemplate, { id: draft.id });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body.problems).toEqual([NO_POSITIONS]);
+    await forPositions(draft, ['P-CT']);
+    expect((await call(activateAppraisalTemplate, { id: draft.id })).statusCode).toBe(200);
+  });
+
   it('never changes a live form — editing opens a new version, and putting it live retires the old one', async () => {
     const v1 = await newDraft();
     await call(updateAppraisalTemplate, { id: v1.id }, complete());
+    await forPositions(v1);
     await call(activateAppraisalTemplate, { id: v1.id });
     expect((await call(updateAppraisalTemplate, { id: v1.id }, complete('Changed'))).statusCode).toBe(409);
 
@@ -149,6 +233,7 @@ describe('Appraisal templates — going live and versions', () => {
     const draft = await newDraft();
     expect((await call(retireAppraisalTemplate, { id: draft.id })).statusCode).toBe(409);
     await call(updateAppraisalTemplate, { id: draft.id }, complete());
+    await forPositions(draft);
     await call(activateAppraisalTemplate, { id: draft.id });
     expect((await call(deleteAppraisalTemplate, { id: draft.id })).statusCode).toBe(409);
     expect((await call(retireAppraisalTemplate, { id: draft.id })).body.status).toBe('RETIRED');
@@ -176,8 +261,8 @@ describe('Appraisal templates — who uses which form', () => {
   it('frees a position from a form that is no longer used', async () => {
     const old = await newDraft('Old form');
     await call(updateAppraisalTemplate, { id: old.id }, complete('Old form'));
+    await forPositions(old, ['P-CT']);
     await call(activateAppraisalTemplate, { id: old.id });
-    await call(setAppraisalTemplatePositions, { familyId: old.familyId }, { positionIds: ['P-CT'] });
     await call(retireAppraisalTemplate, { id: old.id });
 
     const fresh = await newDraft('New form');

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { averageOverWindow, currentMalaysiaMonth, isInAverageWindow, previousAppraisal } from '../../services/appraisal.service.js';
+import { averageOverWindow, currentMalaysiaMonth, isInAverageWindow, periodAverages, previousAppraisal, quarterAverages } from '../../services/appraisal.service.js';
 
 // The appraisal average shown on the staff record, HR → Appraisals and the
 // teacher's own page — and used for the "average > 75%" promotion gate.
@@ -43,7 +43,25 @@ describe('Appraisals — 12-month average', () => {
     expect(previousAppraisal(rows, { year: 2025, month: 11 })).toBeNull();
   });
 
+  it('averages this quarter and this year so far, up to the month shown', () => {
+    const rows = [{ year: 2026, month: 9, score: 80 }, { year: 2026, month: 10, score: 90 }, { year: 2026, month: 11, score: 50 }, { year: 2026, month: 2, score: 60 }, { year: 2025, month: 11, score: 10 }];
+    // November: Q4 so far = Oct + Nov = 85; the year so far = Mar, Oct, Nov = 77 (December and last year don't count).
+    expect(periodAverages(rows, { year: 2026, month: 10 })).toEqual({ quarter: 85, year: 77 });
+    expect(periodAverages(rows, { year: 2026, month: 0 })).toEqual({ quarter: null, year: null });
+  });
+
   it('uses the Malaysian calendar month, so the 1st at 7am is already the new month', () => {
     expect(currentMalaysiaMonth(new Date('2026-10-31T23:30:00Z'))).toEqual({ year: 2026, month: 10 }); // 1 Nov, 7:30am MYT
+  });
+
+  it('averages each quarter that has appraisals, newest first, for the history grouped by quarter', () => {
+    const scores = [
+      { year: 2026, month: 9, score: 80 }, { year: 2026, month: 10, score: 70 }, // Q4 → 75
+      { year: 2026, month: 1, score: 61 },                                      // Q1 → 61
+      { year: 2025, month: 11, score: 90 },                                     // 2025 Q4 → 90
+    ];
+    expect(quarterAverages(scores)).toEqual([
+      { year: 2026, quarter: 4, average: 75 }, { year: 2026, quarter: 1, average: 61 }, { year: 2025, quarter: 4, average: 90 },
+    ]);
   });
 });

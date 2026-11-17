@@ -5,7 +5,8 @@ import path from 'path';
 import { and, asc, desc, eq, gte, isNull, like, or, sql } from 'drizzle-orm';
 import { db, pool } from '../db/client.js';
 import { google } from 'googleapis';
-import { candidates, googleConnections, systemSettings, teachers } from '../db/schema.js';
+import { candidates, googleConnections, positions, systemSettings, teachers } from '../db/schema.js';
+import { resolveOpenings } from '../services/recruitmentOpenings.logic.js';
 import { createStaffRecord, StaffRecordError, type NewStaffDetails } from '../services/staffRecord.service.js';
 import { createCandidateSchema, updateCandidateSchema, hireCandidateSchema } from '../validators/candidate.validator.js';
 import { PRIVATE_UPLOAD_ROOT } from '../routes/upload.routes.js';
@@ -104,43 +105,25 @@ async function readStringArray(key: string, fallback: string[]): Promise<string[
   return clean.length > 0 ? clean : fallback;
 }
 
-/** Reads `recruitment_positions` and normalises whatever shape is stored
- *  into `[{ name, minSalary, maxSalary }]`. Historic entries may be plain
- *  strings — we keep them working by promoting each string to an object
- *  with null bands. */
+/** The roles the apply form offers: `recruitment_positions`, each linked to a position (its name or a
+ *  public name, and the pay range from Payroll) — see recruitmentOpenings.logic. Unset → the defaults. */
 async function readPositionList(fallback: RecruitmentPosition[]): Promise<RecruitmentPosition[]> {
   const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'recruitment_positions')).limit(1);
   if (!row) return fallback;
-  const raw = row.value;
-  let arr: unknown = raw;
-  if (typeof raw === 'string') {
-    try { arr = JSON.parse(raw); } catch { return fallback; }
+  let stored: unknown = row.value;
+  if (typeof stored === 'string') {
+    try { stored = JSON.parse(stored); } catch { return fallback; }
   }
-  if (!Array.isArray(arr)) return fallback;
-  const clean: RecruitmentPosition[] = [];
-  for (const item of arr) {
-    if (typeof item === 'string') {
-      const name = item.trim();
-      if (name) clean.push({ name, minSalary: null, maxSalary: null });
-      continue;
-    }
-    if (item && typeof item === 'object') {
-      const rec = item as Record<string, unknown>;
-      const name = typeof rec.name === 'string' ? rec.name.trim() : '';
-      if (!name) continue;
-      const min = typeof rec.minSalary === 'number' && rec.minSalary >= 0 ? rec.minSalary : null;
-      const max = typeof rec.maxSalary === 'number' && rec.maxSalary >= 0 ? rec.maxSalary : null;
-      clean.push({ name, minSalary: min, maxSalary: max });
-    }
-  }
-  return clean.length > 0 ? clean : fallback;
+  const all = await db.select({ positionId: positions.positionId, name: positions.name, payRangeMin: positions.payRangeMin, payRangeMax: positions.payRangeMax }).from(positions);
+  const openings = resolveOpenings(stored, all);
+  return openings.length > 0 ? openings : fallback;
 }
 
 /** Public — the apply form needs these to render its dropdowns without auth.
  *  Returns just the two whitelisted recruitment lists, never the full
  *  settings blob. */
 export async function getCandidateFormOptions(_req: Request, res: Response): Promise<void> {
-  const [positions, qualifications, experienceRanges, referralSources, addressSetting] = await Promise.all([
+  const [openings, qualifications, experienceRanges, referralSources, addressSetting] = await Promise.all([
     readPositionList(DEFAULT_POSITIONS),
     readStringArray('recruitment_qualifications', DEFAULT_QUALIFICATIONS),
     readStringArray('recruitment_experience_ranges', DEFAULT_EXPERIENCE_RANGES),
@@ -150,7 +133,7 @@ export async function getCandidateFormOptions(_req: Request, res: Response): Pro
   // So the "Commute time to our school" question is answerable — applicants
   // otherwise have no idea where "our school" actually is.
   const address = (addressSetting?.value as string | undefined) ?? '';
-  res.json({ positions, qualifications, experienceRanges, referralSources, address });
+  res.json({ positions: openings, qualifications, experienceRanges, referralSources, address });
 }
 
 /** Public — anyone with the apply link can POST. No auth. */
