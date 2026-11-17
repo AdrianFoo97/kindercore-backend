@@ -14,6 +14,8 @@ import {
   uniqueIndex,
   double,
 } from 'drizzle-orm/mysql-core';
+// Every JSON column but SystemSetting.value (it has its own reading) — see jsonColumn.
+import { jsonColumn } from './jsonColumn.js';
 
 export const users = mysqlTable('User', {
   id: varchar('id', { length: 36 }).primaryKey(),
@@ -168,7 +170,7 @@ export const students = mysqlTable('Student', {
   ageOffset: int('ageOffset').notNull().default(0),
   childName: varchar('childName', { length: 191 }),
   childDob: datetime('childDob', { mode: 'date', fsp: 3 }),
-  onboardingProgress: json('onboardingProgress'),
+  onboardingProgress: jsonColumn('onboardingProgress'),
   onboardingCompleted: boolean('onboardingCompleted').notNull().default(false),
   withdrawnAt: datetime('withdrawnAt', { mode: 'date', fsp: 3 }),
   withdrawReason: varchar('withdrawReason', { length: 191 }),
@@ -455,11 +457,11 @@ export const teachers = mysqlTable('Teacher', {
   name: varchar('name', { length: 191 }).notNull(),
   color: varchar('color', { length: 7 }).notNull(),
   isActive: boolean('isActive').notNull().default(true),
-  allowedSubjectIds: json('allowedSubjectIds'),
-  allowedClassroomIds: json('allowedClassroomIds'),
+  allowedSubjectIds: jsonColumn('allowedSubjectIds'),
+  allowedClassroomIds: jsonColumn('allowedClassroomIds'),
   workStartMinute: int('workStartMinute'),
   workEndMinute: int('workEndMinute'),
-  workDays: json('workDays'),
+  workDays: jsonColumn('workDays'),
   positionId: varchar('positionId', { length: 10 }),
   level: int('level').default(0),
   isFixedSalary: boolean('isFixedSalary').notNull().default(false),
@@ -492,12 +494,12 @@ export const teachers = mysqlTable('Teacher', {
   // HR → Onboarding checklist, copied from the staff_onboarding_tasks setting
   // when the staff record is created: [{ task, done }]. Staff who were here
   // before onboarding existed default to completed, so they never show up.
-  onboardingProgress: json('onboardingProgress'),
+  onboardingProgress: jsonColumn('onboardingProgress'),
   onboardingCompleted: boolean('onboardingCompleted').notNull().default(true),
   // The new joiner's OWN checklist (handbook, guides…), ticked in their app's
   // "My onboarding" card — copied from staff_self_onboarding_tasks. Both this
   // and HR's list above must be done before onboarding can be completed.
-  selfOnboardingProgress: json('selfOnboardingProgress'),
+  selfOnboardingProgress: jsonColumn('selfOnboardingProgress'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -629,12 +631,12 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
   // Nullable — old rows predate this column; approval falls back to the
   // current template's icon (edit) or the default (new proposal).
   icon: varchar('icon', { length: 50 }),
-  stepsJson: json('stepsJson').notNull(),
+  stepsJson: jsonColumn('stepsJson').notNull(),
   // Why the proposer wants to change an existing guide (a list of short
   // reasons) — step 1 of a teacher's "Suggest an improvement", shown to the
   // reviewer. Null on new-guide proposals, supervisors' own edits and older rows.
-  improvementReasonsJson: json('improvementReasonsJson'),
-  categoryIdsJson: json('categoryIdsJson'),
+  improvementReasonsJson: jsonColumn('improvementReasonsJson'),
+  categoryIdsJson: jsonColumn('categoryIdsJson'),
   // CHANGES_REQUESTED: a reviewer sent it back with feedback (reviewNote); the
   // proposer edits and resubmits, which puts it back to PENDING.
   // TRIAL: looks right on paper — the supervisor is trying it in practice before deciding.
@@ -651,7 +653,7 @@ export const sopTemplateRevisions = mysqlTable('SopTemplateRevision', {
   reviewNote: text('reviewNote'),
   // A send-back's comments on individual steps, written while going through
   // them one by one: [{ section, stepTitle, comment }], in step order.
-  reviewCommentsJson: json('reviewCommentsJson'),
+  reviewCommentsJson: jsonColumn('reviewCommentsJson'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -675,7 +677,7 @@ export const bugReports = mysqlTable('BugReport', {
   reportedByName: varchar('reportedByName', { length: 191 }).notNull(),
   // Up to 4 screenshot URLs (e.g. `/uploads/bug-reports/xxx.jpg`), same
   // relative-path convention as Position.badgeUrl.
-  photoUrls: json('photoUrls').$type<string[]>(),
+  photoUrls: jsonColumn('photoUrls').$type<string[]>(),
   status: mysqlEnum('status', ['OPEN', 'RESOLVED']).notNull().default('OPEN'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -753,7 +755,7 @@ export const facilityIssues = mysqlTable('FacilityIssue', {
   statusNote: varchar('statusNote', { length: 1000 }),
   // Photos / videos from the reporter — files live in the private upload
   // root (facilityAttachments.service), served only to reporter + managers.
-  attachments: json('attachments').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }[]>(),
+  attachments: jsonColumn('attachments').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }[]>(),
   reportedByUserId: varchar('reportedByUserId', { length: 36 }).notNull(),
   reportedByName: varchar('reportedByName', { length: 191 }).notNull(),
   statusUpdatedByName: varchar('statusUpdatedByName', { length: 191 }),
@@ -780,7 +782,7 @@ export const purchaseRequests = mysqlTable('PurchaseRequest', {
   buyer: mysqlEnum('buyer', ['SUPERVISOR', 'SELF']).notNull().default('SUPERVISOR'),
   cost: decimal('cost', { precision: 10, scale: 2 }),
   // Receipt photo — private upload root (purchaseReceipts.service), managers only.
-  receipt: json('receipt').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }>(),
+  receipt: jsonColumn('receipt').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }>(),
   declineReason: varchar('declineReason', { length: 500 }),
   // The supervisor's note on the item ("Out of stock at MR DIY, trying again
   // next week") — shown on the list and to the requester.
@@ -1021,7 +1023,7 @@ export const appraisalCriteria = mysqlTable('AppraisalCriterion', {
   inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER', 'AUTO', 'POINTS', 'FORM']).notNull(),
   // RATING: { max, levels: [{ value, label, description }] } · NUMBER: { target, higherIsBetter }
   // AUTO: { bands?: [{ upTo, score }] } — see appraisalScoring.service.
-  scaleConfig: json('scaleConfig'),
+  scaleConfig: jsonColumn('scaleConfig'),
   // AUTO only — a key in the metric-source registry (e.g. "sop_observation_pass_rate").
   metricSource: varchar('metricSource', { length: 64 }),
   sortOrder: int('sortOrder').notNull().default(0),
@@ -1037,7 +1039,7 @@ export const appraisalCriterionPoints = mysqlTable('AppraisalCriterionPoint', {
   name: varchar('name', { length: 191 }).notNull(),
   // How this point is scored; null (points saved before this existed) = the criterion's own way.
   inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER']),
-  scaleConfig: json('scaleConfig'),
+  scaleConfig: jsonColumn('scaleConfig'),
   sortOrder: int('sortOrder').notNull().default(0),
 });
 
@@ -1051,7 +1053,7 @@ export const appraisalRatingScales = mysqlTable('AppraisalRatingScale', {
   /** Levels 1…max. */
   max: int('max').notNull(),
   /** [{ value, label, description? }], one per level. */
-  levels: json('levels').notNull(),
+  levels: jsonColumn('levels').notNull(),
   isDefault: boolean('isDefault').notNull().default(false),
   /** Inactive = kept, but not offered when picking a scale. The default is always active. */
   isActive: boolean('isActive').notNull().default(true),
@@ -1066,11 +1068,11 @@ export const appraisalScoringForms = mysqlTable('AppraisalScoringForm', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
   /** [{ name, weight, criteria: [{ name, weight, inputType, scaleConfig, points }] }] — same shape as an appraisal form's. */
-  sections: json('sections').notNull(),
+  sections: jsonColumn('sections').notNull(),
   /** Optional: which positions it's meant for (a hint when picking it — not a restriction). */
-  positionIds: json('positionIds'),
+  positionIds: jsonColumn('positionIds'),
   /** Made from SOPs (each step pass / fail / N/A, as in an SOP observation): their ids. Its steps aren't edited by hand. */
-  sopTemplateIds: json('sopTemplateIds'),
+  sopTemplateIds: jsonColumn('sopTemplateIds'),
   /** Inactive = kept, but not offered when picking a scoring form. */
   isActive: boolean('isActive').notNull().default(true),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -1258,7 +1260,7 @@ export const classrooms = mysqlTable('Classroom', {
   capacity: int('capacity'),
   startMinute: int('startMinute'),
   endMinute: int('endMinute'),
-  daysOfWeek: json('daysOfWeek'),
+  daysOfWeek: jsonColumn('daysOfWeek'),
   isActive: boolean('isActive').notNull().default(true),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -1270,7 +1272,7 @@ export const subjects = mysqlTable('Subject', {
   color: varchar('color', { length: 7 }).notNull(),
   lessonsPerWeek: int('lessonsPerWeek'),
   defaultDuration: int('defaultDuration').default(60),
-  classLessons: json('classLessons'),
+  classLessons: jsonColumn('classLessons'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
@@ -1293,7 +1295,7 @@ export const scheduleBlocks = mysqlTable('ScheduleBlock', {
   subjectId: varchar('subjectId', { length: 36 }),
   taskId: varchar('taskId', { length: 36 }),
   classroomId: varchar('classroomId', { length: 36 }),
-  assignedTeacherIds: json('assignedTeacherIds'),
+  assignedTeacherIds: jsonColumn('assignedTeacherIds'),
   notes: text('notes'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -1302,7 +1304,7 @@ export const scheduleBlocks = mysqlTable('ScheduleBlock', {
 export const savedTimetables = mysqlTable('SavedTimetable', {
   id: varchar('id', { length: 36 }).primaryKey(),
   name: varchar('name', { length: 191 }).notNull(),
-  blocks: json('blocks').notNull(),
+  blocks: jsonColumn('blocks').notNull(),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
