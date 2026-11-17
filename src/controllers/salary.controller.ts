@@ -123,7 +123,7 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
     return;
   }
   if (parsed.data.payRangeMin !== undefined || parsed.data.payRangeMax !== undefined) {
-    const problem = payRangeProblem(parsed.data.basicSalary, parsed.data.payRangeMin ?? null, parsed.data.payRangeMax ?? null);
+    const problem = payRangeProblem(parsed.data.payRangeMin ?? null, parsed.data.payRangeMax ?? null);
     if (problem) { res.status(400).json({ message: problem }); return; }
   }
   if (parsed.data.reportsToPositionId !== undefined) {
