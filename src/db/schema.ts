@@ -925,6 +925,8 @@ export const sopObservations = mysqlTable('SopObservation', {
   assessorName: varchar('assessorName', { length: 191 }),
   assessorAt: datetime('assessorAt', { mode: 'date', fsp: 3 }),
   notes: text('notes'),
+  /** How its steps are marked, copied from Settings → Practice observations when assigned (null = pass / fail / N/A). */
+  marking: jsonColumn('marking'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
@@ -938,6 +940,8 @@ export const sopObservationStepResults = mysqlTable('SopObservationStepResult', 
   observationId: varchar('observationId', { length: 36 }).notNull(),
   sopStepId: varchar('sopStepId', { length: 36 }).notNull(),
   passed: mysqlEnum('passed', ['PASS', 'FAIL', 'NA']).notNull().default('NA'),
+  /** Marked on levels: which one (its position); passed is then worked out against the pass mark. null = pass / fail, or N/A. */
+  level: int('level'),
   note: text('note'),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -1020,7 +1024,7 @@ export const appraisalCriteria = mysqlTable('AppraisalCriterion', {
   weight: float('weight').notNull(),
   // POINTS = scored as the average of its points (AppraisalCriterionPoint), each scored its own way.
   // FORM = scored as a scoring form's weighted total — scaleConfig holds a copy: { scoringFormId, name, sections }.
-  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER', 'AUTO', 'POINTS', 'FORM']).notNull(),
+  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'LEVELS', 'NUMBER', 'AUTO', 'POINTS', 'FORM']).notNull(),
   // RATING: { max, levels: [{ value, label, description }] } · NUMBER: { target, higherIsBetter }
   // AUTO: { bands?: [{ upTo, score }] } — see appraisalScoring.service.
   scaleConfig: jsonColumn('scaleConfig'),
@@ -1038,7 +1042,7 @@ export const appraisalCriterionPoints = mysqlTable('AppraisalCriterionPoint', {
   criterionId: varchar('criterionId', { length: 36 }).notNull(),
   name: varchar('name', { length: 191 }).notNull(),
   // How this point is scored; null (points saved before this existed) = the criterion's own way.
-  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER']),
+  inputType: mysqlEnum('inputType', ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'LEVELS', 'NUMBER']),
   scaleConfig: jsonColumn('scaleConfig'),
   sortOrder: int('sortOrder').notNull().default(0),
 });

@@ -18,10 +18,20 @@ const ratingConfig = z.object({
   })).max(MAX_RATING_LEVELS).optional(),
 });
 const numberConfig = z.object({ target: z.number().positive('A target has to be above 0'), higherIsBetter: z.boolean() });
+const MIN_LEVELS = 2;
+const MAX_LEVELS = 10;
+const MAX_LEVEL_LABEL = 40;
+/** Named levels, each worth 0–100% (e.g. Fail 0, Satisfactory 60, Excellent 100); where they came from is kept for the editor. */
+const levelsConfig = z.object({
+  levels: z.array(z.object({ label: z.string().trim().min(1, 'Every level needs a name').max(MAX_LEVEL_LABEL), score: z.number().min(0).max(100) }))
+    .min(MIN_LEVELS, `Give at least ${MIN_LEVELS} levels`).max(MAX_LEVELS, `Use at most ${MAX_LEVELS} levels`)
+    .refine(ls => new Set(ls.map(l => l.label.toLowerCase())).size === ls.length, 'Two levels have the same name'),
+  source: z.object({ kind: z.enum(['SCALE', 'ONE_TO_FIVE', 'CUSTOM']), scaleId: z.string().max(36).optional() }).optional(),
+});
 
 // Automatic scores (from SOP checks, incidents…) arrive in a later update, so
 // only manually entered kinds can be chosen for now.
-export const MANUAL_INPUTS = ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'NUMBER'] as const;
+export const MANUAL_INPUTS = ['RATING', 'PERCENT', 'YES_NO', 'PASS_FAIL', 'LEVELS', 'NUMBER'] as const;
 export type ManualInput = typeof MANUAL_INPUTS[number];
 /** How a point is scored when it doesn't say. */
 export const DEFAULT_POINT_INPUT: ManualInput = 'RATING';
@@ -38,6 +48,11 @@ export function cleanScale(name: string, inputType: ManualInput | 'POINTS', raw:
       ...(parsed.data.scaleId ? { scaleId: parsed.data.scaleId } : {}),
       max: parsed.data.max, levels: (parsed.data.levels ?? []).filter(l => l.value <= parsed.data.max && (l.label || l.description)),
     };
+  }
+  if (inputType === 'LEVELS') {
+    const parsed = levelsConfig.safeParse(raw);
+    if (!parsed.success) { ctx.addIssue({ code: 'custom', message: `"${name}": ${parsed.error.errors[0].message}` }); return undefined; }
+    return parsed.data;
   }
   if (inputType === 'NUMBER') {
     const parsed = numberConfig.safeParse(raw);
@@ -92,6 +107,8 @@ function criterionSchema<T extends z.ZodTypeAny>(inputs: readonly [string, ...st
     inputType: z.enum(inputs as [ManualInput | 'POINTS' | 'FORM', ...(ManualInput | 'POINTS' | 'FORM')[]]),
     scaleConfig: z.unknown().optional(),
     points: z.array(pointSchema).max(MAX_POINTS_PER_CRITERION).default([]),
+    // An SOP check's criterion: the SOP it scores — so a later edit to the SOP can reach new appraisals.
+    sopTemplateId: z.string().max(36).nullable().optional(),
   }).transform((c, ctx) => {
     let scaleConfig: Record<string, unknown> | null | undefined;
     if (c.inputType === 'FORM') {
@@ -114,7 +131,7 @@ function criterionSchema<T extends z.ZodTypeAny>(inputs: readonly [string, ...st
         points.push({ name: p.name!, ...(p.description ? { description: p.description } : {}), inputType, scaleConfig: pointScale });
       }
     }
-    return { name: c.name!, description: c.description || null, weight: c.weight!, inputType: c.inputType as ManualInput | 'POINTS' | 'FORM', scaleConfig, points };
+    return { name: c.name!, description: c.description || null, weight: c.weight!, inputType: c.inputType as ManualInput | 'POINTS' | 'FORM', scaleConfig, points, ...(c.sopTemplateId ? { sopTemplateId: c.sopTemplateId } : {}) };
   });
 }
 

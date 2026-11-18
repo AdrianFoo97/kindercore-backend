@@ -7,7 +7,8 @@
 
 /** POINTS = the average of the criterion's points, each scored its own way. */
 /** FORM = a scoring form's weighted total (scaleConfig holds a copy of its sections). */
-export type InputType = 'RATING' | 'PERCENT' | 'YES_NO' | 'PASS_FAIL' | 'NUMBER' | 'AUTO' | 'POINTS' | 'FORM';
+/** LEVELS = one of a set of named levels, each worth a percentage (e.g. Fail 0, Satisfactory 60, Excellent 100) — or N/A. */
+export type InputType = 'RATING' | 'PERCENT' | 'YES_NO' | 'PASS_FAIL' | 'LEVELS' | 'NUMBER' | 'AUTO' | 'POINTS' | 'FORM';
 
 /**
  * Pass / Fail / N/A (PASS_FAIL) — how an SOP step is checked, as in SOP
@@ -15,11 +16,15 @@ export type InputType = 'RATING' | 'PERCENT' | 'YES_NO' | 'PASS_FAIL' | 'NUMBER'
  * left out and the rest share its weight (appraisalRun.logic withoutNotApplicable).
  */
 export const NOT_APPLICABLE = -1;
-export const isNotApplicable = (inputType: string, raw: number | null | undefined) => inputType === 'PASS_FAIL' && raw === NOT_APPLICABLE;
+/** Kinds that can be marked N/A (how SOP steps are marked): pass / fail, and named levels. */
+export const MARKS_WITH_NA: readonly string[] = ['PASS_FAIL', 'LEVELS'];
+export const isNotApplicable = (inputType: string, raw: number | null | undefined) => MARKS_WITH_NA.includes(inputType) && raw === NOT_APPLICABLE;
 export type MissingPolicy = 'REQUIRE_ALL' | 'REWEIGHT';
 
 export interface RatingConfig { max: number; levels?: { value: number; label: string; description?: string }[] }
 export interface NumberConfig { target: number; higherIsBetter: boolean }
+/** Named levels, each worth a percentage; a mark is the level's position (0, 1, …) or N/A. */
+export interface LevelsConfig { levels: { label: string; score: number }[] }
 /** Bands for AUTO values, checked in order: the first band whose `upTo` the value doesn't exceed gives the score. */
 export interface AutoConfig { bands?: { upTo: number; score: number }[] }
 
@@ -28,7 +33,7 @@ export interface CriterionDef {
   name: string;
   weight: number;
   inputType: InputType;
-  scaleConfig?: RatingConfig | NumberConfig | AutoConfig | null;
+  scaleConfig?: RatingConfig | NumberConfig | AutoConfig | LevelsConfig | null;
   /** Points it's judged on, each scored its own way (normaliseCriterion works on a point too). */
   points?: PointDef[];
 }
@@ -63,7 +68,7 @@ export function checkTemplate(t: TemplateDef): string[] {
       if (c.weight <= 0) problems.push(`"${c.name}" needs a weight above 0%.`);
       // "On several points" was replaced by scoring forms: an old one is kept (so drafts still save) but can't go live —
       // except an SOP checked step by step (every item pass / fail / N/A), which is how SOP scoring forms are built.
-      const sopSteps = !!c.points?.length && c.points.every(p => p.inputType === 'PASS_FAIL');
+      const sopSteps = !!c.points?.length && c.points.every(p => MARKS_WITH_NA.includes(p.inputType));
       if (c.inputType === 'POINTS' && !sopSteps) problems.push(`"${c.name}" is scored on several points, which is no longer offered — pick how it's scored.`);
       // With points, each point is scored its own way; without, the criterion is.
       const scored = c.points?.length ? c.points : [c];
@@ -93,6 +98,11 @@ export function normaliseCriterion(c: Pick<CriterionDef, 'inputType' | 'scaleCon
     case 'PASS_FAIL':
       // N/A has no score — it's left out (see isNotApplicable).
       return raw === NOT_APPLICABLE ? null : raw > 0 ? FULL : 0;
+    case 'LEVELS': {
+      // The level's own percentage; N/A has none.
+      const level = raw === NOT_APPLICABLE ? undefined : (c.scaleConfig as LevelsConfig | undefined)?.levels?.[raw];
+      return level ? clamp(level.score) : null;
+    }
     case 'NUMBER': {
       const { target, higherIsBetter } = c.scaleConfig as NumberConfig;
       if (higherIsBetter) return clamp((raw / target) * FULL);

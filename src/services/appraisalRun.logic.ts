@@ -46,6 +46,10 @@ export function rawValueProblem(def: { name: string; inputType: InputType; scale
     case 'PERCENT': return raw >= 0 && raw <= 100 ? null : `"${def.name}" is a percentage, 0 to 100.`;
     case 'YES_NO': return raw === 0 || raw === 1 ? null : `"${def.name}" is yes or no.`;
     case 'PASS_FAIL': return raw === 0 || raw === 1 || raw === NOT_APPLICABLE ? null : `"${def.name}" is pass, fail or N/A.`;
+    case 'LEVELS': {
+      const count = (def.scaleConfig as { levels?: unknown[] } | null)?.levels?.length ?? 0;
+      return raw === NOT_APPLICABLE || (Number.isInteger(raw) && raw >= 0 && raw < count) ? null : `"${def.name}" needs one of its levels, or N/A.`;
+    }
     case 'NUMBER': return raw >= 0 ? null : `"${def.name}" can't be below 0.`;
     default: return `"${def.name}" isn't scored directly.`;
   }

@@ -342,3 +342,29 @@ export async function setFamilyPositions(familyId: string, positionIds: string[]
     return 'ok';
   });
 }
+
+/**
+ * A new live version of a live form — the same, with some criteria's settings
+ * replaced (e.g. a fresh copy of an SOP that was edited) — and the old version
+ * retires. Appraisals already created keep the version they were made with; a
+ * draft someone is editing is left alone. Null when the form is no longer live.
+ */
+export async function publishRevision(liveId: string, scaleConfigs: Map<string, Record<string, unknown>>): Promise<string | null> {
+  return db.transaction(async tx => {
+    const t = await lockTemplate(tx, liveId);
+    if (!t || t.status !== 'ACTIVE') return null;
+    const family = await tx.select({ version: appraisalTemplates.version }).from(appraisalTemplates).where(eq(appraisalTemplates.familyId, t.familyId));
+    const [sections, stages] = await Promise.all([sectionsOf(tx, liveId), stagesOf(tx, liveId)]);
+    const revised = sections.map(s => ({ ...s, criteria: s.criteria.map(c => (scaleConfigs.has(c.id) ? { ...c, scaleConfig: scaleConfigs.get(c.id)! } : c)) }));
+    const id = randomUUID();
+    const now = new Date();
+    await tx.insert(appraisalTemplates).values({
+      id, familyId: t.familyId, name: t.name, description: t.description, frequency: t.frequency,
+      missingPolicy: t.missingPolicy, status: 'ACTIVE', version: Math.max(...family.map(v => v.version)) + 1,
+      isLegacy: false, createdAt: now, updatedAt: now,
+    });
+    await writeContents(tx, id, { sections: revised, stages } as never);
+    await tx.update(appraisalTemplates).set({ status: 'RETIRED', updatedAt: now }).where(eq(appraisalTemplates.id, liveId));
+    return id;
+  });
+}

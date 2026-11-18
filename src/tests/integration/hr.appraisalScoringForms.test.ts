@@ -107,3 +107,25 @@ describe('Appraisal scoring forms', () => {
     expect((await call(deleteAppraisalScoringForm, { id: form.id })).statusCode).toBe(404);
   });
 });
+
+describe('Appraisal scoring forms — SOP steps marked on levels', () => {
+  const sopForm = (levels: unknown) => ({
+    name: 'SOP Audit', positionIds: [], sopTemplateIds: ['sop-gate'],
+    sections: [{ name: 'SOPs', weight: 100, criteria: [{ name: 'Gate Duty', description: null, weight: 100, inputType: 'POINTS', scaleConfig: null, sopTemplateId: 'sop-gate',
+      points: ['Open the gate', 'Greet parents'].map(name => ({ name, inputType: 'LEVELS', scaleConfig: { levels, source: { kind: 'CUSTOM' } } })) }] }],
+  });
+  const custom = [{ label: 'Fail', score: 0 }, { label: 'Satisfactory', score: 60 }, { label: 'Excellent', score: 100 }];
+
+  it('saves an SOP form whose steps are marked on its own levels (with N/A), and refuses levels that don’t make sense', async () => {
+    const created = await call(createAppraisalScoringForm, {}, { name: 'SOP Audit' });
+    const saved = await call(updateAppraisalScoringForm, { id: created.body.id }, sopForm(custom));
+    expect(saved.statusCode).toBe(200);
+    const point = saved.body.sections[0].criteria[0].points[0];
+    expect(point).toMatchObject({ inputType: 'LEVELS', scaleConfig: { levels: custom } });
+    expect(saved.body.sections[0].criteria[0].sopTemplateId).toBe('sop-gate'); // remembers its SOP
+    expect(saved.body.problems).toEqual([]);
+    expect((await call(updateAppraisalScoringForm, { id: created.body.id }, sopForm([{ label: 'Only', score: 50 }]))).statusCode).toBe(400);
+    expect((await call(updateAppraisalScoringForm, { id: created.body.id }, sopForm([{ label: 'Low', score: 0 }, { label: 'Too much', score: 150 }]))).statusCode).toBe(400);
+    expect((await call(updateAppraisalScoringForm, { id: created.body.id }, sopForm([{ label: 'Same', score: 0 }, { label: 'same', score: 100 }]))).statusCode).toBe(400);
+  });
+});

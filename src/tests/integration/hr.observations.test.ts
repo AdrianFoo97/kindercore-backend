@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
-import { teachers, sopTemplates, sopSteps, sopObservations, sopObservationStepResults } from '../../db/schema.js';
-import { advanceStage, createObservation, getTeacherTraining, recordTrainingGiven, sendBackForTraining } from '../../controllers/sop-observations.controller.js';
+import { teachers, sopTemplates, sopSteps, sopObservations, sopObservationStepResults, systemSettings } from '../../db/schema.js';
+import { advanceStage, createObservation, getObservation, getTeacherTraining, recordTrainingGiven, saveObservationMarking, sendBackForTraining } from '../../controllers/sop-observations.controller.js';
 import { resetTables } from './testDb.js';
 import { reqWith, res } from './http.js';
 
@@ -169,5 +169,82 @@ describe('HR — assigning and assessing training safely', () => {
     expect((await call(getTeacherTraining, {}, { teacherId: 't-1' }, OTHER_HR)).statusCode).toBe(403);
     expect((await call(getTeacherTraining, {}, { teacherId: 't-1' }, { id: 'u-tina', email: 't@x.test', role: 'USER', teacherId: 't-1' })).statusCode).toBe(200);
     expect((await call(getTeacherTraining, {}, { teacherId: 't-1' })).statusCode).toBe(200); // admin sees everyone
+  });
+});
+
+describe('HR — practice observations marked on levels', () => {
+  const call = async (handler: (rq: any, rs: any) => Promise<void>, body: unknown, params: Record<string, string> = {}) => {
+    const r = res();
+    await handler(reqWith({ body, params, user: ADMIN }), r);
+    return r;
+  };
+  const LEVELS = { inputType: 'LEVELS', levels: [{ label: 'Fail', score: 0 }, { label: 'Satisfactory', score: 60 }, { label: 'Excellent', score: 100 }], passMark: 60 };
+  beforeEach(async () => {
+    await resetTables(systemSettings);
+    await db.insert(teachers).values({ id: 't-tr', name: 'Alicia', color: '#7c3aed', createdAt: NOW, updatedAt: NOW });
+    await db.insert(systemSettings).values({ id: 'set-1', key: 'observation_step_marking', value: LEVELS, updatedAt: NOW });
+    await db.delete(sopObservationStepResults);
+    await db.delete(sopObservations);
+  });
+  afterAll(async () => { await resetTables(systemSettings); });
+
+  it('keeps the levels from Settings on each observation, and certifies only with every step at the pass mark or above', async () => {
+    const made = await call(createObservation, { teacherId: 't-1', sopTemplateId: 'sop-1', trainerId: 't-tr' });
+    expect(made.statusCode).toBe(200);
+    // A later change to the setting doesn't touch it.
+    await db.update(systemSettings).set({ value: { inputType: 'PASS_FAIL' } }).where(eq(systemSettings.key, 'observation_step_marking'));
+    const id = made.body.id;
+    await call(advanceStage, { trainerName: 'Alicia', trainerAt: '2026-01-05' }, { id });
+    const signOff = (stepResults: unknown) => call(advanceStage, { assessorName: 'Lim', assessorAt: '2026-01-10', stepResults }, { id });
+    // Satisfactory + Fail: below the pass mark → not certified; it goes back for more training, the level kept.
+    expect((await signOff([{ stepId: 'step-1', level: 1 }, { stepId: 'step-2', level: 0 }])).statusCode).toBe(400);
+    const back = await call(sendBackForTraining, { stepResults: [{ stepId: 'step-1', level: 1 }, { stepId: 'step-2', level: 0, note: 'Missed it' }] }, { id });
+    expect(back.body.status).toBe('PENDING_TRAINER');
+    const [failed] = await db.select().from(sopObservationStepResults).where(eq(sopObservationStepResults.sopStepId, 'step-2'));
+    expect(failed).toMatchObject({ passed: 'FAIL', level: 0, note: 'Missed it' });
+    // Retrained: Satisfactory + Excellent → certified (still on its levels, though the setting is pass / fail now).
+    await call(advanceStage, { trainerName: 'Alicia', trainerAt: '2026-01-12' }, { id });
+    const ok = await signOff([{ stepId: 'step-1', level: 1 }, { stepId: 'step-2', level: 2 }]);
+    expect(ok.body.status).toBe('CERTIFIED');
+    const rows = await db.select().from(sopObservationStepResults).where(eq(sopObservationStepResults.observationId, id));
+    expect(Object.fromEntries(rows.map(r => [r.sopStepId, [r.passed, r.level]]))).toEqual({ 'step-1': ['PASS', 1], 'step-2': ['PASS', 2] });
+  });
+
+  it('saves how new observations are marked, and refuses levels or a pass mark that don’t make sense', async () => {
+    const ok = await call(saveObservationMarking, LEVELS);
+    expect(ok.statusCode).toBe(200);
+    const [row] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'observation_step_marking'));
+    expect(row.value).toMatchObject({ inputType: 'LEVELS', passMark: 60 });
+    expect((await call(saveObservationMarking, { inputType: 'PASS_FAIL' })).statusCode).toBe(200);
+    expect((await call(saveObservationMarking, { ...LEVELS, levels: [{ label: 'Only', score: 50 }] })).statusCode).toBe(400);
+    expect((await call(saveObservationMarking, { ...LEVELS, passMark: 101 })).statusCode).toBe(400);
+    expect((await call(saveObservationMarking, { ...LEVELS, levels: [{ label: 'Low', score: 0 }, { label: 'Mid', score: 40 }], passMark: 60 })).statusCode).toBe(400); // no level reaches it
+  });
+
+  it('refuses a level the observation doesn’t have', async () => {
+    const made = await call(createObservation, { teacherId: 't-1', sopTemplateId: 'sop-1', trainerId: 't-tr' });
+    await call(advanceStage, { trainerName: 'Alicia', trainerAt: '2026-01-05' }, { id: made.body.id });
+    expect((await call(advanceStage, { assessorName: 'Lim', assessorAt: '2026-01-10', stepResults: [{ stepId: 'step-1', level: 9 }] }, { id: made.body.id })).statusCode).toBe(400);
+  });
+});
+
+describe('HR — practice observations: steps added to the guide later', () => {
+  const call = async (handler: (rq: any, rs: any) => Promise<void>, body: unknown, params: Record<string, string> = {}) => {
+    const r = res();
+    await handler(reqWith({ body, params, user: ADMIN }), r);
+    return r;
+  };
+  it('shows a step added to the guide after it was assigned, saves its mark, and only takes this guide’s steps', async () => {
+    await advance(trainerSignOff);
+    await db.insert(sopSteps).values({ id: 'step-3', sopTemplateId: 'sop-1', section: 'Main', title: 'Wave goodbye', displayOrder: 3, createdAt: NOW, updatedAt: NOW });
+    const shown = await call(getObservation, {}, { id: OBS });
+    expect(shown.body.stepResults.map((r: any) => r.sopStepId)).toEqual(['step-1', 'step-2', 'step-3']);
+    const all = ['step-1', 'step-2', 'step-3'].map(stepId => ({ stepId, passed: 'PASS' }));
+    await db.insert(sopTemplates).values({ id: 'sop-2', title: 'Other guide', createdAt: NOW, updatedAt: NOW });
+    await db.insert(sopSteps).values({ id: 'other-1', sopTemplateId: 'sop-2', section: 'Main', title: 'Not this one', createdAt: NOW, updatedAt: NOW });
+    expect((await call(advanceStage, { ...assessorSignOff, stepResults: [...all, { stepId: 'other-1', passed: 'PASS' }] }, { id: OBS })).statusCode).toBe(400);
+    expect((await call(advanceStage, { ...assessorSignOff, stepResults: all }, { id: OBS })).body.status).toBe('CERTIFIED');
+    const rows = await db.select().from(sopObservationStepResults).where(eq(sopObservationStepResults.observationId, OBS));
+    expect(rows.map(r => r.sopStepId).sort()).toEqual(['step-1', 'step-2', 'step-3']);
   });
 });

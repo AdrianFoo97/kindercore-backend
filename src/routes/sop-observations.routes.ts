@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import {
-  listObservations, getObservation, createObservation, advanceStage, saveStepResultsDraft, getTeacherTraining, recordTrainingGiven, sendBackForTraining,
+  listObservations, getObservation, createObservation, advanceStage, saveStepResultsDraft, getTeacherTraining, recordTrainingGiven, sendBackForTraining, saveObservationMarking,
 } from '../controllers/sop-observations.controller.js';
-import { authMiddleware, requireModule, selfOrModule } from '../middlewares/auth.middleware.js';
+import { adminMiddleware, authMiddleware, requireModule, selfOrModule } from '../middlewares/auth.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -19,3 +19,5 @@ sopObservationsRouter.post('/sop-observations/:id/step-results', authMiddleware,
 sopObservationsRouter.get('/teachers/:teacherId/training', authMiddleware, selfOrModule(MODULES.HR), asyncHandler(getTeacherTraining));
 // Teacher app → My training → Trainer: the assigned trainer records the day they gave the training (or HR for them).
 sopObservationsRouter.post('/teachers/:teacherId/training/:observationId/trained', authMiddleware, selfOrModule(MODULES.HR), asyncHandler(recordTrainingGiven));
+// Settings → Practice observations: how new observations mark their steps (admins).
+sopObservationsRouter.put('/sop-observation-marking', authMiddleware, adminMiddleware, asyncHandler(saveObservationMarking));

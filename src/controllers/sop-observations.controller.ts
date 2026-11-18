@@ -5,11 +5,11 @@ import { alias } from 'drizzle-orm/mysql-core';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import {
-  sopObservations, sopObservationStepResults, sopSteps, sopTemplates, teachers, users,
+  sopObservations, sopObservationStepResults, sopSteps, sopTemplates, systemSettings, teachers, users,
 } from '../db/schema.js';
 import { OUTSIDE_TEAM, inStaffScope, staffScopeFor } from '../services/performanceScope.service.js';
 import { formatDay, malaysiaToday } from '../services/appraisalSchedule.logic.js';
-import { certifyProblem, trainedOnProblem, type StepMark } from '../services/sopTraining.logic.js';
+import { OBSERVATION_MARKING_KEY, certifyProblem, observationMarkingFrom, storedMarks, trainedOnProblem, type EnteredMark, type StepMark, type StoredMark } from '../services/sopTraining.logic.js';
 
 // HRMS → Performance Management → Practice Observations: only for the staff in
 // your scope — your team, unless your access role may see everyone.
@@ -74,6 +74,7 @@ export async function getObservation(req: Request, res: Response): Promise<void>
     id: sopObservationStepResults.id,
     sopStepId: sopObservationStepResults.sopStepId,
     passed: sopObservationStepResults.passed,
+    level: sopObservationStepResults.level,
     note: sopObservationStepResults.note,
     section: sopSteps.section,
     title: sopSteps.title,
@@ -84,6 +85,16 @@ export async function getObservation(req: Request, res: Response): Promise<void>
     .innerJoin(sopSteps, eq(sopObservationStepResults.sopStepId, sopSteps.id))
     .where(eq(sopObservationStepResults.observationId, id))
     .orderBy(asc(sopSteps.displayOrder));
+  // Steps added to the guide after it was assigned are shown too (not marked yet) — until it's certified,
+  // when what was marked is what stands. They're saved once they're marked (writeMarks).
+  if (observation.status !== 'CERTIFIED') {
+    const have = new Set(stepResults.map(r => r.sopStepId));
+    const live = await db.select().from(sopSteps).where(and(eq(sopSteps.sopTemplateId, observation.sopTemplateId), isNull(sopSteps.deletedAt)));
+    for (const s of live.filter(x => !have.has(x.id))) {
+      stepResults.push({ id: `new:${s.id}`, sopStepId: s.id, passed: 'NA', level: null, note: null, section: s.section, title: s.title, detail: s.detail, displayOrder: s.displayOrder });
+    }
+    stepResults.sort((a, b) => a.displayOrder - b.displayOrder);
+  }
 
   res.json({
     ...observation,
@@ -133,8 +144,12 @@ export async function createObservation(req: Request, res: Response): Promise<vo
 
   const now = new Date();
   const id = randomUUID();
+  // How its steps are marked: the setting as it is now (later changes don't touch it).
+  const [markingSetting] = await db.select().from(systemSettings).where(eq(systemSettings.key, OBSERVATION_MARKING_KEY));
+  const marking = observationMarkingFrom(markingSetting?.value);
   await db.insert(sopObservations).values({
     id,
+    marking: marking.inputType === 'LEVELS' ? marking : null,
     teacherId: parsed.data.teacherId,
     sopTemplateId: parsed.data.sopTemplateId,
     trainerId: parsed.data.trainerId ?? null,
@@ -168,9 +183,37 @@ export async function createObservation(req: Request, res: Response): Promise<vo
 
 const stepResultInput = z.object({
   stepId: z.string().min(1),
-  passed: z.enum(['PASS', 'FAIL', 'NA']),
+  // Pass / fail / N/A — or, for an observation marked on levels, the level's position (-1 = N/A).
+  passed: z.enum(['PASS', 'FAIL', 'NA']).optional(),
+  level: z.number().int().min(-1).nullable().optional(),
   note: z.string().nullable().optional(),
 });
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/** Save each step's mark: its row, or a new one for a step added to the guide since the observation was assigned. */
+async function writeMarks(tx: Tx, observationId: string, marks: StoredMark[], now: Date) {
+  const existing = new Set((await tx.select({ stepId: sopObservationStepResults.sopStepId }).from(sopObservationStepResults)
+    .where(eq(sopObservationStepResults.observationId, observationId))).map(r => r.stepId));
+  for (const m of marks) {
+    if (existing.has(m.stepId)) {
+      await tx.update(sopObservationStepResults).set({ passed: m.passed, level: m.level, note: m.note, updatedAt: now })
+        .where(and(eq(sopObservationStepResults.observationId, observationId), eq(sopObservationStepResults.sopStepId, m.stepId)));
+    } else {
+      await tx.insert(sopObservationStepResults).values({ id: randomUUID(), observationId, sopStepId: m.stepId, passed: m.passed, level: m.level, note: m.note, createdAt: now, updatedAt: now });
+    }
+  }
+}
+
+/** The marks to store for this observation (levels become pass / fail against its pass mark) — or why they can't be. */
+const marksFor = (obs: { marking: unknown }, entered: EnteredMark[]) => storedMarks(observationMarkingFrom(obs.marking), entered);
+
+/** Every step marked is one of the guide's steps (a new row is only ever for its own steps). */
+async function stepsBelong(sopTemplateId: string, entered: { stepId: string }[]): Promise<boolean> {
+  if (entered.length === 0) return true;
+  const steps = await db.select({ id: sopSteps.id }).from(sopSteps).where(eq(sopSteps.sopTemplateId, sopTemplateId));
+  const ids = new Set(steps.map(s => s.id));
+  return entered.every(e => ids.has(e.stepId));
+}
 
 const advanceSchemas: Record<typeof STATUSES[number], z.ZodTypeAny> = {
   // Trainer trains the employee using the checklist as a reference — they
@@ -226,22 +269,20 @@ export async function advanceStage(req: Request, res: Response): Promise<void> {
     update.trainerAt = new Date(data.trainerAt);
   } else if (currentStatus === 'PENDING_ASSESSOR') {
     const data = parsed.data as z.infer<typeof advanceSchemas.PENDING_ASSESSOR>;
+    const resolved = marksFor(existing, data.stepResults as EnteredMark[]);
+    if ('problem' in resolved) { res.status(400).json({ message: resolved.problem }); return; }
+    if (!(await stepsBelong(existing.sopTemplateId, resolved.marks))) { res.status(400).json({ message: 'A step isn’t part of this guide.' }); return; }
     // Judge every step: the marks sent now over the ones already saved.
     const saved = await db.select({ stepId: sopObservationStepResults.sopStepId, passed: sopObservationStepResults.passed }).from(sopObservationStepResults).where(eq(sopObservationStepResults.observationId, id));
-    const sent = new Map(data.stepResults.map(r => [r.stepId, r.passed]));
-    const problem = certifyProblem(saved.map(s => (sent.get(s.stepId) ?? s.passed) as StepMark));
+    const all = new Map<string, StepMark>(saved.map(s => [s.stepId, s.passed as StepMark]));
+    for (const r of resolved.marks) all.set(r.stepId, r.passed);
+    const problem = certifyProblem([...all.values()]);
     if (problem) { res.status(400).json({ message: problem }); return; }
     // Who certified it is whoever is signed in — not a name the browser sends.
     update.assessorName = (await signedInName(req)) ?? data.assessorName;
     update.assessorAt = new Date(data.assessorAt);
     if (data.notes !== undefined) update.notes = data.notes;
-    await db.transaction(async (tx) => {
-      for (const r of data.stepResults) {
-        await tx.update(sopObservationStepResults)
-          .set({ passed: r.passed, note: r.note ?? null, updatedAt: now })
-          .where(and(eq(sopObservationStepResults.observationId, id), eq(sopObservationStepResults.sopStepId, r.stepId)));
-      }
-    });
+    await db.transaction(async (tx) => { await writeMarks(tx, id, resolved.marks, now); });
   }
 
   await db.update(sopObservations).set(update).where(eq(sopObservations.id, id));
@@ -273,13 +314,12 @@ export async function saveStepResultsDraft(req: Request, res: Response): Promise
     return;
   }
 
+  const resolved = marksFor(existing, parsed.data.stepResults as EnteredMark[]);
+  if ('problem' in resolved) { res.status(400).json({ message: resolved.problem }); return; }
+  if (!(await stepsBelong(existing.sopTemplateId, resolved.marks))) { res.status(400).json({ message: 'A step isn’t part of this guide.' }); return; }
   const now = new Date();
   await db.transaction(async (tx) => {
-    for (const r of parsed.data.stepResults) {
-      await tx.update(sopObservationStepResults)
-        .set({ passed: r.passed, note: r.note ?? null, updatedAt: now })
-        .where(and(eq(sopObservationStepResults.observationId, id), eq(sopObservationStepResults.sopStepId, r.stepId)));
-    }
+    await writeMarks(tx, id, resolved.marks, now);
     await tx.update(sopObservations).set({ updatedAt: now }).where(eq(sopObservations.id, id));
   });
 
@@ -366,16 +406,39 @@ export async function sendBackForTraining(req: Request, res: Response): Promise<
   if (!inStaffScope(await scopeOf(req), existing.teacherId)) { outsideTeam(res); return; }
   if (req.user!.teacherId && req.user!.teacherId === existing.teacherId) { res.status(403).json({ message: 'You can’t sign off your own training.' }); return; }
   if (existing.status !== 'PENDING_ASSESSOR') { res.status(409).json({ message: 'Only training waiting to be assessed can be sent back.' }); return; }
+  const resolved = marksFor(existing, parsed.data.stepResults as EnteredMark[]);
+  if ('problem' in resolved) { res.status(400).json({ message: resolved.problem }); return; }
+  if (!(await stepsBelong(existing.sopTemplateId, resolved.marks))) { res.status(400).json({ message: 'A step isn’t part of this guide.' }); return; }
   const now = new Date();
   await db.transaction(async tx => {
-    for (const r of parsed.data.stepResults) {
-      await tx.update(sopObservationStepResults).set({ passed: r.passed, note: r.note ?? null, updatedAt: now })
-        .where(and(eq(sopObservationStepResults.observationId, id), eq(sopObservationStepResults.sopStepId, r.stepId)));
-    }
+    await writeMarks(tx, id, resolved.marks, now);
     await tx.update(sopObservations).set({
       status: 'PENDING_TRAINER', trainerName: null, trainerAt: null, notes: parsed.data.notes ?? existing.notes, updatedAt: now,
     }).where(eq(sopObservations.id, id));
   });
   const [row] = await db.select().from(sopObservations).where(eq(sopObservations.id, id));
   res.json(row);
+}
+
+// ── Settings → Practice observations: how steps are marked (admins) ─────────
+const levelSchema = z.object({ label: z.string().trim().min(1, 'Every level needs a name').max(40), score: z.number().min(0).max(100) });
+const markingSchema = z.union([
+  z.object({ inputType: z.literal('PASS_FAIL') }),
+  z.object({
+    inputType: z.literal('LEVELS'),
+    levels: z.array(levelSchema).min(2, 'Give at least 2 levels').max(10, 'Use at most 10 levels')
+      .refine(ls => new Set(ls.map(l => l.label.toLowerCase())).size === ls.length, 'Two levels have the same name'),
+    passMark: z.number().min(0).max(100),
+    source: z.object({ kind: z.enum(['SCALE', 'ONE_TO_FIVE', 'CUSTOM']), scaleId: z.string().max(36).optional() }).optional(),
+  }).refine(m => m.levels.some(l => l.score >= m.passMark), 'The pass mark has to be one that a level reaches'),
+]);
+
+/** Save how new practice observations mark their steps (observations already assigned keep theirs). */
+export async function saveObservationMarking(req: Request, res: Response): Promise<void> {
+  const parsed = markingSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ message: parsed.error.errors[0]?.message ?? 'Validation error', errors: parsed.error.errors }); return; }
+  const now = new Date();
+  await db.insert(systemSettings).values({ id: randomUUID(), key: OBSERVATION_MARKING_KEY, value: parsed.data, updatedAt: now })
+    .onDuplicateKeyUpdate({ set: { value: parsed.data, updatedAt: now } });
+  res.json(parsed.data);
 }

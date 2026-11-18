@@ -23,8 +23,8 @@ export async function actor(req: Request): Promise<Actor> {
 /** Send a service result: a failure as its status + message, else the body. */
 export function send(res: Response, result: unknown, status = 200) {
   if (result && typeof result === 'object' && 'error' in result && 'status' in result) {
-    const f = result as { error: string; status: number };
-    res.status(f.status).json({ message: f.error });
+    const f = result as { error: string; status: number; existingId?: string };
+    res.status(f.status).json({ message: f.error, ...(f.existingId ? { existingId: f.existingId } : {}) });
     return;
   }
   if (result === 'ok') { res.status(204).end(); return; }

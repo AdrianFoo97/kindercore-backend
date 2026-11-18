@@ -7,6 +7,7 @@ import {
 import { canActOnStage, managerChainOf } from './appraisalScoring.service.js';
 import { inStaffScope, staffScopeFor, type StaffScope } from './performanceScope.service.js';
 import { loadTemplate, type TemplateDetail } from './appraisalTemplates.service.js';
+import { keepSopsCurrent } from './sopRefresh.service.js';
 import {
   monthScoreOf, rawValueProblem, scoreRun, scorerMaySignOff, stepAfter, formCopyAsTemplate,
   type EnteredScore, type RunStatus, type ScorableTemplate, type StepKind,
@@ -33,7 +34,8 @@ export interface Actor {
 }
 
 type Run = typeof appraisals.$inferSelect;
-type Fail = { error: string; status: number };
+/** A refusal: its status and reason — and, when it's because one already exists, which one. */
+type Fail = { error: string; status: number; existingId?: string };
 const fail = (status: number, error: string): Fail => ({ error, status });
 const NOT_YOURS = fail(403, 'This appraisal isn’t yours to see.');
 
@@ -82,8 +84,11 @@ export async function createRun(
   /** A second appraisal this month on another form: schedules make it (set up on purpose); by hand it needs the go-ahead after the warning. */
   secondInMonth: 'allow' | 'warn' = 'allow',
 ): Promise<{ id: string } | Fail> {
-  const [t] = await db.select({ id: teachers.id }).from(teachers).where(eq(teachers.id, teacherId));
+  const [t] = await db.select({ id: teachers.id, name: teachers.name }).from(teachers).where(eq(teachers.id, teacherId));
   if (!t) return fail(404, 'Staff member not found');
+  // An SOP edited since the form copied it: new appraisals use its current steps (a new form version);
+  // ones already created keep theirs. Never blocks creating the appraisal.
+  await keepSopsCurrent(familyId).catch(e => console.warn('[appraisals] Keeping SOP steps current failed:', e?.message ?? e));
   const form = await liveVersionOf(familyId);
   if (!form) return fail(400, 'Its appraisal form isn’t live — make it live first.');
   const versions = await db.select({ id: appraisalTemplates.id }).from(appraisalTemplates).where(eq(appraisalTemplates.familyId, familyId));
@@ -91,7 +96,8 @@ export async function createRun(
     eq(appraisals.teacherId, teacherId), inArray(appraisals.templateId, versions.map(v => v.id)),
     eq(appraisals.periodYear, period.year), eq(appraisals.periodMonth, period.month),
   ));
-  if (existing) return fail(409, 'There’s already an appraisal on this form for this period.');
+  // Says which one, so the screen can open it rather than leave people looking for it.
+  if (existing) return { ...fail(409, `${t.name} already has a ${form.name} appraisal for ${MONTH_NAMES[period.month]} ${period.year}.`), existingId: existing.id };
   // Usually one appraisal per month. A second (another form) is allowed once they've been warned —
   // the month's score is then the average of them (complete). Months from before forms don't count.
   const other = secondInMonth === 'warn' ? await otherAppraisalFor(teacherId, period) : null;

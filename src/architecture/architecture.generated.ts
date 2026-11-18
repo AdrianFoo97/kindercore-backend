@@ -2956,6 +2956,16 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "recordTrainingGiven",
           "controller": "sop-observations.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/sop-observation-marking",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "saveObservationMarking",
+          "controller": "sop-observations.controller"
         }
       ]
     },
@@ -4010,6 +4020,7 @@ export const ARCHITECTURE: Architecture = {
         "SopObservationStepResult",
         "SopStep",
         "SopTemplate",
+        "SystemSetting",
         "Teacher",
         "User"
       ]
@@ -4383,6 +4394,23 @@ export const ARCHITECTURE: Architecture = {
       "services": [],
       "controllers": [],
       "tables": []
+    },
+    {
+      "id": "sopRefresh.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "sopRefresh.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AppraisalScoringForm",
+        "AppraisalTemplate",
+        "SopStep",
+        "SopTemplate"
+      ]
     },
     {
       "id": "sopTraining.logic",

@@ -1022,6 +1022,9 @@ async function runMigrations() {
     // Position — total pay range: basic plus allowances and incentives (null = not set).
     `ALTER TABLE \`Position\` ADD COLUMN \`payRangeMin\` FLOAT NULL AFTER \`basicSalary\``,
     `ALTER TABLE \`Position\` ADD COLUMN \`payRangeMax\` FLOAT NULL AFTER \`payRangeMin\``,
+    // Practice observations — how steps are marked (copied when assigned), and each step's level.
+    `ALTER TABLE \`SopObservation\` ADD COLUMN \`marking\` JSON NULL AFTER \`notes\``,
+    `ALTER TABLE \`SopObservationStepResult\` ADD COLUMN \`level\` INT NULL AFTER \`passed\``,
     // Position — organisational structure: the position it reports to (null = top of its line).
     `ALTER TABLE \`Position\` ADD COLUMN \`reportsToPositionId\` VARCHAR(10) NULL AFTER \`authRoleId\``,
     // AppraisalScoringForm — made from SOPs: which ones (null = built by hand).
@@ -1561,8 +1564,9 @@ async function runMigrations() {
     // Phase 2e2c: Pass / Fail / N/A (PASS_FAIL) — how an SOP step is checked, as in SOP observations.
     // N/A doesn't count: it drops out and the rest share its weight. MODIFY COLUMN is idempotent.
     for (const [table, col] of [
-      ['AppraisalCriterion', "ENUM('RATING','PERCENT','YES_NO','PASS_FAIL','NUMBER','AUTO','POINTS','FORM') NOT NULL"],
-      ['AppraisalCriterionPoint', "ENUM('RATING','PERCENT','YES_NO','PASS_FAIL','NUMBER') NULL"],
+      // LEVELS: named levels each worth a percentage (how SOP steps can be marked besides pass / fail).
+      ['AppraisalCriterion', "ENUM('RATING','PERCENT','YES_NO','PASS_FAIL','LEVELS','NUMBER','AUTO','POINTS','FORM') NOT NULL"],
+      ['AppraisalCriterionPoint', "ENUM('RATING','PERCENT','YES_NO','PASS_FAIL','LEVELS','NUMBER') NULL"],
     ]) {
       try {
         await conn.execute(`ALTER TABLE \`${table}\` MODIFY \`inputType\` ${col}`);
