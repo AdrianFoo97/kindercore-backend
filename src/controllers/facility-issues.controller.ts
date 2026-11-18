@@ -14,6 +14,9 @@ import { sendPrivateFile } from '../services/privateUploads.service.js';
 /** The AuthView that makes someone a facility manager (Admin → Views); Admins always are. */
 export const FACILITY_MANAGE_VIEW = 'OPERATION_FACILITY_MANAGE';
 
+/** A stored file name without its extension (e.g. 'abc.jpg' → 'abc'). */
+export const fileStem = (name: string) => name.replace(/\.[a-z0-9]+$/i, '');
+
 // Facility issues (Operation → Facilities): any staff member reports
 // something broken — a door, a leaking pipe, the aircon — and facility
 // managers (the OPERATION_FACILITY_MANAGE view; Admins always) move it
@@ -102,7 +105,11 @@ export async function listFacilityIssues(_req: Request, res: Response): Promise<
  */
 export async function getFacilityAttachment(req: Request, res: Response): Promise<void> {
   const issue = await loadOne(req.params.id);
-  const file = issue?.attachments?.find(a => a.id === req.params.fileId);
+  // Matched with or without its extension: the app asks without it, because a CDN
+  // (Hostinger hcdn) answers addresses ending in .jpg/.png itself, as static files —
+  // breaking the signed-in, cross-site request and risking caching a private photo.
+  const wanted = req.params.fileId;
+  const file = issue?.attachments?.find(a => a.id === wanted || fileStem(a.id) === wanted);
   if (!issue || !file) { res.status(404).json({ message: 'Attachment not found' }); return; }
 
   const mayView = issue.reportedByUserId === req.user!.id

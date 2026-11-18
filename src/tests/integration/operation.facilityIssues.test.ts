@@ -153,6 +153,14 @@ describe('Operation — facility issues', () => {
     expect((await fetchFile(TEACHER, '../../etc/passwd')).statusCode).toBe(404);
   });
 
+  it('finds a photo by its name without the extension, so a CDN doesn’t treat the address as a static image', async () => {
+    const files = [upload('photo.jpg', 'image/jpeg', MB)];
+    const { id } = (await report(valid(), TEACHER, files)).body as { id: string };
+    const r = fileRes();
+    await getFacilityAttachment(reqWith({ params: { id, fileId: files[0].filename.replace(/\.jpg$/, '') }, user: MANAGER }), r);
+    expect(r.sentFile).toBe(files[0].path);
+  });
+
   it('says so when a photo’s file is no longer on the server', async () => {
     const files = [upload('photo.jpg', 'image/jpeg', MB)];
     const { id } = (await report(valid(), TEACHER, files)).body as { id: string };
