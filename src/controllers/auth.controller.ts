@@ -7,6 +7,7 @@ import { db } from '../db/client.js';
 import { teachers, users } from '../db/schema.js';
 import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
 import { loginSchema } from '../validators/auth.validator.js';
+import { accessRoleProblem } from '../services/accessRoles.service.js';
 
 export async function login(req: Request, res: Response): Promise<void> {
   const parsed = loginSchema.safeParse(req.body);
@@ -70,6 +71,8 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
   // checks entirely, so silently drop it rather than storing a value
   // that'll never be read.
   const resolvedAuthRoleId = resolvedRole === 'USER' ? (authRoleId || null) : null;
+  const roleProblem = await accessRoleProblem(resolvedAuthRoleId);
+  if (roleProblem) { res.status(400).json({ message: roleProblem }); return; }
 
   // Check if user already exists and is activated
   const [existing] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).limit(1);
@@ -245,6 +248,8 @@ export async function updateUserAuthRole(req: Request, res: Response): Promise<v
 
   const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   if (!target) { res.status(404).json({ message: 'User not found' }); return; }
+  const roleProblem = await accessRoleProblem(authRoleId);
+  if (roleProblem) { res.status(400).json({ message: roleProblem }); return; }
 
   await db.update(users).set({ authRoleId: authRoleId || null, updatedAt: new Date() }).where(eq(users.id, id));
   res.json({ success: true });

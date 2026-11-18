@@ -70,3 +70,25 @@ describe('Organisational structure — career path', () => {
     expect([...entryTiers(all, 2)].sort()).toEqual(['AEI', 'CLERK', 'EI', 'EP', 'LEAD', 'SP']);
   });
 });
+
+import { personReportsToProblem } from '../../services/orgStructure.logic.js';
+
+describe('Staff record — who someone can report to', () => {
+  const positions = [
+    { positionId: 'EI', departmentId: 'ACAD', titleWeight: 2 },
+    { positionId: 'AS', departmentId: 'ACAD', titleWeight: 3 },
+    { positionId: 'SV', departmentId: 'ACAD', titleWeight: 4 },
+    { positionId: 'EP', departmentId: 'MGMT', titleWeight: 6 },
+    { positionId: 'OM', departmentId: 'SUP', titleWeight: 9 },
+  ];
+  const mgmt = new Set(['MGMT']);
+  it('allows someone higher in their own department or anyone in Management, and nobody only for Management', () => {
+    expect(personReportsToProblem('EI', 'AS', true, positions, mgmt)).toBeNull();
+    expect(personReportsToProblem('EI', 'SV', true, positions, mgmt)).toBeNull();
+    expect(personReportsToProblem('EI', 'EP', true, positions, mgmt)).toBeNull();
+    expect(personReportsToProblem('SV', 'EI', true, positions, mgmt)).toMatch(/higher-ranked/);
+    expect(personReportsToProblem('EI', 'OM', true, positions, mgmt)).toMatch(/higher-ranked/);
+    expect(personReportsToProblem('EI', null, false, positions, mgmt)).toMatch(/only Management staff/);
+    expect(personReportsToProblem('EP', null, false, positions, mgmt)).toBeNull();
+  });
+});

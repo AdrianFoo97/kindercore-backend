@@ -5,6 +5,8 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { systemSettings } from '../db/schema.js';
 import { SYSTEM_LOST_REASON_LABELS } from '../constants/lostReasons.js';
+import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
+import { stripHiddenTemplates, visibleTemplateGroups } from '../services/messageTemplates.logic.js';
 
 const updateSettingSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string()), z.array(z.record(z.unknown()))]),
@@ -24,7 +26,7 @@ function normalizeLostReasons(value: unknown): string[] {
   return [...SYSTEM_LOST_REASON_LABELS, ...deduped];
 }
 
-export async function getSettings(_req: Request, res: Response): Promise<void> {
+export async function getSettings(req: Request, res: Response): Promise<void> {
   const rows = await db.select().from(systemSettings).orderBy(asc(systemSettings.key));
   const result: Record<string, unknown> = {};
   for (const row of rows) {
@@ -37,6 +39,11 @@ export async function getSettings(_req: Request, res: Response): Promise<void> {
   // Always surface the system lost reasons, even if the stored value is
   // missing, malformed, or was written before the constant existed.
   result.lost_reasons = normalizeLostReasons(result.lost_reasons);
+  // Message templates: Common for everyone, each other group only with its module.
+  if (!isAdminRole(req.user?.role)) {
+    const { modules } = await resolveGrants(req.user!.id);
+    stripHiddenTemplates(result, visibleTemplateGroups(m => modules.has(m)));
+  }
   res.json(result);
 }
 

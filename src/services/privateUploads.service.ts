@@ -49,6 +49,30 @@ export function toAttachment(f: Express.Multer.File): StoredAttachment {
   };
 }
 
+/** Shown when a stored file's record exists but the file itself is gone (e.g. storage that didn't survive a redeploy). */
+export const FILE_MISSING_MESSAGE = 'This file is no longer on the server.';
+
+/**
+ * Sends one private file. If the record points at a file that isn't on disk,
+ * answers 404 with a clear reason and logs where it looked — so a missing
+ * upload folder on a server shows up in its logs instead of as a broken image.
+ */
+export function sendPrivateFile(res: Response, dir: string, fileId: string, mime: string): void {
+  const full = path.join(dir, fileId);
+  if (!fs.existsSync(full)) {
+    console.warn(`[uploads] File missing on disk: ${full} (PRIVATE_UPLOAD_ROOT=${PRIVATE_UPLOAD_ROOT})`);
+    res.status(404).json({ message: FILE_MISSING_MESSAGE, code: 'FILE_MISSING' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  // A failed send is logged with the path, so a server problem shows in its logs.
+  res.sendFile(full, { headers: { 'Content-Type': mime } }, err => {
+    if (!err) return;
+    console.warn(`[uploads] Could not send ${full}: ${err.message}`);
+    if (!res.headersSent) res.status(500).json({ message: 'Couldn’t send this file.', code: 'FILE_SEND_FAILED' });
+  });
+}
+
 /** A private folder under the upload root, created if missing. */
 export function privateFolder(name: string): string {
   const dir = path.join(PRIVATE_UPLOAD_ROOT, name);

@@ -153,6 +153,16 @@ describe('Operation — facility issues', () => {
     expect((await fetchFile(TEACHER, '../../etc/passwd')).statusCode).toBe(404);
   });
 
+  it('says so when a photo’s file is no longer on the server', async () => {
+    const files = [upload('photo.jpg', 'image/jpeg', MB)];
+    const { id } = (await report(valid(), TEACHER, files)).body as { id: string };
+    fs.rmSync(files[0].path, { force: true }); // e.g. upload storage that didn't survive a redeploy
+    const r = fileRes();
+    await getFacilityAttachment(reqWith({ params: { id, fileId: files[0].filename }, user: MANAGER }), r);
+    expect(r.statusCode).toBe(404);
+    expect(r.body).toMatchObject({ code: 'FILE_MISSING', message: 'This file is no longer on the server.' });
+  });
+
   it('refuses an update that changes nothing, and an unknown issue', async () => {
     const { id } = (await report(valid())).body as { id: string };
     expect((await move(id, { status: 'OPEN' })).statusCode).toBe(400);

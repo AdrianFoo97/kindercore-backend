@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { db, pool } from '../../db/client.js';
-import { systemSettings } from '../../db/schema.js';
+import { authRoleModules, authRoles, systemSettings, users } from '../../db/schema.js';
 import { getSettings, updateSetting } from '../../controllers/settings.controller.js';
 import { SYSTEM_LOST_REASON_LABELS } from '../../constants/lostReasons.js';
 import { resetTables } from './testDb.js';
-import { req, res } from './http.js';
+import { req, reqWith, res } from './http.js';
+import { activeUser } from '../fixtures/users.js';
 
 // Settings: the app-wide values every page reads (thresholds, finance %,
 // templates, lead "lost reasons"). Real handlers, real (test) DB.
@@ -17,7 +18,8 @@ afterAll(async () => {
 });
 
 const save = async (key: string, value: unknown) => { const r = res(); await updateSetting(req({ value }, { key }), r); return r; };
-const readAll = async () => { const r = res(); await getSettings(req(), r); return r.body as Record<string, unknown>; };
+const ADMIN = { id: 'user-admin', email: 'admin@kindertech.test', role: 'ADMIN' };
+const readAll = async (user = ADMIN) => { const r = res(); await getSettings(reqWith({ user }), r); return r.body as Record<string, unknown>; };
 
 describe('Settings — saving and reading app settings', () => {
   it('saves numbers, on/off switches, text and lists, and reads them back as the same type', async () => {
@@ -61,5 +63,64 @@ describe('Settings — lead "lost reasons" list', () => {
 
   it('shows the built-in reasons even before anything has been saved', async () => {
     expect((await readAll()).lost_reasons).toEqual([...SYSTEM_LOST_REASON_LABELS]);
+  });
+});
+
+describe('Settings — message templates by group', () => {
+  const NOW = new Date('2026-01-01T00:00:00Z');
+  const MARK = { id: 'u-mark', email: 'mark@kindertech.test', role: 'USER' };
+  const HANA = { id: 'u-hana', email: 'hana@kindertech.test', role: 'USER' };
+  const NOBODY = { id: 'u-nobody', email: 'nobody@kindertech.test', role: 'USER' };
+  beforeEach(async () => {
+    await resetTables(users, authRoleModules, authRoles);
+    await db.insert(authRoles).values([
+      { id: 'role-mkt', name: 'Marketing Executive', createdAt: NOW, updatedAt: NOW },
+      { id: 'role-hr', name: 'HR Executive', createdAt: NOW, updatedAt: NOW },
+    ]);
+    await db.insert(authRoleModules).values([
+      { id: 'arm-mkt', authRoleId: 'role-mkt', module: 'MARKETING', createdAt: NOW },
+      { id: 'arm-hr', authRoleId: 'role-hr', module: 'HR', createdAt: NOW },
+    ]);
+    await db.insert(users).values([
+      await activeUser({ id: MARK.id, email: MARK.email, role: 'USER', authRoleId: 'role-mkt' }),
+      await activeUser({ id: HANA.id, email: HANA.email, role: 'USER', authRoleId: 'role-hr' }),
+      await activeUser({ id: NOBODY.id, email: NOBODY.email, role: 'USER' }),
+    ]);
+    await save('whatsapp_template', 'Hi parent');
+    await save('offer_wa_template', 'Your offer');
+    await save('whatsapp_custom_templates', [
+      { id: 'c1', name: 'Holiday notice', group: 'COMMON', content_en: 'Closed', content_zh: '' },
+      { id: 'c2', name: 'Open day', group: 'MARKETING', content_en: 'Come', content_zh: '' },
+      { id: 'c3', name: 'Payslip ready', group: 'HR', content_en: 'Ready', content_zh: '' },
+      { id: 'c4', name: 'Old one', content_en: 'No group yet', content_zh: '' },
+    ]);
+  });
+  const customNames = (s: Record<string, unknown>) => (s.whatsapp_custom_templates as { name: string }[]).map(t => t.name);
+
+  it('gives everyone the Common templates, including older ones saved without a group', async () => {
+    const s = await readAll(NOBODY);
+    expect(customNames(s)).toEqual(['Holiday notice', 'Old one']);
+    expect(s).not.toHaveProperty('whatsapp_template');
+    expect(s).not.toHaveProperty('offer_wa_template');
+  });
+
+  it('gives Marketing templates only to people with the Marketing module', async () => {
+    const s = await readAll(MARK);
+    expect(customNames(s)).toEqual(['Holiday notice', 'Open day', 'Old one']);
+    expect(s.whatsapp_template).toBe('Hi parent');
+    expect(s).not.toHaveProperty('offer_wa_template');
+  });
+
+  it('gives HR templates only to people with the HR module', async () => {
+    const s = await readAll(HANA);
+    expect(customNames(s)).toEqual(['Holiday notice', 'Payslip ready', 'Old one']);
+    expect(s.offer_wa_template).toBe('Your offer');
+    expect(s).not.toHaveProperty('whatsapp_template');
+  });
+
+  it('gives an admin every group', async () => {
+    const s = await readAll();
+    expect(customNames(s)).toHaveLength(4);
+    expect(s).toMatchObject({ whatsapp_template: 'Hi parent', offer_wa_template: 'Your offer' });
   });
 });

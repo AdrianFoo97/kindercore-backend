@@ -629,6 +629,16 @@ export const ARCHITECTURE: Architecture = {
           "controller": "auth-roles.controller"
         },
         {
+          "method": "GET",
+          "path": "/api/auth-roles/catalog",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getAuthRoleCatalog",
+          "controller": "auth-roles.controller"
+        },
+        {
           "method": "POST",
           "path": "/api/auth-roles",
           "middleware": [
@@ -3707,8 +3717,8 @@ export const ARCHITECTURE: Architecture = {
         "AuthRole",
         "AuthRoleModule",
         "AuthRoleView",
-        "AuthView",
-        "Position"
+        "Position",
+        "User"
       ]
     },
     {
@@ -3724,6 +3734,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "auth.controller",
       "services": [
+        "accessRoles.service",
         "session.service",
         "staffAccess.service"
       ],
@@ -3805,7 +3816,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "facility-issues.controller",
       "services": [
-        "facilityAttachments.service"
+        "facilityAttachments.service",
+        "privateUploads.service"
       ],
       "controllers": [],
       "tables": [
@@ -3920,13 +3932,16 @@ export const ARCHITECTURE: Architecture = {
       "id": "planner.controller",
       "services": [
         "appraisalScoring.service",
+        "orgStructure.logic",
         "staffOnboarding.service"
       ],
       "controllers": [],
       "tables": [
         "CareerRecord",
         "Classroom",
+        "Department",
         "PlannerTask",
+        "Position",
         "SavedTimetable",
         "ScheduleBlock",
         "Subject",
@@ -3952,6 +3967,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "purchase-requests.controller",
       "services": [
+        "privateUploads.service",
         "purchaseLog.service",
         "purchaseReceipts.service",
         "purchaseWeek.service"
@@ -3965,6 +3981,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "salary.controller",
       "services": [
+        "accessRoles.service",
         "orgStructure.logic",
         "payRange.logic",
         "payroll.service"
@@ -3984,7 +4001,9 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "settings.controller",
-      "services": [],
+      "services": [
+        "messageTemplates.logic"
+      ],
       "controllers": [],
       "tables": [
         "SystemSetting"
@@ -4147,6 +4166,14 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "accessRoles.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "AuthRole"
+      ]
+    },
+    {
       "id": "appraisal.service",
       "services": [],
       "controllers": [],
@@ -4265,6 +4292,12 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "finance.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "messageTemplates.logic",
       "services": [],
       "controllers": [],
       "tables": []

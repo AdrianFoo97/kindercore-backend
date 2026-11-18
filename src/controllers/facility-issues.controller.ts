@@ -9,6 +9,7 @@ import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import {
   FACILITY_ATTACHMENTS_DIR, attachmentProblem, discardUploads, toAttachment,
 } from '../services/facilityAttachments.service.js';
+import { sendPrivateFile } from '../services/privateUploads.service.js';
 
 /** The AuthView that makes someone a facility manager (Admin → Views); Admins always are. */
 export const FACILITY_MANAGE_VIEW = 'OPERATION_FACILITY_MANAGE';
@@ -110,8 +111,7 @@ export async function getFacilityAttachment(req: Request, res: Response): Promis
   if (!mayView) { res.status(403).json({ message: 'Forbidden' }); return; }
 
   // The id comes from the stored list, never straight from the URL, so it can't point outside the folder.
-  res.setHeader('Cache-Control', 'private, max-age=3600');
-  res.sendFile(path.join(FACILITY_ATTACHMENTS_DIR, file.id), { headers: { 'Content-Type': file.mime } });
+  sendPrivateFile(res, FACILITY_ATTACHMENTS_DIR, file.id, file.mime);
 }
 
 /**

@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { and, eq, desc } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
-import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords } from '../db/schema.js';
+import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords, positions, departments } from '../db/schema.js';
 import { freshStaffChecklists } from '../services/staffOnboarding.service.js';
 import { managerChainOf } from '../services/appraisalScoring.service.js';
+import { personReportsToProblem } from '../services/orgStructure.logic.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TEACHERS
@@ -218,6 +219,19 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
 
   if (parsed.data.reportsToTeacherId) {
     const problem = await reportsToProblem(id, parsed.data.reportsToTeacherId);
+    if (problem) { res.status(400).json({ message: problem }); return; }
+  }
+  // Reports to: someone higher in their own department or anyone in Management — and filled in
+  // (only Management staff report to nobody). Checked whenever it's sent, against their position as saved.
+  if ('reportsToTeacherId' in parsed.data) {
+    const managerId = parsed.data.reportsToTeacherId ?? null;
+    const [mgr] = managerId ? await db.select({ positionId: teachers.positionId }).from(teachers).where(eq(teachers.id, managerId)) : [];
+    const [allPositions, depts] = await Promise.all([
+      db.select({ positionId: positions.positionId, departmentId: positions.departmentId, titleWeight: positions.titleWeight }).from(positions),
+      db.select({ id: departments.departmentId, m: departments.isManagement }).from(departments),
+    ]);
+    const management = new Set(depts.filter(d => d.m).map(d => d.id));
+    const problem = personReportsToProblem(parsed.data.positionId ?? existing.positionId ?? null, mgr?.positionId ?? null, !!managerId, allPositions, management);
     if (problem) { res.status(400).json({ message: problem }); return; }
   }
 

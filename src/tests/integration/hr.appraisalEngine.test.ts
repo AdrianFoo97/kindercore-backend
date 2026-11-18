@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
 import {
-  appraisalCriteria, appraisalScores, appraisalSections, appraisalTemplates, appraisals, teacherAppraisals, teachers, users,
+  appraisalCriteria, appraisalScores, appraisalSections, appraisalTemplates, appraisals, teacherAppraisals, teachers, users, positions, departments,
 } from '../../db/schema.js';
 import { LEGACY_TEMPLATE_ID, syncLegacyAppraisals } from '../../services/appraisalLegacy.service.js';
 import { updateTeacher } from '../../controllers/planner.controller.js';
@@ -66,17 +66,47 @@ describe('Appraisal engine — appraisals from before templates', () => {
 });
 
 describe('Staff record — reports to', () => {
+  // Academic: Junior EI (Tina) < Supervisor (Sam). Management: Principal (Pat).
+  beforeEach(async () => {
+    await resetTables(positions, departments);
+    await db.insert(departments).values([
+      { departmentId: 'ACAD', name: 'Academic', sortOrder: 0, isManagement: false, createdAt: NOW, updatedAt: NOW },
+      { departmentId: 'MGMT', name: 'Management', sortOrder: 1, isManagement: true, createdAt: NOW, updatedAt: NOW },
+      { departmentId: 'SUP', name: 'Support', sortOrder: 2, isManagement: false, createdAt: NOW, updatedAt: NOW },
+    ] as never);
+    await db.insert(positions).values([
+      { positionId: 'EI', name: 'Junior EI', departmentId: 'ACAD', titleWeight: 2, createdAt: NOW, updatedAt: NOW },
+      { positionId: 'SV', name: 'Supervisor', departmentId: 'ACAD', titleWeight: 4, createdAt: NOW, updatedAt: NOW },
+      { positionId: 'EP', name: 'Principal', departmentId: 'MGMT', titleWeight: 6, createdAt: NOW, updatedAt: NOW },
+      { positionId: 'OM', name: 'Office Admin', departmentId: 'SUP', titleWeight: 9, createdAt: NOW, updatedAt: NOW },
+    ] as never);
+    await db.update(teachers).set({ positionId: 'EI' }).where(eq(teachers.id, 't-tina'));
+    await db.update(teachers).set({ positionId: 'SV' }).where(eq(teachers.id, 't-sam'));
+    await db.update(teachers).set({ positionId: 'EP' }).where(eq(teachers.id, 't-pat'));
+  });
   const setManager = async (id: string, reportsToTeacherId: string | null, user = HR) => {
     const r = res();
     await updateTeacher(reqWith({ params: { id }, body: { reportsToTeacherId }, user }), r);
     return r;
   };
 
-  it('records who a staff member reports to, and can clear it', async () => {
+  it('records who a staff member reports to — someone higher in their department, or anyone in Management', async () => {
     expect((await setManager('t-tina', 't-sam')).statusCode).toBe(200);
     expect((await db.select().from(teachers).where(eq(teachers.id, 't-tina')))[0].reportsToTeacherId).toBe('t-sam');
-    await setManager('t-tina', null);
-    expect((await db.select().from(teachers).where(eq(teachers.id, 't-tina')))[0].reportsToTeacherId).toBeNull();
+    expect((await setManager('t-tina', 't-pat')).statusCode).toBe(200); // the Principal (Management)
+    expect((await setManager('t-sam', 't-tina')).statusCode).toBe(400); // lower-ranked
+  });
+
+  it('must be filled in — only Management staff report to nobody', async () => {
+    const cleared = await setManager('t-tina', null);
+    expect(cleared.statusCode).toBe(400);
+    expect(cleared.body.message).toMatch(/only Management staff can report to nobody/);
+    expect((await setManager('t-pat', null)).statusCode).toBe(200);
+  });
+
+  it('refuses someone in another department who isn’t in Management', async () => {
+    await db.insert(teachers).values({ id: 't-olga', name: 'Olga', color: '#7c3aed', positionId: 'OM', createdAt: NOW, updatedAt: NOW });
+    expect((await setManager('t-tina', 't-olga')).statusCode).toBe(400); // higher title weight, but Support isn't Management
   });
 
   it('refuses someone reporting to themselves, to nobody real, or in a loop', async () => {

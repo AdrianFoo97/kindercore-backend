@@ -5,6 +5,7 @@ import { db } from '../db/client.js';
 import { users, teachers, positions, authRoleModules, authRoleViews } from '../db/schema.js';
 import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
 import { sessionToken } from '../services/session.service.js';
+import { builtInRole } from '../constants/accessRoles.js';
 
 export interface AuthUser {
   id: string;
@@ -129,6 +130,13 @@ export async function resolveGrants(userId: string): Promise<{ modules: Set<stri
   }
 
   for (const authRoleId of authRoleIds) {
+    // Built-in roles are defined in code (constants/accessRoles.ts), not in the DB.
+    const builtIn = builtInRole(authRoleId);
+    if (builtIn) {
+      for (const m of builtIn.modules) modules.add(m);
+      for (const v of builtIn.functions) views.add(v);
+      continue;
+    }
     const modRows = await db.select({ module: authRoleModules.module }).from(authRoleModules).where(eq(authRoleModules.authRoleId, authRoleId));
     const viewRows = await db.select({ view: authRoleViews.view }).from(authRoleViews).where(eq(authRoleViews.authRoleId, authRoleId));
     for (const r of modRows) modules.add(r.module);

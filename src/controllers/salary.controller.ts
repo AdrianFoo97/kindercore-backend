@@ -7,6 +7,7 @@ import { positions, departments, levelIncentives, teachers, teacherAllowances, a
 import { computeMonthlyPayroll, computeTeacherWeightsByMonth, isTeacherActiveInMonth } from '../services/payroll.service.js';
 import { reportingProblem, type DepartmentHeads } from '../services/orgStructure.logic.js';
 import { payRangeProblem } from '../services/payRange.logic.js';
+import { accessRoleProblem } from '../services/accessRoles.service.js';
 
 /** Every position's place in the organisation (for the reporting-line rules). */
 const orgPositions = () => db.select({ positionId: positions.positionId, reportsToPositionId: positions.reportsToPositionId, departmentId: positions.departmentId, titleWeight: positions.titleWeight }).from(positions);
@@ -122,6 +123,8 @@ export async function upsertPosition(req: Request, res: Response): Promise<void>
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
   }
+  const roleProblem = await accessRoleProblem(parsed.data.authRoleId);
+  if (roleProblem) { res.status(400).json({ message: roleProblem }); return; }
   if (parsed.data.payRangeMin !== undefined || parsed.data.payRangeMax !== undefined) {
     const problem = payRangeProblem(parsed.data.payRangeMin ?? null, parsed.data.payRangeMax ?? null);
     if (problem) { res.status(400).json({ message: problem }); return; }

@@ -8,6 +8,7 @@ import { purchaseRequests, users } from '../db/schema.js';
 import { logPurchase, withHistory } from '../services/purchaseLog.service.js';
 import { PURCHASE_RECEIPTS_DIR, discardUploads, toAttachment } from '../services/purchaseReceipts.service.js';
 import { parseWeek, weekRange, weekSpend } from '../services/purchaseWeek.service.js';
+import { sendPrivateFile } from '../services/privateUploads.service.js';
 
 // Purchase requests (Operation → Shopping List). Any staff member asks for
 // something to be bought; shopping-list managers (OPERATION_PURCHASE_MANAGE
@@ -355,6 +356,5 @@ export async function setPurchaseNote(req: Request, res: Response): Promise<void
 export async function getPurchaseReceipt(req: Request, res: Response): Promise<void> {
   const existing = await loadOne(req.params.id);
   if (!existing?.receipt) { res.status(404).json({ message: 'No receipt' }); return; }
-  res.setHeader('Cache-Control', 'private, max-age=3600');
-  res.sendFile(path.join(PURCHASE_RECEIPTS_DIR, existing.receipt.id), { headers: { 'Content-Type': existing.receipt.mime } });
+  sendPrivateFile(res, PURCHASE_RECEIPTS_DIR, existing.receipt.id, existing.receipt.mime);
 }

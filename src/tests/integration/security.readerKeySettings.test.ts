@@ -83,7 +83,7 @@ describe('Security — attendance reader key managed in Settings', () => {
   it('keeps the stored key out of the settings every signed-in user can read', async () => {
     await generate();
     const r = res();
-    await getSettings(req(), r);
+    await getSettings(reqWith({ user: { id: 'u-staff', email: 'staff@kindertech.test', role: 'USER' } }), r);
     expect(Object.keys(r.body).some(k => k.startsWith('secret.'))).toBe(false);
   });
 

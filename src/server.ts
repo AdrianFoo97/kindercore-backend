@@ -9,6 +9,9 @@ import { DEFAULT_STAFF_ONBOARDING_TASKS, DEFAULT_STAFF_SELF_ONBOARDING_TASKS } f
 import { syncLegacyAppraisals } from './services/appraisalLegacy.service.js';
 import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
+import { REPLACED_ROLE_NAMES } from './constants/accessRoles.js';
+import path from 'path';
+import { PRIVATE_UPLOAD_ROOT, UPLOAD_ROOT } from './routes/upload.routes.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -2503,6 +2506,26 @@ async function runMigrations() {
     } catch (e: any) {
       console.warn('[migrate] LEADS -> MARKETING module rename skipped:', e.message);
     }
+
+    // The old seeded access roles (Teacher / Supervisor / Principal) are now
+    // built-in roles defined in code (constants/accessRoles.ts). Move everyone
+    // and every position holding one onto its built-in replacement, then
+    // remove the old row. Harmless to rerun — nothing matches the second time.
+    try {
+      for (const [name, builtInId] of Object.entries(REPLACED_ROLE_NAMES)) {
+        const [rows] = await conn.execute<any[]>("SELECT `id` FROM `AuthRole` WHERE `name` = ?", [name]);
+        for (const { id } of rows) {
+          await conn.execute("UPDATE `User` SET `authRoleId` = ? WHERE `authRoleId` = ?", [builtInId, id]);
+          await conn.execute("UPDATE `Position` SET `authRoleId` = ? WHERE `authRoleId` = ?", [builtInId, id]);
+          await conn.execute("DELETE FROM `AuthRoleModule` WHERE `authRoleId` = ?", [id]);
+          await conn.execute("DELETE FROM `AuthRoleView` WHERE `authRoleId` = ?", [id]);
+          await conn.execute("DELETE FROM `AuthRole` WHERE `id` = ?", [id]);
+          console.log(`[migrate] Access role "${name}" replaced by built-in ${builtInId}`);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[migrate] Built-in access role move skipped:', e.message);
+    }
   } finally {
     conn.release();
   }
@@ -2525,6 +2548,22 @@ function startAppraisalScheduler() {
   setInterval(tick, APPRAISAL_SCHEDULER_EVERY_MS).unref();
 }
 
+/**
+ * Uploads must live outside the app folder: hosts that build each deploy into
+ * a fresh folder (Hostinger: …/hbuilds/versions/<id>/nodejs) leave every file
+ * uploaded before the deploy behind. Say so loudly at startup.
+ */
+function warnIfUploadsInsideApp() {
+  const appDir = path.resolve(process.cwd());
+  for (const [name, dir] of [['UPLOAD_ROOT', UPLOAD_ROOT], ['PRIVATE_UPLOAD_ROOT', PRIVATE_UPLOAD_ROOT]] as const) {
+    const inside = dir === appDir || dir.startsWith(appDir + path.sep);
+    console.log(`[storage] ${name}: ${dir}${inside ? ' — inside the app folder' : ''}`);
+    if (inside && process.env.NODE_ENV === 'production') {
+      console.warn(`[STORAGE] ${name} is inside the app folder — files uploaded before the next deploy will disappear. Set ${name} to a folder outside the app.`);
+    }
+  }
+}
+
 runMigrations()
   // Mirror pre-engine appraisals into the template engine (idempotent; see
   // appraisalLegacy.service). A failure here must not stop the server.
@@ -2542,6 +2581,7 @@ runMigrations()
       const masked = dbUrl.replace(/:([^:@]+)@/, ':****@');
       console.log(`[backend] DATABASE_URL: ${masked}`);
       warnIfReaderKeyMissing();
+      warnIfUploadsInsideApp();
       startAppraisalScheduler();
     });
   })

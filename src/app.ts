@@ -185,6 +185,14 @@ export function createApp({ logRequests = true, limitLogins = true }: AppOptions
       return;
     }
 
+    // A deliberate 4xx from a library (e.g. express.static: the uploaded file
+    // isn't there) is the caller's problem, not a server crash — answer it as such.
+    const status = (err as { status?: number; statusCode?: number }).status ?? (err as { statusCode?: number }).statusCode;
+    if (status && status >= 400 && status < 500) {
+      res.status(status).json({ message: status === 404 ? 'Not found' : 'Bad request', code: status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST' });
+      return;
+    }
+
     // Log full stack for 500 errors
     console.log(`[ERROR] ${timestamp} INTERNAL_ERROR | ${method} ${originalUrl} | IP: ${ip}`);
     console.log(err.stack ?? err.message);
