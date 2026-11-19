@@ -245,6 +245,16 @@ async function runMigrations() {
       PRIMARY KEY (\`id\`),
       INDEX \`AuthRoleView_authRoleId_idx\` (\`authRoleId\`)
     )`,
+    // A person's access roles — any number (schema.ts userAuthRoles).
+    `CREATE TABLE IF NOT EXISTS \`UserAuthRole\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`userId\` VARCHAR(36) NOT NULL,
+      \`authRoleId\` VARCHAR(36) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE INDEX \`UserAuthRole_user_role_key\` (\`userId\`, \`authRoleId\`),
+      INDEX \`UserAuthRole_authRoleId_idx\` (\`authRoleId\`)
+    )`,
     // The catalog of views themselves (key/label/description) — see
     // schema.ts's authViews comment. AuthRoleView.view stores the `key`
     // string loosely, no FK. Which module(s) a view belongs to lives in
@@ -2516,6 +2526,7 @@ async function runMigrations() {
         const [rows] = await conn.execute<any[]>("SELECT `id` FROM `AuthRole` WHERE `name` = ?", [name]);
         for (const { id } of rows) {
           await conn.execute("UPDATE `User` SET `authRoleId` = ? WHERE `authRoleId` = ?", [builtInId, id]);
+          await conn.execute("UPDATE IGNORE `UserAuthRole` SET `authRoleId` = ? WHERE `authRoleId` = ?", [builtInId, id]);
           await conn.execute("UPDATE `Position` SET `authRoleId` = ? WHERE `authRoleId` = ?", [builtInId, id]);
           await conn.execute("DELETE FROM `AuthRoleModule` WHERE `authRoleId` = ?", [id]);
           await conn.execute("DELETE FROM `AuthRoleView` WHERE `authRoleId` = ?", [id]);
@@ -2525,6 +2536,20 @@ async function runMigrations() {
       }
     } catch (e: any) {
       console.warn('[migrate] Built-in access role move skipped:', e.message);
+    }
+
+    // People can now hold several access roles (UserAuthRole). Copy each
+    // person's old single role across, then clear it so there's one source.
+    // Harmless to rerun — nothing is left to copy the second time.
+    try {
+      const [rows] = await conn.execute<any[]>("SELECT `id`, `authRoleId` FROM `User` WHERE `authRoleId` IS NOT NULL");
+      for (const { id, authRoleId } of rows) {
+        await conn.execute("INSERT IGNORE INTO `UserAuthRole` (`id`, `userId`, `authRoleId`, `createdAt`) VALUES (?, ?, ?, ?)", [randomUUID(), id, authRoleId, new Date()]);
+        await conn.execute("UPDATE `User` SET `authRoleId` = NULL WHERE `id` = ?", [id]);
+      }
+      if (rows.length) console.log(`[migrate] Moved ${rows.length} person(s)' access role into UserAuthRole`);
+    } catch (e: any) {
+      console.warn('[migrate] UserAuthRole copy skipped:', e.message);
     }
   } finally {
     conn.release();

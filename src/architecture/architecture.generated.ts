@@ -809,13 +809,13 @@ export const ARCHITECTURE: Architecture = {
           "controller": "auth.controller"
         },
         {
-          "method": "PATCH",
-          "path": "/api/auth/users/:id/auth-role",
+          "method": "PUT",
+          "path": "/api/auth/users/:id/auth-roles",
           "middleware": [
             "authMiddleware",
             "adminMiddleware"
           ],
-          "handler": "updateUserAuthRole",
+          "handler": "setUserAuthRoles",
           "controller": "auth.controller"
         }
       ]
@@ -3718,7 +3718,8 @@ export const ARCHITECTURE: Architecture = {
         "AuthRoleModule",
         "AuthRoleView",
         "Position",
-        "User"
+        "User",
+        "UserAuthRole"
       ]
     },
     {
@@ -4170,7 +4171,9 @@ export const ARCHITECTURE: Architecture = {
       "services": [],
       "controllers": [],
       "tables": [
-        "AuthRole"
+        "AuthRole",
+        "User",
+        "UserAuthRole"
       ]
     },
     {
@@ -4557,6 +4560,7 @@ export const ARCHITECTURE: Architecture = {
     "TeacherAppraisal",
     "TeacherMissionProgress",
     "TeacherRewardGoal",
-    "User"
+    "User",
+    "UserAuthRole"
   ]
 };

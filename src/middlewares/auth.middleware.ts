@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { users, teachers, positions, authRoleModules, authRoleViews } from '../db/schema.js';
+import { users, teachers, positions, authRoleModules, authRoleViews, userAuthRoles } from '../db/schema.js';
 import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
 import { sessionToken } from '../services/session.service.js';
 import { builtInRole } from '../constants/accessRoles.js';
@@ -120,7 +120,10 @@ export async function resolveGrants(userId: string): Promise<{ modules: Set<stri
   if (!user) return { modules, views };
 
   const authRoleIds = new Set<string>();
-  if (user.authRoleId) authRoleIds.add(user.authRoleId);
+  if (user.authRoleId) authRoleIds.add(user.authRoleId); // old single-role column (copied to UserAuthRole at startup)
+  for (const r of await db.select({ id: userAuthRoles.authRoleId }).from(userAuthRoles).where(eq(userAuthRoles.userId, userId))) {
+    authRoleIds.add(r.id);
+  }
   if (user.teacherId) {
     const [teacher] = await db.select().from(teachers).where(eq(teachers.id, user.teacherId));
     if (teacher?.positionId) {

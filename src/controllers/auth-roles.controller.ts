@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { authRoles, authRoleModules, authRoleViews, positions, users } from '../db/schema.js';
+import { authRoles, authRoleModules, authRoleViews, positions, userAuthRoles, users } from '../db/schema.js';
 import { ALL_MODULE_KEYS } from '../constants/authModules.js';
 import { ACCESS_FUNCTIONS, ACCESS_FUNCTION_KEYS, BUILT_IN_ROLES, MODULE_INCLUDES, isBuiltInRoleId } from '../constants/accessRoles.js';
 
@@ -23,11 +23,12 @@ async function roleUsage(): Promise<{ people: Map<string, number>; positions: Ma
     for (const r of rows) if (r.id) m.set(r.id, (m.get(r.id) ?? 0) + 1);
     return m;
   };
-  const [u, p] = await Promise.all([
+  const [legacy, u, p] = await Promise.all([
     db.select({ id: users.authRoleId }).from(users),
+    db.select({ id: userAuthRoles.authRoleId }).from(userAuthRoles),
     db.select({ id: positions.authRoleId }).from(positions),
   ]);
-  return { people: count(u), positions: count(p) };
+  return { people: count([...legacy, ...u]), positions: count(p) };
 }
 
 /** GET /auth-roles/catalog — the modules and functions a role can grant. */
@@ -130,9 +131,11 @@ export async function deleteAuthRole(req: Request, res: Response): Promise<void>
     res.status(409).json({ message: `Cannot delete — ${usage.count} position(s) assigned to this access role` });
     return;
   }
-  const [people] = await db.select({ count: sql<number>`COUNT(*)` }).from(users).where(eq(users.authRoleId, id));
-  if (people && people.count > 0) {
-    res.status(409).json({ message: `Cannot delete — ${people.count} person(s) have this access role. Give them another role first.` });
+  const [legacy] = await db.select({ count: sql<number>`COUNT(*)` }).from(users).where(eq(users.authRoleId, id));
+  const [holders] = await db.select({ count: sql<number>`COUNT(*)` }).from(userAuthRoles).where(eq(userAuthRoles.authRoleId, id));
+  const peopleCount = Number(legacy?.count ?? 0) + Number(holders?.count ?? 0);
+  if (peopleCount > 0) {
+    res.status(409).json({ message: `Cannot delete — ${peopleCount} person(s) have this access role. Take it off them first.` });
     return;
   }
 

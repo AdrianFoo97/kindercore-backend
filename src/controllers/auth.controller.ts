@@ -7,7 +7,7 @@ import { db } from '../db/client.js';
 import { teachers, users } from '../db/schema.js';
 import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
 import { loginSchema } from '../validators/auth.validator.js';
-import { accessRoleProblem } from '../services/accessRoles.service.js';
+import { accessRolesProblem, rolesByUser, setUserRoles } from '../services/accessRoles.service.js';
 
 export async function login(req: Request, res: Response): Promise<void> {
   const parsed = loginSchema.safeParse(req.body);
@@ -60,18 +60,16 @@ export async function logout(_req: Request, res: Response): Promise<void> {
 
 // ── Create invite ─────────────────────────────────────────────────────────
 export async function createInvite(req: Request, res: Response): Promise<void> {
-  const { email, role, authRoleId } = req.body as { email: string; role?: 'ADMIN' | 'USER'; authRoleId?: string | null };
+  const { email, role } = req.body as { email: string; role?: 'ADMIN' | 'USER' };
   if (!email?.trim()) { res.status(400).json({ message: 'Email is required' }); return; }
   const resolvedRole = role ?? 'USER';
   // Resend (ManageUsersPage's "Resend" button) re-posts { email, role } with
-  // no authRoleId at all — omitted, not explicitly cleared — so that must
-  // preserve whatever was already set rather than wiping it back to null.
-  const authRoleIdProvided = 'authRoleId' in req.body;
-  // Only meaningful for USER — ADMIN/SUPERADMIN already bypass AuthRole
-  // checks entirely, so silently drop it rather than storing a value
-  // that'll never be read.
-  const resolvedAuthRoleId = resolvedRole === 'USER' ? (authRoleId || null) : null;
-  const roleProblem = await accessRoleProblem(resolvedAuthRoleId);
+  // no authRoleIds at all — omitted, not cleared — so their roles are kept.
+  const rolesProvided = 'authRoleIds' in req.body;
+  // Only meaningful for USER — ADMIN/SUPERADMIN bypass access roles entirely.
+  const resolvedRoleIds = resolvedRole === 'USER' && Array.isArray(req.body.authRoleIds)
+    ? (req.body.authRoleIds as unknown[]).filter((x): x is string => typeof x === 'string' && !!x) : [];
+  const roleProblem = await accessRolesProblem(resolvedRoleIds);
   if (roleProblem) { res.status(400).json({ message: roleProblem }); return; }
 
   // Check if user already exists and is activated
@@ -86,23 +84,24 @@ export async function createInvite(req: Request, res: Response): Promise<void> {
     // Update existing pending invite
     await db.update(users).set({
       inviteToken, inviteExpiresAt, role: resolvedRole, updatedAt: now,
-      ...(authRoleIdProvided ? { authRoleId: resolvedAuthRoleId } : {}),
     }).where(eq(users.id, existing.id));
+    if (rolesProvided) await setUserRoles(existing.id, resolvedRoleIds);
   } else {
     // Create new pending user
+    const newId = randomUUID();
     await db.insert(users).values({
-      id: randomUUID(),
+      id: newId,
       email: email.trim().toLowerCase(),
       name: '',
       passwordHash: '',
       role: resolvedRole,
-      authRoleId: resolvedAuthRoleId,
       inviteToken,
       inviteExpiresAt,
       activated: false,
       createdAt: now,
       updatedAt: now,
     });
+    await setUserRoles(newId, resolvedRoleIds);
   }
 
   const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
@@ -183,12 +182,13 @@ export async function listUsers(_req: Request, res: Response): Promise<void> {
     inviteToken: users.inviteToken,
     createdAt: users.createdAt,
     teacherId: users.teacherId,
-    authRoleId: users.authRoleId,
     lastLoginAt: users.lastLoginAt,
     lastSeenAt: users.lastSeenAt,
   }).from(users);
+  const roles = await rolesByUser(allUsers.map(u => u.id));
   const result = allUsers.map(({ inviteToken, ...rest }) => ({
     ...rest,
+    authRoleIds: roles.get(rest.id) ?? [],
     inviteLink: inviteToken ? `${frontendUrl}/setup?token=${inviteToken}` : null,
   }));
   res.json(result);
@@ -211,6 +211,7 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
     res.status(403).json({ message: 'Insufficient permissions' }); return;
   }
 
+  await setUserRoles(id, []);
   await db.delete(users).where(eq(users.id, id));
   res.json({ success: true });
 }
@@ -238,19 +239,22 @@ export async function updateUserTeacher(req: Request, res: Response): Promise<vo
   res.json({ success: true });
 }
 
-// ── Grant/revoke a User's direct AuthRole ───────────────────────────────────
-// The other half of resolveGrants' union (see auth.middleware.ts) — for
-// admin-portal team members who aren't teaching staff, so there's no
-// Teacher/Position to hang an AuthRole off of via updateUserTeacher above.
-export async function updateUserAuthRole(req: Request, res: Response): Promise<void> {
+// ── A person's access roles ─────────────────────────────────────────────────
+// Any number (e.g. Principal + HR Director). resolveGrants adds them to
+// whatever their position's role gives. Full replace: send every role they
+// should have; [] removes them all.
+export async function setUserAuthRoles(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
-  const { authRoleId } = req.body as { authRoleId: string | null };
-
+  const ids = req.body?.authRoleIds;
+  if (!Array.isArray(ids) || ids.some(x => typeof x !== 'string')) {
+    res.status(400).json({ message: 'authRoleIds must be a list of role ids' });
+    return;
+  }
   const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   if (!target) { res.status(404).json({ message: 'User not found' }); return; }
-  const roleProblem = await accessRoleProblem(authRoleId);
+  const roleProblem = await accessRolesProblem(ids);
   if (roleProblem) { res.status(400).json({ message: roleProblem }); return; }
 
-  await db.update(users).set({ authRoleId: authRoleId || null, updatedAt: new Date() }).where(eq(users.id, id));
-  res.json({ success: true });
+  await setUserRoles(id, ids);
+  res.json({ success: true, authRoleIds: [...new Set(ids)] });
 }

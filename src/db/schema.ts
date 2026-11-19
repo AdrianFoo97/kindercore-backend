@@ -333,6 +333,18 @@ export const authRoleViews = mysqlTable('AuthRoleView', {
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// A person's access roles — any number (e.g. Principal + HR Director). Their
+// access is all of these plus their position's role (resolveGrants). The old
+// single User.authRoleId is copied in here at startup and then cleared.
+export const userAuthRoles = mysqlTable('UserAuthRole', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  userId: varchar('userId', { length: 36 }).notNull(),
+  authRoleId: varchar('authRoleId', { length: 36 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+}, (t) => ({
+  userRole: uniqueIndex('UserAuthRole_user_role_key').on(t.userId, t.authRoleId),
+}));
+
 // The catalog of views themselves — what AuthRoleView.view's string actually
 // means. `key` is what a developer hardcodes into requireView(...)/hasView(...)
 // call sites, so it's immutable after creation (enforced in the controller,
