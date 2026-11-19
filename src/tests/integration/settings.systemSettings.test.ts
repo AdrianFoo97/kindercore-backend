@@ -45,6 +45,16 @@ describe('Settings — saving and reading app settings', () => {
   });
 });
 
+describe('Settings — onboarding checklists', () => {
+  it('saves items with a description or a link button, and refuses a button without a label or with an unsafe link', async () => {
+    const ok = await save('onboarding_tasks', [{ task: ' Collect birth cert ', description: 'The original, not a photo.' }, { task: 'Parent app', linkLabel: 'Download', linkUrl: 'https://kindertech.example/app' }]);
+    expect(ok.statusCode).toBe(200);
+    expect((await readAll()).onboarding_tasks).toEqual([{ task: 'Collect birth cert', description: 'The original, not a photo.' }, { task: 'Parent app', linkLabel: 'Download', linkUrl: 'https://kindertech.example/app' }]);
+    expect((await save('onboarding_tasks', [{ task: 'Parent app', linkUrl: 'https://kindertech.example/app' }])).statusCode).toBe(400);
+    expect((await save('onboarding_tasks', [{ task: 'Parent app', linkLabel: 'Go', linkUrl: 'javascript:alert(1)' }])).statusCode).toBe(400);
+  });
+});
+
 describe('Settings — lead "lost reasons" list', () => {
   it('always keeps the built-in reasons first, even if an admin removes them', async () => {
     const r = await save('lost_reasons', ['Too far from home']);

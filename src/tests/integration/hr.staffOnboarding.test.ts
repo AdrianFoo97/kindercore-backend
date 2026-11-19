@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
 import { careerRecords, positions, systemSettings, teacherAllowances, teachers } from '../../db/schema.js';
 import {
-  completeStaffOnboarding, getMyOnboarding, listStaffOnboarding, saveStaffOnboarding, startStaffOnboarding, tickMyOnboarding,
+  completeStaffOnboarding, getMyOnboarding, listStaffOnboarding, saveOwnOnboardingSteps, saveStaffOnboarding, startStaffOnboarding, tickMyOnboarding,
 } from '../../controllers/staff-onboarding.controller.js';
 import { createStaffRecord } from '../../services/staffRecord.service.js';
 import { resetTables } from './testDb.js';
@@ -37,7 +37,7 @@ async function list() {
   await listStaffOnboarding(reqWith({}), r);
   return r.body as { id: string; name: string; positionName: string | null; onboardingProgress: { task: string; done: boolean }[] }[];
 }
-async function save(teacherId: string, progress: { task: string; done: boolean }[]) {
+async function save(teacherId: string, progress: { task: string; done: boolean; description?: string; linkLabel?: string; linkUrl?: string }[]) {
   const r = res();
   await saveStaffOnboarding(reqWith({ params: { teacherId }, body: { progress } }), r);
   return r;
@@ -67,6 +67,31 @@ describe('HR — staff onboarding', () => {
     const id = await hire();
     await db.update(teachers).set({ resignedAt: NOW }).where(eq(teachers.id, id));
     expect(await list()).toEqual([]);
+  });
+
+  it('copies an item’s description and link button to each new joiner, keeps them when ticked, and refuses an unsafe link', async () => {
+    const withLink = [{ task: 'Fill in the EPF form', description: 'Use the KWSP 6 form.', linkLabel: 'Open form', linkUrl: 'https://kwsp.gov.my/form' }];
+    await db.update(systemSettings).set({ value: withLink }).where(eq(systemSettings.key, 'staff_onboarding_tasks'));
+    const id = await hire();
+    expect((await list())[0].onboardingProgress).toEqual([{ ...withLink[0], done: false }]);
+    expect((await save(id, [{ ...withLink[0], done: true }])).statusCode).toBe(200);
+    expect((await list())[0].onboardingProgress).toEqual([{ ...withLink[0], done: true }]);
+    expect((await save(id, [{ ...withLink[0], linkUrl: 'javascript:alert(1)', done: true }])).statusCode).toBe(400);
+  });
+
+  it('lets HR bring a new joiner’s own checklist up to the latest steps, checking every step', async () => {
+    const id = await hire();
+    const save = async (progress: unknown) => {
+      const r = res();
+      await saveOwnOnboardingSteps(reqWith({ params: { teacherId: id }, body: { progress } }), r);
+      return r;
+    };
+    const latest = [{ task: 'Read the staff handbook', done: true }, { task: 'Meet your buddy', description: 'Ask your supervisor who.', done: false }];
+    expect((await save(latest)).statusCode).toBe(200);
+    const mine = res();
+    await getMyOnboarding(reqWith({ params: { teacherId: id } }), mine);
+    expect(mine.body.tasks).toEqual(latest);
+    expect((await save([{ task: 'Bad', done: false, linkLabel: 'Go', linkUrl: 'javascript:x' }])).statusCode).toBe(400);
   });
 
   it('saves which tasks have been ticked', async () => {

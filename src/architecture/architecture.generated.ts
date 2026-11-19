@@ -3350,6 +3350,16 @@ export const ARCHITECTURE: Architecture = {
           "controller": "staff-onboarding.controller"
         },
         {
+          "method": "PUT",
+          "path": "/api/teachers/:teacherId/onboarding/own-steps",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.HR)"
+          ],
+          "handler": "saveOwnOnboardingSteps",
+          "controller": "staff-onboarding.controller"
+        },
+        {
           "method": "POST",
           "path": "/api/teachers/:teacherId/onboarding/start",
           "middleware": [
@@ -4003,6 +4013,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "settings.controller",
       "services": [
+        "checklist.logic",
         "messageTemplates.logic"
       ],
       "controllers": [],
@@ -4112,6 +4123,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "staff-onboarding.controller",
       "services": [
+        "checklist.logic",
         "staffOnboarding.service"
       ],
       "controllers": [],
@@ -4122,7 +4134,9 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "students.controller",
-      "services": [],
+      "services": [
+        "checklist.logic"
+      ],
       "controllers": [],
       "tables": [
         "Lead",
@@ -4280,6 +4294,12 @@ export const ARCHITECTURE: Architecture = {
         "AppraisalSection",
         "AppraisalTemplate"
       ]
+    },
+    {
+      "id": "checklist.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "elevenlabs.service",

@@ -122,6 +122,8 @@ describe('Security — a default teacher cannot approve, decide or manage', () =
     ['POST', `/api/teachers/${ME.teacherId}/points/grant`, { amount: 100, reason: 'self' }],
     ['PATCH', '/api/redemptions/any', { status: 'delivered' }],
     ['POST', `/api/teachers/${ME.teacherId}/appraisals`, { score: 100 }],
+    // Rewriting a new joiner's own onboarding steps — even their own.
+    ['PUT', `/api/teachers/${ME.teacherId}/onboarding/own-steps`, { progress: [{ task: 'x', done: true }] }],
     // Appraising with a form: running the schedule, and signing off someone else's.
     ['GET', '/api/appraisal-schedules'],
     ['GET', '/api/appraisal-schedules/created'],

@@ -4,19 +4,16 @@ import { z } from 'zod';
 import { db } from '../db/client.js';
 import { positions, teachers } from '../db/schema.js';
 import { applyTicks, freshStaffChecklist, freshStaffChecklists, isChecklistDone, parseChecklist } from '../services/staffOnboarding.service.js';
+import { checklistProgressItemSchema } from '../services/checklist.logic.js';
 
 // HR → Onboarding: staff who are still working through their new-joiner
 // checklist. Mirrors student onboarding (students.controller.ts) — tick tasks,
 // then mark complete; "complete all" for someone already fully set up.
 
 const MAX_TASKS = 50;
-const MAX_TASK_LENGTH = 300;
 
 const progressSchema = z.object({
-  progress: z.array(z.object({
-    task: z.string().trim().min(1).max(MAX_TASK_LENGTH),
-    done: z.boolean(),
-  })).max(MAX_TASKS),
+  progress: z.array(checklistProgressItemSchema).max(MAX_TASKS),
 });
 
 export async function listStaffOnboarding(_req: Request, res: Response): Promise<void> {
@@ -82,6 +79,22 @@ export async function saveStaffOnboarding(req: Request, res: Response): Promise<
     .set({ onboardingProgress: parsed.data.progress, onboardingCompleted: false, updatedAt: new Date() })
     .where(eq(teachers.id, teacherId));
   res.json({ ok: true });
+}
+
+/**
+ * HR brings a new joiner's OWN checklist up to the latest steps from Settings
+ * (ticks kept where steps still match — worked out on the screen). Only HR:
+ * the joiner can tick their list (tickMyOnboarding) but never rewrite it.
+ */
+export async function saveOwnOnboardingSteps(req: Request, res: Response): Promise<void> {
+  const parsed = progressSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ message: parsed.error.errors[0]?.message ?? 'Validation error', errors: parsed.error.errors }); return; }
+  const { teacherId } = req.params;
+  if (!(await staffExists(teacherId))) { res.status(404).json({ message: 'Staff member not found' }); return; }
+  await db.update(teachers)
+    .set({ selfOnboardingProgress: parsed.data.progress, onboardingCompleted: false, updatedAt: new Date() })
+    .where(eq(teachers.id, teacherId));
+  res.json({ tasks: parsed.data.progress });
 }
 
 export async function completeStaffOnboarding(req: Request, res: Response): Promise<void> {

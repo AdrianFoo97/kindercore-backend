@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { leads, packages, students, studentEnrollments, systemSettings } from '../db/schema.js';
+import { MAX_CHECKLIST_ITEMS, checklistProgressItemSchema, freshChecklist, parseChecklistProgress, parseChecklistTemplate } from '../services/checklist.logic.js';
 
 // ── Shared select + reshape ───────────────────────────────────────────────────
 
@@ -363,9 +364,7 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   if (existingStudent) { res.status(409).json({ message: 'Student already exists for this lead' }); return; }
 
   const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
-  const rawTasks = settingRow?.value;
-  const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
-  const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
+  const onboardingProgress = freshChecklist(parseChecklistTemplate(settingRow?.value));
 
   const now = new Date();
   const newId = randomUUID();
@@ -458,9 +457,7 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
   if (!pkg) { res.status(404).json({ message: 'Package not found' }); return; }
 
   const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
-  const rawTasks = settingRow?.value;
-  const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
-  const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
+  const onboardingProgress = freshChecklist(parseChecklistTemplate(settingRow?.value));
 
   const now = new Date();
   const submittedAtDate = submittedAt ? new Date(submittedAt) : now;
@@ -555,9 +552,7 @@ export async function createSibling(req: Request, res: Response): Promise<void> 
   if (!pkg) { res.status(404).json({ message: 'Package not found' }); return; }
 
   const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
-  const rawTasks = settingRow?.value;
-  const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
-  const onboardingProgress = tasks.map((task: string) => ({ task, done: false }));
+  const onboardingProgress = freshChecklist(parseChecklistTemplate(settingRow?.value));
 
   const now = new Date();
   const newId = randomUUID();
@@ -732,13 +727,11 @@ export async function completeOnboarding(req: Request, res: Response): Promise<v
   if (force) {
     // Populate tasks from template and mark all done
     const rawProgress = existing.onboardingProgress;
-    let progress: Array<{ task: string; done: boolean }> = typeof rawProgress === 'string' ? JSON.parse(rawProgress) : (Array.isArray(rawProgress) ? rawProgress : []);
+    let progress = parseChecklistProgress(rawProgress);
     if (progress.length === 0) {
       // No tasks — load from settings template
       const [settingRow] = await db.select().from(systemSettings).where(eq(systemSettings.key, 'onboarding_tasks')).limit(1);
-      const rawTasks = settingRow?.value;
-      const tasks: string[] = typeof rawTasks === 'string' ? JSON.parse(rawTasks) : (Array.isArray(rawTasks) ? rawTasks : []);
-      progress = tasks.map((task: string) => ({ task, done: true }));
+      progress = freshChecklist(parseChecklistTemplate(settingRow?.value)).map(t => ({ ...t, done: true }));
     } else {
       // Has tasks — mark all as done
       progress = progress.map(t => ({ ...t, done: true }));
@@ -858,7 +851,7 @@ export async function reactivateStudent(req: Request, res: Response): Promise<vo
 // ── Update onboarding progress ────────────────────────────────────────────────
 
 const onboardingSchema = z.object({
-  progress: z.array(z.object({ task: z.string(), done: z.boolean() })),
+  progress: z.array(checklistProgressItemSchema).max(MAX_CHECKLIST_ITEMS),
 });
 
 export async function updateOnboardingProgress(req: Request, res: Response): Promise<void> {
@@ -876,7 +869,7 @@ export async function updateOnboardingProgress(req: Request, res: Response): Pro
   // student is back in (or starting) the onboarding flow. The explicit
   // /complete-onboarding endpoint is the only thing that should set it true.
   await db.update(students)
-    .set({ onboardingProgress: parsed.data.progress as any, onboardingCompleted: false })
+    .set({ onboardingProgress: parsed.data.progress, onboardingCompleted: false })
     .where(eq(students.id, id));
   const [row] = await queryStudents().where(eq(students.id, id));
   res.json(await reshapeOne(row));

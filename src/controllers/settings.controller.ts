@@ -7,6 +7,7 @@ import { systemSettings } from '../db/schema.js';
 import { SYSTEM_LOST_REASON_LABELS } from '../constants/lostReasons.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import { stripHiddenTemplates, visibleTemplateGroups } from '../services/messageTemplates.logic.js';
+import { CHECKLIST_SETTING_KEYS, checklistTemplateProblem, parseChecklistTemplate } from '../services/checklist.logic.js';
 
 const updateSettingSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.string()), z.array(z.record(z.unknown()))]),
@@ -66,6 +67,12 @@ export async function updateSetting(req: Request, res: Response): Promise<void> 
   let val = parsed.data.value as any;
   if (key === 'lost_reasons') {
     val = normalizeLostReasons(val);
+  }
+  // Onboarding checklists: every item needs text; a button needs a label and a safe link.
+  if (CHECKLIST_SETTING_KEYS.includes(key)) {
+    const problem = checklistTemplateProblem(val);
+    if (problem) { res.status(400).json({ message: problem }); return; }
+    val = parseChecklistTemplate(val);
   }
 
   // INSERT ... ON DUPLICATE KEY UPDATE (key has a UNIQUE constraint in DB)

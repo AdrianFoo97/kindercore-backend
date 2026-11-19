@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { systemSettings } from '../db/schema.js';
+import { type ChecklistProgressItem, freshChecklist, parseChecklistProgress, parseChecklistTemplate } from './checklist.logic.js';
 
 // Staff onboarding has two checklists per new joiner, each copied from its
 // template when the staff record is created:
@@ -32,17 +33,14 @@ export const DEFAULT_STAFF_SELF_ONBOARDING_TASKS = [
   'Learn how to report an incident in the app',
 ];
 
-export interface OnboardingTask { task: string; done: boolean }
+/** One ticked item — text, done, and the item's link button if the template had one. */
+export type OnboardingTask = ChecklistProgressItem;
 
 type Executor = Pick<typeof db, 'select'>;
 
 /** A stored checklist (JSON column — may arrive as a string or array) as a clean list. */
 export function parseChecklist(raw: unknown): OnboardingTask[] {
-  const value = typeof raw === 'string' ? safeJson(raw) : raw;
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((t): t is { task: unknown; done?: unknown } => !!t && typeof t === 'object' && 'task' in t)
-    .map(t => ({ task: String(t.task), done: t.done === true }));
+  return parseChecklistProgress(raw);
 }
 
 /** True when there is nothing left to tick (an empty checklist counts as done). */
@@ -53,9 +51,7 @@ export function isChecklistDone(progress: OnboardingTask[]): boolean {
 /** A fresh, all-unticked copy of a checklist template (HR's by default). */
 export async function freshStaffChecklist(exec: Executor = db, settingKey: string = STAFF_ONBOARDING_SETTING): Promise<OnboardingTask[]> {
   const [row] = await exec.select().from(systemSettings).where(eq(systemSettings.key, settingKey)).limit(1);
-  const raw = typeof row?.value === 'string' ? safeJson(row.value) : row?.value;
-  const tasks = Array.isArray(raw) ? raw.filter((t): t is string => typeof t === 'string' && t.trim().length > 0) : [];
-  return tasks.map(task => ({ task, done: false }));
+  return freshChecklist(parseChecklistTemplate(row?.value));
 }
 
 /** Both checklists a new joiner starts with. */
@@ -73,9 +69,6 @@ export async function freshStaffChecklists(exec: Executor = db): Promise<{ hr: O
  */
 export function applyTicks(progress: OnboardingTask[], done: boolean[]): OnboardingTask[] | null {
   if (done.length !== progress.length) return null;
-  return progress.map((t, i) => ({ task: t.task, done: done[i] }));
+  return progress.map((t, i) => ({ ...t, done: done[i] }));
 }
 
-function safeJson(s: string): unknown {
-  try { return JSON.parse(s); } catch { return null; }
-}
