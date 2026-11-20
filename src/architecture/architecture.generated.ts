@@ -1763,6 +1763,57 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "notifications.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/notifications",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "listMyNotifications",
+          "controller": "notifications.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/notifications/settings",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getNotificationSettings",
+          "controller": "notifications.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/notifications/settings",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "saveNotificationSettings",
+          "controller": "notifications.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/notifications/read-all",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "readAllNotifications",
+          "controller": "notifications.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/notifications/:id/read",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "readNotification",
+          "controller": "notifications.controller"
+        }
+      ]
+    },
+    {
       "id": "operatingCost.routes",
       "mount": "/api/operating-cost",
       "endpoints": [
@@ -3757,7 +3808,10 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "bug-reports.controller",
-      "services": [],
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
       "controllers": [],
       "tables": [
         "BugReport",
@@ -3767,6 +3821,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "candidates.controller",
       "services": [
+        "notifications.logic",
+        "notifications.service",
         "recruitmentOpenings.logic",
         "staffRecord.service"
       ],
@@ -3828,6 +3884,8 @@ export const ARCHITECTURE: Architecture = {
       "id": "facility-issues.controller",
       "services": [
         "facilityAttachments.service",
+        "notifications.logic",
+        "notifications.service",
         "privateUploads.service"
       ],
       "controllers": [],
@@ -3857,7 +3915,10 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "incidents.controller",
-      "services": [],
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
       "controllers": [],
       "tables": [
         "IncidentReport",
@@ -3880,7 +3941,10 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "leads.controller",
-      "services": [],
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
       "controllers": [],
       "tables": [
         "GoogleConnection",
@@ -3920,8 +3984,20 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "notifications.controller",
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "operatingCost.controller",
-      "services": [],
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
       "controllers": [],
       "tables": [
         "OperatingCost",
@@ -3962,6 +4038,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "points.controller",
       "services": [
+        "notifications.logic",
+        "notifications.service",
         "orgStructure.logic"
       ],
       "controllers": [],
@@ -3978,6 +4056,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "purchase-requests.controller",
       "services": [
+        "notifications.logic",
+        "notifications.service",
         "privateUploads.service",
         "purchaseLog.service",
         "purchaseReceipts.service",
@@ -4058,7 +4138,10 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "sop-revisions.controller",
-      "services": [],
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
       "controllers": [],
       "tables": [
         "SopStep",
@@ -4111,6 +4194,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "staff-joins.controller",
       "services": [
+        "notifications.logic",
+        "notifications.service",
         "staffRecord.service"
       ],
       "controllers": [],
@@ -4124,6 +4209,8 @@ export const ARCHITECTURE: Architecture = {
       "id": "staff-onboarding.controller",
       "services": [
         "checklist.logic",
+        "notifications.logic",
+        "notifications.service",
         "staffOnboarding.service"
       ],
       "controllers": [],
@@ -4135,7 +4222,9 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "students.controller",
       "services": [
-        "checklist.logic"
+        "checklist.logic",
+        "notifications.logic",
+        "notifications.service"
       ],
       "controllers": [],
       "tables": [
@@ -4186,6 +4275,10 @@ export const ARCHITECTURE: Architecture = {
       "controllers": [],
       "tables": [
         "AuthRole",
+        "AuthRoleModule",
+        "AuthRoleView",
+        "Position",
+        "Teacher",
         "User",
         "UserAuthRole"
       ]
@@ -4324,6 +4417,22 @@ export const ARCHITECTURE: Architecture = {
       "services": [],
       "controllers": [],
       "tables": []
+    },
+    {
+      "id": "notifications.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "notifications.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "Notification",
+        "NotificationMute",
+        "User"
+      ]
     },
     {
       "id": "operatingCost.service",
@@ -4544,6 +4653,8 @@ export const ARCHITECTURE: Architecture = {
     "LevelIncentive",
     "MarketingCampaign",
     "MissionCategory",
+    "Notification",
+    "NotificationMute",
     "OperatingCost",
     "OperatingCostCategory",
     "OperatingCostCategoryGroup",

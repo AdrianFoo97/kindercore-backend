@@ -2,10 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { users, teachers, positions, authRoleModules, authRoleViews, userAuthRoles } from '../db/schema.js';
+import { users, teachers } from '../db/schema.js';
 import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAccess.service.js';
 import { sessionToken } from '../services/session.service.js';
-import { builtInRole } from '../constants/accessRoles.js';
+import { rolesHeldBy } from '../services/accessRoles.service.js';
 
 export interface AuthUser {
   id: string;
@@ -114,38 +114,13 @@ export async function authMiddleware(
 // only runs on routes that opt into requireModule/requireView, not every
 // request.
 export async function resolveGrants(userId: string): Promise<{ modules: Set<string>; views: Set<string> }> {
+  // Everything their roles grant, together (rolesHeldBy is the one place roles are worked out).
   const modules = new Set<string>();
   const views = new Set<string>();
-  const [user] = await db.select().from(users).where(eq(users.id, userId));
-  if (!user) return { modules, views };
-
-  const authRoleIds = new Set<string>();
-  if (user.authRoleId) authRoleIds.add(user.authRoleId); // old single-role column (copied to UserAuthRole at startup)
-  for (const r of await db.select({ id: userAuthRoles.authRoleId }).from(userAuthRoles).where(eq(userAuthRoles.userId, userId))) {
-    authRoleIds.add(r.id);
+  for (const role of await rolesHeldBy(userId)) {
+    role.modules.forEach(m => modules.add(m));
+    role.functions.forEach(v => views.add(v));
   }
-  if (user.teacherId) {
-    const [teacher] = await db.select().from(teachers).where(eq(teachers.id, user.teacherId));
-    if (teacher?.positionId) {
-      const [position] = await db.select().from(positions).where(eq(positions.positionId, teacher.positionId));
-      if (position?.authRoleId) authRoleIds.add(position.authRoleId);
-    }
-  }
-
-  for (const authRoleId of authRoleIds) {
-    // Built-in roles are defined in code (constants/accessRoles.ts), not in the DB.
-    const builtIn = builtInRole(authRoleId);
-    if (builtIn) {
-      for (const m of builtIn.modules) modules.add(m);
-      for (const v of builtIn.functions) views.add(v);
-      continue;
-    }
-    const modRows = await db.select({ module: authRoleModules.module }).from(authRoleModules).where(eq(authRoleModules.authRoleId, authRoleId));
-    const viewRows = await db.select({ view: authRoleViews.view }).from(authRoleViews).where(eq(authRoleViews.authRoleId, authRoleId));
-    for (const r of modRows) modules.add(r.module);
-    for (const r of viewRows) views.add(r.view);
-  }
-
   return { modules, views };
 }
 

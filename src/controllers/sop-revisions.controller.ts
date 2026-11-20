@@ -7,6 +7,8 @@ import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import {
   sopTemplateRevisions, sopTemplates, sopSteps, sopTemplateCategories, users,
 } from '../db/schema.js';
+import { notify } from '../services/notifications.service.js';
+import { guideSuggestedMessage } from '../services/notifications.logic.js';
 
 // mysql2 only auto-parses a JSON column if the server reports it as the
 // real JSON wire type — MariaDB (what test/production actually run,
@@ -182,6 +184,10 @@ export async function createRevision(req: Request, res: Response): Promise<void>
     updatedAt: now,
   });
   const [row] = await db.select().from(sopTemplateRevisions).where(eq(sopTemplateRevisions.id, id));
+  // A suggestion sent for review (not a draft) needs a reviewer.
+  if (!parsed.data.asDraft) {
+    await notify(guideSuggestedMessage({ id, title: parsed.data.title, byName: row.proposedByName ?? 'A staff member', isNewGuide: !parsed.data.sopTemplateId }), { actorUserId: req.user!.id });
+  }
   res.json(normalizeRevision(row));
 }
 
@@ -443,7 +449,9 @@ export async function resubmitRevision(req: Request, res: Response): Promise<voi
     trialStartedByName: null,
     updatedAt: new Date(),
   }).where(eq(sopTemplateRevisions.id, id));
-  res.json(normalizeRevision(await loadRevision(id)));
+  const resubmitted = await loadRevision(id);
+  await notify(guideSuggestedMessage({ id, title: parsed.data.title, byName: resubmitted?.proposedByName ?? 'A staff member', isNewGuide: !revision.sopTemplateId, resubmitted: true }), { actorUserId: req.user!.id });
+  res.json(normalizeRevision(resubmitted));
 }
 
 // ── Trial ───────────────────────────────────────────────────────────────────

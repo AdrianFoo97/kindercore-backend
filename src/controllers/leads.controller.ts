@@ -9,6 +9,8 @@ import { createLeadSchema, updateLeadSchema } from '../validators/lead.validator
 import { broadcast } from '../sse.js';
 import { systemRoleFor, deriveIsQualified, deriveVisitOutcome } from '../constants/lostReasons.js';
 import { todayInMalaysia, dateKey } from '../utils/dateKey.js';
+import { notify } from '../services/notifications.service.js';
+import { newLeadMessage } from '../services/notifications.logic.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
@@ -230,6 +232,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   // });
 
   broadcast('new-lead');
+  await notify(newLeadMessage({ id, childName: lead?.childName ?? normalizeName(childName), programme }));
 
   // Fire-and-forget: Slack notification
   notifySlack({

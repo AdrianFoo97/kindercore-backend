@@ -4,6 +4,8 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { operatingCostCategories, operatingCostCategoryGroups, operatingCosts } from '../db/schema.js';
+import { notify } from '../services/notifications.service.js';
+import { costsRecordedMessage } from '../services/notifications.logic.js';
 
 // ── Groups (aka "Main Categories") ───────────────────────────────────────────
 
@@ -297,5 +299,10 @@ export async function bulkUpsertEntries(req: Request, res: Response): Promise<vo
   }
 
   const updated = await db.select().from(operatingCosts).where(eq(operatingCosts.year, year));
+  // A month getting its first costs means its reports now include them (months are 0–11 here).
+  const hadCosts = new Set(existing.map(r => r.month));
+  for (const month of new Set(updated.map(r => r.month))) {
+    if (!hadCosts.has(month)) await notify(costsRecordedMessage({ year, month: month + 1 }), { actorUserId: req.user?.id ?? null });
+  }
   res.json({ year, rows: updated });
 }

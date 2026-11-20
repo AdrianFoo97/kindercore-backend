@@ -10,6 +10,8 @@ import {
   FACILITY_ATTACHMENTS_DIR, attachmentProblem, discardUploads, toAttachment,
 } from '../services/facilityAttachments.service.js';
 import { sendPrivateFile } from '../services/privateUploads.service.js';
+import { notify, notifyOwner } from '../services/notifications.service.js';
+import { facilityMessage, myReportMessage } from '../services/notifications.logic.js';
 
 /** The AuthView that makes someone a facility manager (Admin → Views); Admins always are. */
 export const FACILITY_MANAGE_VIEW = 'OPERATION_FACILITY_MANAGE';
@@ -83,7 +85,9 @@ export async function createFacilityIssue(req: Request, res: Response): Promise<
     createdAt: now,
     updatedAt: now,
   });
-  res.status(201).json(await loadOne(id));
+  const created = await loadOne(id);
+  if (created) await notify(facilityMessage({ title: created.title, location: created.location, reportedByName: created.reportedByName }), { actorUserId: req.user!.id });
+  res.status(201).json(created);
 }
 
 /** The caller's own reports, newest first — so they can see where each one stands. */
@@ -147,5 +151,9 @@ export async function updateFacilityIssueStatus(req: Request, res: Response): Pr
     statusUpdatedAt: now,
     updatedAt: now,
   }).where(eq(facilityIssues.id, existing.id));
+  if (moves) {
+    await notifyOwner(teacherId => myReportMessage({ teacherId, what: 'facility', place: `${existing.title} · ${existing.location}`, status }),
+      { userId: existing.reportedByUserId }, { actorUserId: req.user!.id });
+  }
   res.json(await loadOne(existing.id));
 }

@@ -9,6 +9,8 @@ import { logPurchase, withHistory } from '../services/purchaseLog.service.js';
 import { PURCHASE_RECEIPTS_DIR, discardUploads, toAttachment } from '../services/purchaseReceipts.service.js';
 import { parseWeek, weekRange, weekSpend } from '../services/purchaseWeek.service.js';
 import { sendPrivateFile } from '../services/privateUploads.service.js';
+import { notify, notifyOwner } from '../services/notifications.service.js';
+import { itemBoughtMessage, itemRequestedMessage, myRequestMessage } from '../services/notifications.logic.js';
 
 // Purchase requests (Operation → Shopping List). Any staff member asks for
 // something to be bought; shopping-list managers (OPERATION_PURCHASE_MANAGE
@@ -88,6 +90,7 @@ export async function createPurchaseRequest(req: Request, res: Response): Promis
     });
     await logPurchase(tx, { requestId: id, kind: 'REQUESTED', detail: `${d.item} × ${d.quantity}${d.buyer === 'SELF' ? ' · will buy it themselves' : ''}`, ...who, at: now });
   });
+  await notify(itemRequestedMessage({ item: d.item, quantity: d.quantity, requestedByName: who.authorName }), { actorUserId: who.authorUserId });
   await respondWith(res, id, 201);
 }
 
@@ -150,6 +153,7 @@ export async function approvePurchase(req: Request, res: Response): Promise<void
     await tx.update(purchaseRequests).set({ status: 'APPROVED', updatedAt: now }).where(eq(purchaseRequests.id, existing.id));
     await logPurchase(tx, { requestId: existing.id, kind: 'APPROVED', ...who, at: now });
   });
+  await tellRequester(existing, 'APPROVED', who.authorUserId);
   await respondWith(res, existing.id);
 }
 
@@ -158,15 +162,16 @@ export async function approveAllPurchases(req: Request, res: Response): Promise<
   const who = await actor(req);
   const now = new Date();
   const approved = await db.transaction(async tx => {
-    const waiting = await tx.select({ id: purchaseRequests.id }).from(purchaseRequests)
+    const waiting = await tx.select().from(purchaseRequests)
       .where(eq(purchaseRequests.status, 'REQUESTED')).for('update');
     for (const { id } of waiting) {
       await tx.update(purchaseRequests).set({ status: 'APPROVED', updatedAt: now }).where(eq(purchaseRequests.id, id));
       await logPurchase(tx, { requestId: id, kind: 'APPROVED', detail: 'Approved with the whole list', ...who, at: now });
     }
-    return waiting.length;
+    return waiting;
   });
-  res.json({ approved });
+  for (const r of approved) await tellRequester(r, 'APPROVED', who.authorUserId);
+  res.json({ approved: approved.length });
 }
 
 /**
@@ -284,6 +289,11 @@ async function applyBought(req: Request, res: Response, existing: PurchaseRow, f
       await logPurchase(tx, { requestId: existing.id, kind: 'COST', detail: parts.filter(Boolean).join(' · '), ...who, at: new Date(now.getTime() + 1) });
     }
   });
+  if (firstTick) await tellRequester(existing, 'BOUGHT', who.authorUserId);
+  // The first time a cost is entered, Finance records it in operating costs.
+  if (cost.value && !existing.cost) {
+    await notify(itemBoughtMessage({ item: existing.item, quantity: existing.quantity, cost: cost.value }), { actorUserId: who.authorUserId });
+  }
   await respondWith(res, existing.id);
 }
 
@@ -302,7 +312,14 @@ export async function markPurchaseNotBuying(req: Request, res: Response): Promis
     }).where(eq(purchaseRequests.id, existing.id));
     await logPurchase(tx, { requestId: existing.id, kind: 'NOT_BUYING', detail: parsed.data.reason, ...who, at: now });
   });
+  await tellRequester(existing, 'NOT_BUYING', who.authorUserId, parsed.data.reason);
   await respondWith(res, existing.id);
+}
+
+/** Tell whoever asked for it what happened to their request (not when they did it themselves). */
+async function tellRequester(r: PurchaseRow, outcome: 'APPROVED' | 'BOUGHT' | 'NOT_BUYING', actorUserId: string | null, reason?: string | null): Promise<void> {
+  await notifyOwner(teacherId => myRequestMessage({ teacherId, item: r.item, quantity: r.quantity, outcome, reason }),
+    { userId: r.requestedByUserId }, { actorUserId });
 }
 
 /** One step back, for mistakes — the history keeps both steps. */

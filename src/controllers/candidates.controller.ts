@@ -10,6 +10,8 @@ import { resolveOpenings } from '../services/recruitmentOpenings.logic.js';
 import { createStaffRecord, StaffRecordError, type NewStaffDetails } from '../services/staffRecord.service.js';
 import { createCandidateSchema, updateCandidateSchema, hireCandidateSchema } from '../validators/candidate.validator.js';
 import { PRIVATE_UPLOAD_ROOT } from '../routes/upload.routes.js';
+import { notify } from '../services/notifications.service.js';
+import { newApplicationMessage } from '../services/notifications.logic.js';
 
 // ── Resume security knobs ────────────────────────────────────────────────────
 const RESUMES_DIR = path.join(PRIVATE_UPLOAD_ROOT, 'resumes');
@@ -174,6 +176,7 @@ export async function createCandidate(req: Request, res: Response): Promise<void
     status: 'NEW',
     statusChangedAt: now,
   });
+  await notify(newApplicationMessage({ id, fullName: titleCaseName(data.fullName.trim()), desiredPosition: data.desiredPosition?.trim() || null }));
 
   res.status(201).json({ id, ok: true });
 }

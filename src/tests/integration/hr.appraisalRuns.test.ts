@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
 import {
   appraisalAssignments, appraisalCriteria, appraisalCriterionPoints, appraisalLogs, appraisalScores, appraisalSections, appraisalStagePositions,
-  appraisalStages, appraisalTemplates, appraisals, positions, teacherAppraisals, teachers, users,
+  appraisalStages, appraisalTemplates, appraisals, positions, teacherAppraisals, teachers, users, notificationMutes, notifications, userAuthRoles,
 } from '../../db/schema.js';
 import {
   acknowledgeAppraisalRun, approveAppraisalRun, cancelAppraisalRun, getAppraisalRun, getMyAppraisalTasks,
@@ -43,7 +43,7 @@ let familyId = '';
 
 beforeEach(async () => {
   await resetTables(appraisalLogs, appraisalScores, appraisals, appraisalAssignments, appraisalStagePositions, appraisalStages, appraisalCriterionPoints,
-    appraisalCriteria, appraisalSections, appraisalTemplates, teacherAppraisals, teachers, positions, users);
+    appraisalCriteria, appraisalSections, appraisalTemplates, teacherAppraisals, teachers, positions, users, notifications, notificationMutes, userAuthRoles);
   await db.insert(positions).values([
     { positionId: 'EI', name: 'Junior EI', createdAt: NOW, updatedAt: NOW },
     { positionId: 'SUP', name: 'Supervisor', createdAt: NOW, updatedAt: NOW },
@@ -59,6 +59,8 @@ beforeEach(async () => {
     await activeUser({ id: TINA.id, email: TINA.email, name: 'Tina Teacher', role: 'USER', teacherId: 't-tina' }),
     await activeUser({ id: OLI.id, email: OLI.email, name: 'Oli Other', role: 'USER', teacherId: 't-oli' }),
   ]);
+  // Pat runs the centre: the Principal access role.
+  await db.insert(userAuthRoles).values({ id: 'uar-pat', userId: PAT.id, authRoleId: 'builtin:PRINCIPAL', createdAt: NOW });
   // Monthly form for Junior EIs: Love (rating 1–5) 50% + Calm (yes/no) 50%; Supervisor (own team) scores,
   // Principal signs off, the staff member confirms.
   const id = await createTemplate({
@@ -87,6 +89,28 @@ const criteria = async () => {
 };
 
 describe('Appraisals with a form — the whole way through', () => {
+  it('tells only the people who can sign it off — not other supervisors, the staff member, or whoever scored it', async () => {
+    const id = await start();
+    const { love, calm } = await criteria();
+    await call(saveAppraisalRunScores, SAM, { id }, { scores: [{ criterionId: love, rawValue: 4 }, { criterionId: calm, rawValue: 1 }] });
+    await call(submitAppraisalRun, SAM, { id });
+    const told = (await db.select().from(notifications)).filter(n => n.kind === 'APPRAISAL_SIGN_OFF');
+    expect(told.map(n => n.link).every(l => l === `/appraisals/${id}`)).toBe(true);
+    const who = told.map(n => n.userId);
+    expect(who).toContain(PAT.id);
+    for (const not of [OLI.id, TINA.id, SAM.id]) expect(who).not.toContain(not);
+  });
+
+  it('never tells someone whose only access role is Teacher, even when their position signs off', async () => {
+    await db.update(userAuthRoles).set({ authRoleId: 'builtin:TEACHER' }).where(eq(userAuthRoles.userId, PAT.id));
+    const id = await start();
+    const { love, calm } = await criteria();
+    await call(saveAppraisalRunScores, SAM, { id }, { scores: [{ criterionId: love, rawValue: 4 }, { criterionId: calm, rawValue: 1 }] });
+    await call(submitAppraisalRun, SAM, { id });
+    const told = (await db.select().from(notifications)).filter(n => n.kind === 'APPRAISAL_SIGN_OFF');
+    expect(told.map(n => n.userId)).not.toContain(PAT.id);
+  });
+
   it('is scored by their supervisor, signed off, confirmed by the staff member, and written into the monthly score', async () => {
     const id = await start();
     const { love, calm } = await criteria();
@@ -102,6 +126,9 @@ describe('Appraisals with a form — the whole way through', () => {
     // Pat signs it off → Tina confirms → done.
     expect((await call(approveAppraisalRun, PAT, { id })).body.status).toBe('AWAITING_ACKNOWLEDGEMENT');
     expect(await stage()).toBe('CONFIRM');
+    // Tina is told it's hers to confirm.
+    const toTina = (await db.select().from(notifications)).filter(n => n.userId === TINA.id && n.kind === 'MY_APPRAISAL_READY');
+    expect(toTina.map(n => n.link)).toEqual([`/appraisals/${id}`]);
     expect((await call(getAppraisalRun, TINA, { id })).body.can.acknowledge).toBe(true);
     expect((await call(acknowledgeAppraisalRun, TINA, { id })).body.status).toBe('COMPLETED');
     expect(await stage()).toBe('DONE');

@@ -29,6 +29,11 @@ export const APPROVED_PUBLIC: Record<string, string> = {
 /** Reachable by ANY signed-in person (no role/module/ownership gate). Read-only reference data, or scoped to the caller inside the handler. */
 export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/me/permissions': 'Your own permissions — scoped to the caller.',
+  'GET /api/notifications': 'Your own notifications only — filtered to the caller.',
+  'POST /api/notifications/read-all': 'Marks only the caller\'s own notifications read.',
+  'GET /api/notifications/settings': 'Which events the caller receives — their own choices only.',
+  'PUT /api/notifications/settings': 'Saves the caller\'s own notification choices; unknown events are refused.',
+  'POST /api/notifications/:id/read': 'Marks one of the caller\'s own notifications read; anyone else\'s answers 404.',
   'GET /api/settings': 'App-wide settings the whole app reads; secret.* settings are filtered out.',
   'GET /api/packages': 'Fee package catalog (reference data).',
   'GET /api/packages/years': 'Package years (reference data).',

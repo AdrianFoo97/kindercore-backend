@@ -12,6 +12,7 @@ import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
 import { REPLACED_ROLE_NAMES } from './constants/accessRoles.js';
 import path from 'path';
 import { PRIVATE_UPLOAD_ROOT, UPLOAD_ROOT } from './routes/upload.routes.js';
+import { purgeOldNotifications } from './services/notifications.service.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -244,6 +245,28 @@ async function runMigrations() {
       \`createdAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`),
       INDEX \`AuthRoleView_authRoleId_idx\` (\`authRoleId\`)
+    )`,
+    // In-app notifications (schema.ts notifications).
+    `CREATE TABLE IF NOT EXISTS \`Notification\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`userId\` VARCHAR(36) NOT NULL,
+      \`kind\` VARCHAR(30) NOT NULL,
+      \`title\` VARCHAR(191) NOT NULL,
+      \`body\` VARCHAR(300) NULL,
+      \`link\` VARCHAR(500) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`readAt\` DATETIME(3) NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`Notification_user_created_idx\` (\`userId\`, \`createdAt\`)
+    )`,
+    // Notification events each person switched off (schema.ts notificationMutes).
+    `CREATE TABLE IF NOT EXISTS \`NotificationMute\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`userId\` VARCHAR(36) NOT NULL,
+      \`kind\` VARCHAR(30) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE INDEX \`NotificationMute_user_kind_key\` (\`userId\`, \`kind\`)
     )`,
     // A person's access roles — any number (schema.ts userAuthRoles).
     `CREATE TABLE IF NOT EXISTS \`UserAuthRole\` (
@@ -2595,6 +2618,10 @@ runMigrations()
   .then(() => syncLegacyAppraisals()
     .then(r => { if (r.added || r.updated || r.removed) console.log(`[migrate] Legacy appraisals mirrored: +${r.added} ~${r.updated} -${r.removed}`); })
     .catch(e => console.warn('[migrate] Legacy appraisal mirror skipped:', e?.message ?? e)))
+  // Notifications are kept for 180 days (notifications.logic).
+  .then(() => purgeOldNotifications()
+    .then(n => { if (n) console.log(`[notifications] Removed ${n} older than 180 days`); })
+    .catch(e => console.warn('[notifications] Clean-up skipped:', e?.message ?? e)))
   // Access log entries are kept for a year (accessLog.service).
   .then(() => purgeOldAccessLog()
     .then(n => { if (n) console.log(`[access-log] Removed ${n} entries older than a year`); })

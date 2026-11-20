@@ -9,6 +9,8 @@ import {
   rewardRedemptions, teacherRewardGoals, teachers, positions,
 } from '../db/schema.js';
 import { entryTiers } from '../services/orgStructure.logic.js';
+import { notifyOwner } from '../services/notifications.service.js';
+import { myPointsMessage, myRewardMessage } from '../services/notifications.logic.js';
 
 /** The leaderboard compares staff on the first few career steps only (seniors aren't in the same race). */
 const LEADERBOARD_ENTRY_TIERS = 3;
@@ -410,6 +412,9 @@ export async function grantPoints(req: Request, res: Response): Promise<void> {
     return;
   }
   const [created] = await db.select().from(pointsTransactions).where(eq(pointsTransactions.id, id));
+  if (parsed.data.amount > 0) {
+    await notifyOwner(tid => myPointsMessage({ teacherId: tid, amount: parsed.data.amount, label: parsed.data.label }), { teacherId }, { actorUserId: req.user?.id ?? null });
+  }
   res.status(201).json(created);
 }
 
@@ -659,6 +664,9 @@ export async function updateRedemption(req: Request, res: Response): Promise<voi
     updatedAt: new Date(),
   }).where(eq(rewardRedemptions.id, id));
   const [updated] = await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.id, id));
+  if (updated.status === 'delivered' && existing.status !== 'delivered') {
+    await notifyOwner(teacherId => myRewardMessage({ teacherId, label: updated.label }), { teacherId: updated.teacherId }, { actorUserId: req.user?.id ?? null });
+  }
   res.json(updated);
 }
 

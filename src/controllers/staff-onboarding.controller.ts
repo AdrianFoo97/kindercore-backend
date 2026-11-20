@@ -5,6 +5,8 @@ import { db } from '../db/client.js';
 import { positions, teachers } from '../db/schema.js';
 import { applyTicks, freshStaffChecklist, freshStaffChecklists, isChecklistDone, parseChecklist } from '../services/staffOnboarding.service.js';
 import { checklistProgressItemSchema } from '../services/checklist.logic.js';
+import { notify } from '../services/notifications.service.js';
+import { onboardingSelfDoneMessage } from '../services/notifications.logic.js';
 
 // HR → Onboarding: staff who are still working through their new-joiner
 // checklist. Mirrors student onboarding (students.controller.ts) — tick tasks,
@@ -59,12 +61,17 @@ export async function tickMyOnboarding(req: Request, res: Response): Promise<voi
   const parsed = ticksSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ message: 'Validation error', errors: parsed.error.errors }); return; }
   const { teacherId } = req.params;
-  const [t] = await db.select({ progress: teachers.selfOnboardingProgress }).from(teachers).where(eq(teachers.id, teacherId));
+  const [t] = await db.select({ progress: teachers.selfOnboardingProgress, name: teachers.name }).from(teachers).where(eq(teachers.id, teacherId));
   if (!t) { res.status(404).json({ message: 'Staff member not found' }); return; }
 
-  const updated = applyTicks(parseChecklist(t.progress), parsed.data.done);
+  const before = parseChecklist(t.progress);
+  const updated = applyTicks(before, parsed.data.done);
   if (!updated) { res.status(409).json({ message: 'The checklist has changed — reload and try again.' }); return; }
   await db.update(teachers).set({ selfOnboardingProgress: updated, updatedAt: new Date() }).where(eq(teachers.id, teacherId));
+  // The moment their own list is all ticked, HR can complete their onboarding.
+  if (updated.length > 0 && !isChecklistDone(before) && isChecklistDone(updated)) {
+    await notify(onboardingSelfDoneMessage({ name: t.name }), { actorUserId: req.user?.id ?? null });
+  }
   res.json({ tasks: updated });
 }
 

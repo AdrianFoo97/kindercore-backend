@@ -6,6 +6,8 @@ import { db } from '../db/client.js';
 import { staffJoinRequests, teachers, users } from '../db/schema.js';
 import { hireCandidateSchema } from '../validators/candidate.validator.js';
 import { createStaffRecord, StaffRecordError, type NewStaffDetails } from '../services/staffRecord.service.js';
+import { notify } from '../services/notifications.service.js';
+import { newStaffJoinMessage } from '../services/notifications.logic.js';
 
 // New staff who joined without going through Recruitment fill in the public
 // "New staff" form; HR approves (→ staff record, same as Recruitment → Hire)
@@ -64,6 +66,7 @@ export async function submitStaffJoin(req: Request, res: Response): Promise<void
     status: 'PENDING',
     createdAt: new Date(),
   });
+  await notify(newStaffJoinMessage({ fullName: d.fullName }));
   // Nothing is echoed back — it's a public endpoint.
   res.status(201).json({ ok: true });
 }

@@ -606,6 +606,32 @@ CREATE TABLE `MissionCategory` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `Notification` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `userId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `link` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  `readAt` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `Notification_user_created_idx` (`userId`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `NotificationMute` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `userId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `NotificationMute_user_kind_key` (`userId`,`kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `OperatingCost` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `year` int NOT NULL,

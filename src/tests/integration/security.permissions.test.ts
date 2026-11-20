@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
-import { users, teachers, positions, authRoles, authRoleModules, authRoleViews } from '../../db/schema.js';
+import { users, teachers, positions, authRoles, authRoleModules, authRoleViews, userAuthRoles } from '../../db/schema.js';
 import { requireModule, requireView, resolveGrants } from '../../middlewares/auth.middleware.js';
 import { resetTables } from './testDb.js';
 import { reqWith, res, nextSpy } from './http.js';
@@ -14,7 +14,7 @@ import {
 // Position → access role. Fixtures: ../fixtures/permissions.ts.
 
 beforeEach(async () => {
-  await resetTables(users, teachers, positions, authRoleViews, authRoleModules, authRoles);
+  await resetTables(users, teachers, positions, authRoleViews, authRoleModules, authRoles, userAuthRoles);
   await db.insert(authRoles).values(authRoleRows);
   await db.insert(authRoleModules).values(moduleRows);
   await db.insert(authRoleViews).values(viewRows);

@@ -111,18 +111,20 @@ describe('Login', () => {
     }
   });
 
-  it('rejects a malformed email before checking any password', async () => {
+  it('answers a malformed email as a wrong email or password, not an error', async () => {
     const r = res();
     await login(req({ email: 'not-an-email', password: PASSWORD }), r);
 
-    expect(r.statusCode).toBe(400);
+    expect(r.statusCode).toBe(401);
+    expect(r.body).toEqual({ message: 'Invalid credentials' });
   });
 
-  it('rejects a password shorter than 8 characters', async () => {
+  it('answers a too-short password as a wrong password, not an error', async () => {
     const r = res();
     await login(req({ email: ADMIN_EMAIL, password: 'short' }), r);
 
-    expect(r.statusCode).toBe(400);
+    expect(r.statusCode).toBe(401);
+    expect(r.body).toEqual({ message: 'Invalid credentials' });
   });
 
   it('rejects an empty submission', async () => {

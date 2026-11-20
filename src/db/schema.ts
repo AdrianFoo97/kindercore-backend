@@ -1,4 +1,4 @@
-import {
+import { index,
   mysqlTable,
   varchar,
   datetime,
@@ -332,6 +332,32 @@ export const authRoleViews = mysqlTable('AuthRoleView', {
   view: varchar('view', { length: 50 }).notNull(),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
+
+// In-app notifications (the bell). One row per recipient so read / unread is
+// per person. `link` is the page that opens when it's clicked.
+export const notifications = mysqlTable('Notification', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  userId: varchar('userId', { length: 36 }).notNull(),
+  kind: varchar('kind', { length: 30 }).notNull(),
+  title: varchar('title', { length: 191 }).notNull(),
+  body: varchar('body', { length: 300 }),
+  link: varchar('link', { length: 500 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  readAt: datetime('readAt', { mode: 'date', fsp: 3 }),
+}, (t) => ({
+  userCreated: index('Notification_user_created_idx').on(t.userId, t.createdAt),
+}));
+
+// Notification events a person has switched off (Settings → Notifications).
+// Only "off" is stored, so everything is on until someone opts out.
+export const notificationMutes = mysqlTable('NotificationMute', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  userId: varchar('userId', { length: 36 }).notNull(),
+  kind: varchar('kind', { length: 30 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+}, (t) => ({
+  userKind: uniqueIndex('NotificationMute_user_kind_key').on(t.userId, t.kind),
+}));
 
 // A person's access roles — any number (e.g. Principal + HR Director). Their
 // access is all of these plus their position's role (resolveGrants). The old

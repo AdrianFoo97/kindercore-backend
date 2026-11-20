@@ -5,6 +5,8 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { leads, packages, students, studentEnrollments, systemSettings } from '../db/schema.js';
 import { MAX_CHECKLIST_ITEMS, checklistProgressItemSchema, freshChecklist, parseChecklistProgress, parseChecklistTemplate } from '../services/checklist.logic.js';
+import { notify } from '../services/notifications.service.js';
+import { newStudentMessage, studentWithdrawnMessage } from '../services/notifications.logic.js';
 
 // ── Shared select + reshape ───────────────────────────────────────────────────
 
@@ -417,7 +419,9 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   });
 
   const [row] = await queryStudents().where(eq(students.id, newId));
-  res.status(201).json(await reshapeOne(row));
+  const shaped = await reshapeOne(row);
+  await notify(newStudentMessage({ id: newId, childName: shaped.lead.childName }), { actorUserId: req.user?.id ?? null });
+  res.status(201).json(shaped);
 }
 
 // ── Create student WITH a new lead (manual / walk-in enrolment) ──────────────
@@ -514,7 +518,9 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
   });
 
   const [row] = await queryStudents().where(eq(students.id, newStudentId));
-  res.status(201).json(await reshapeOne(row));
+  const shaped = await reshapeOne(row);
+  await notify(newStudentMessage({ id: newStudentId, childName: shaped.lead.childName }), { actorUserId: req.user?.id ?? null });
+  res.status(201).json(shaped);
 }
 
 // ── Create sibling student (attach to existing Lead) ────────────────────────
@@ -594,7 +600,9 @@ export async function createSibling(req: Request, res: Response): Promise<void> 
   });
 
   const [row] = await queryStudents().where(eq(students.id, newId));
-  res.status(201).json(await reshapeOne(row));
+  const shaped = await reshapeOne(row);
+  await notify(newStudentMessage({ id: newId, childName: shaped.lead.childName }), { actorUserId: req.user?.id ?? null });
+  res.status(201).json(shaped);
 }
 
 // ── Update student ────────────────────────────────────────────────────────────
@@ -816,7 +824,11 @@ export async function withdrawStudent(req: Request, res: Response): Promise<void
   });
 
   const [row] = await queryStudents().where(eq(students.id, id));
-  res.json(await reshapeOne(row));
+  const shaped = await reshapeOne(row);
+  if (!existing.withdrawnAt) {
+    await notify(studentWithdrawnMessage({ id, childName: shaped.lead.childName, reason: withdrawReason }), { actorUserId: req.user?.id ?? null });
+  }
+  res.json(shaped);
 }
 
 // ── Reactivate student (undo withdrawal) ──────────────────────────────────────

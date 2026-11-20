@@ -4,6 +4,8 @@ import { asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { incidentReportLogs, incidentReports, incidentReportStudents, leads, students, users } from '../db/schema.js';
+import { notify, notifyOwner } from '../services/notifications.service.js';
+import { incidentMessage, myReportMessage } from '../services/notifications.logic.js';
 
 // Incident reports (Operation → Incidents), replacing the old Google Form.
 // Any staff member files one — teachers from their mobile app — and the
@@ -132,7 +134,9 @@ export async function createIncident(req: Request, res: Response): Promise<void>
   if (linked.length) {
     await db.insert(incidentReportStudents).values(linked.map(l => ({ incidentReportId: id, ...l })));
   }
-  res.status(201).json(await loadOne(id));
+  const created = await loadOne(id);
+  await notify(incidentMessage({ id, location: d.location, reportedByName: created?.reportedByName ?? 'a staff member' }), { actorUserId: req.user!.id });
+  res.status(201).json(created);
 }
 
 /** The caller's own reports — so a teacher can see what they filed and how it's going. */
@@ -247,5 +251,9 @@ export async function addIncidentLog(req: Request, res: Response): Promise<void>
     ? { status: parsed.data.status!, statusUpdatedByName: authorName, statusUpdatedAt: now, updatedAt: now }
     : { updatedAt: now })
     .where(eq(incidentReports.id, existing.id));
+  if (moves) {
+    await notifyOwner(teacherId => myReportMessage({ teacherId, what: 'incident', place: existing.location, status: parsed.data.status! }),
+      { userId: existing.reportedByUserId }, { actorUserId: req.user!.id });
+  }
   res.status(201).json(await loadOne(existing.id));
 }

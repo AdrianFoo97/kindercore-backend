@@ -4,6 +4,8 @@ import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { bugReports, users } from '../db/schema.js';
+import { notify } from '../services/notifications.service.js';
+import { bugReportedMessage } from '../services/notifications.logic.js';
 
 // Same MariaDB-vs-MySQL JSON gotcha as sop-revisions.controller.ts — the
 // driver only auto-parses a JSON column against real MySQL, so test/
@@ -49,6 +51,7 @@ export async function createBugReport(req: Request, res: Response): Promise<void
     updatedAt: now,
   });
   const [row] = await db.select().from(bugReports).where(eq(bugReports.id, id));
+  await notify(bugReportedMessage({ title: parsed.data.title, reportedByName: userRow?.name ?? reporter.email }), { actorUserId: reporter.id });
   res.json(normalizeBugReport(row));
 }
 

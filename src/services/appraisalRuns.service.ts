@@ -12,6 +12,10 @@ import {
   monthScoreOf, rawValueProblem, scoreRun, scorerMaySignOff, stepAfter, formCopyAsTemplate,
   type EnteredScore, type RunStatus, type ScorableTemplate, type StepKind,
 } from './appraisalRun.logic.js';
+import { notifyOwner, notifyPeople } from './notifications.service.js';
+import { rolesHeldBy } from './accessRoles.service.js';
+import { appraisalSignOffMessage, myAppraisalMessage } from './notifications.logic.js';
+import { MODULES } from '../constants/authModules.js';
 
 // Appraising staff with a form: an appraisal is created for a period by the
 // appraisal schedule (appraisalSchedules.service), then scored (saved as a
@@ -244,6 +248,38 @@ export async function saveScores(id: string, actor: Actor, entries: ScoreInput[]
   return runDetail(id, actor);
 }
 
+/** Tells admins an appraisal is waiting for sign-off (the bell). */
+async function announceSignOff(id: string, teacherId: string, formName: string, scoredByName: string, actorUserId: string | null): Promise<void> {
+  try {
+    const [t] = await db.select({ name: teachers.name }).from(teachers).where(eq(teachers.id, teacherId));
+    await notifyPeople(appraisalSignOffMessage({ id, teacherName: t?.name ?? 'A staff member', formName, scoredByName }), await signOffPeople(id), { actorUserId });
+  } catch (e) {
+    console.warn('[notifications] Sign-off notice skipped:', e instanceof Error ? e.message : e);
+  }
+}
+
+/** The staff member's appraisal is signed off and theirs to confirm. */
+async function announceToConfirm(id: string, teacherId: string, formName: string, actorUserId: string | null): Promise<void> {
+  await notifyOwner(() => myAppraisalMessage({ id, formName }), { teacherId }, { actorUserId });
+}
+
+/** Everyone who can sign off this appraisal right now — the same rule as the Sign off button. */
+async function signOffPeople(id: string): Promise<string[]> {
+  const [run] = await db.select().from(appraisals).where(eq(appraisals.id, id));
+  const template = run ? await loadTemplate(run.templateId) : null;
+  if (!run || !template) return [];
+  const lines = await reportingLines();
+  const people = await db.select({ id: users.id, role: users.role, teacherId: users.teacherId }).from(users).where(eq(users.activated, true));
+  const out: string[] = [];
+  for (const p of people) {
+    const roles = await rolesHeldBy(p.id);
+    const isHr = p.role === 'ADMIN' || p.role === 'SUPERADMIN' || roles.some(r => r.modules.includes(MODULES.HR));
+    const can = permissions(run, template, await actorFor(p, isHr), lines);
+    if (can.signOff && !can.scoredSoSomeoneAboveSignsOff) out.push(p.id);
+  }
+  return out;
+}
+
 /** Submit the scores: the total is worked out and it moves to sign-off (or on). Everything required must be scored. */
 export async function submitRun(id: string, actor: Actor) {
   const parts = await loadRunParts(id, actor);
@@ -268,6 +304,8 @@ export async function submitRun(id: string, actor: Actor) {
   });
   await log(id, 'SUBMITTED', actor, `Total ${result.total}%`);
   if (next.status === 'COMPLETED') await complete(id);
+  if (next.status === 'AWAITING_SIGN_OFF') await announceSignOff(id, run.teacherId, template.name, actor.name, actor.userId);
+  if (next.status === 'AWAITING_ACKNOWLEDGEMENT') await announceToConfirm(id, run.teacherId, template.name, actor.userId);
   return runDetail(id, actor);
 }
 
@@ -281,6 +319,9 @@ export async function approveRun(id: string, actor: Actor) {
   await db.update(appraisals).set({ status: next.status, currentStageOrder: next.order, updatedAt: new Date() }).where(eq(appraisals.id, id));
   await log(id, 'SIGNED_OFF', actor);
   if (next.status === 'COMPLETED') await complete(id);
+  // Several sign-off steps: the next one is now waiting.
+  if (next.status === 'AWAITING_SIGN_OFF') await announceSignOff(id, parts.run.teacherId, parts.template.name, parts.run.assessedByName ?? actor.name, actor.userId);
+  if (next.status === 'AWAITING_ACKNOWLEDGEMENT') await announceToConfirm(id, parts.run.teacherId, parts.template.name, actor.userId);
   return runDetail(id, actor);
 }
 
