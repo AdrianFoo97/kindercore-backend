@@ -13,6 +13,7 @@ import { REPLACED_ROLE_NAMES } from './constants/accessRoles.js';
 import path from 'path';
 import { PRIVATE_UPLOAD_ROOT, UPLOAD_ROOT } from './routes/upload.routes.js';
 import { purgeOldNotifications } from './services/notifications.service.js';
+import { ensureDefaultImportRules } from './services/pnlImport.service.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -267,6 +268,53 @@ async function runMigrations() {
       \`createdAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`),
       UNIQUE INDEX \`NotificationMute_user_kind_key\` (\`userId\`, \`kind\`)
+    )`,
+    // P&L import: remembered record / skip choices per line name (schema.ts operatingCostImportRules).
+    `CREATE TABLE IF NOT EXISTS \`OperatingCostImportRule\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`lineKey\` VARCHAR(191) NOT NULL,
+      \`lineName\` VARCHAR(191) NOT NULL,
+      \`action\` ENUM('RECORD','SKIP') NOT NULL,
+      \`categoryId\` VARCHAR(36) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE INDEX \`OperatingCostImportRule_lineKey_key\` (\`lineKey\`)
+    )`,
+    // Every AI request, from every feature — limit, usage, provider comparison (schema.ts aiRequests).
+    `CREATE TABLE IF NOT EXISTS \`AiRequest\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`feature\` VARCHAR(40) NOT NULL,
+      \`provider\` VARCHAR(40) NOT NULL,
+      \`model\` VARCHAR(80) NOT NULL,
+      \`userId\` VARCHAR(36) NOT NULL,
+      \`ok\` TINYINT(1) NOT NULL,
+      \`passedChecks\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`inputTokens\` INT NULL,
+      \`outputTokens\` INT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`AiRequest_provider_created_idx\` (\`provider\`, \`createdAt\`),
+      INDEX \`AiRequest_feature_created_idx\` (\`feature\`, \`createdAt\`)
+    )`,
+    // P&L import history — what each import recorded and left out (schema.ts operatingCostImports).
+    `CREATE TABLE IF NOT EXISTS \`OperatingCostImport\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`year\` INT NOT NULL,
+      \`month\` INT NOT NULL,
+      \`fileName\` VARCHAR(191) NOT NULL,
+      \`provider\` VARCHAR(40) NOT NULL,
+      \`model\` VARCHAR(80) NOT NULL,
+      \`instructionsVersion\` INT NOT NULL,
+      \`importedByUserId\` VARCHAR(36) NOT NULL,
+      \`importedByName\` VARCHAR(191) NOT NULL,
+      \`recordedCount\` INT NOT NULL,
+      \`recordedTotal\` DOUBLE NOT NULL,
+      \`notImported\` JSON NOT NULL,
+      \`dismissedAt\` DATETIME(3) NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`OperatingCostImport_year_month_idx\` (\`year\`, \`month\`)
     )`,
     // A person's access roles — any number (schema.ts userAuthRoles).
     `CREATE TABLE IF NOT EXISTS \`UserAuthRole\` (
@@ -1035,6 +1083,8 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // OperatingCost — the P&L import that filled this amount (null = typed in).
+    `ALTER TABLE \`OperatingCost\` ADD COLUMN \`importId\` VARCHAR(36) NULL AFTER \`includeInOperatingCostSum\``,
     // BugReport — a short title above the description.
     `ALTER TABLE \`BugReport\` ADD COLUMN \`title\` VARCHAR(120) NULL AFTER \`id\``,
     // SopTemplateRevision — why a teacher wants to improve a guide (step 1 of "Suggest an improvement").
@@ -2618,6 +2668,9 @@ runMigrations()
   .then(() => syncLegacyAppraisals()
     .then(r => { if (r.added || r.updated || r.removed) console.log(`[migrate] Legacy appraisals mirrored: +${r.added} ~${r.updated} -${r.removed}`); })
     .catch(e => console.warn('[migrate] Legacy appraisal mirror skipped:', e?.message ?? e)))
+  // P&L import: payroll lines are skipped unless someone changes the rule (pnlImport.logic).
+  .then(() => ensureDefaultImportRules()
+    .catch(e => console.warn('[migrate] Default import rules skipped:', e?.message ?? e)))
   // Notifications are kept for 180 days (notifications.logic).
   .then(() => purgeOldNotifications()
     .then(n => { if (n) console.log(`[notifications] Removed ${n} older than 180 days`); })

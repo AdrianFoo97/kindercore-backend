@@ -17,5 +17,9 @@ export default defineConfig({
     // Test files share one database — run them one at a time so one
     // file's resetTables() can't wipe another's fixtures mid-test.
     fileParallelism: false,
+    // Each test file in its own process, not a worker thread: pdf.js (P&L
+    // import) loads a native module that crashes the run when a worker
+    // thread shuts down. Separate processes exit cleanly.
+    pool: 'forks',
   },
 });

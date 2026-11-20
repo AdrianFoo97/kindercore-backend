@@ -71,6 +71,7 @@ describe('Security — every sensitive area is limited to the right role', () =>
   it('every read of pay, finance, appraisal or applicant records is written to the access log', () => {
     const logged: [string, string, string][] = [
       ['GET', '/api/finance/summary', 'FINANCE'],
+      ['POST', '/api/operating-cost/import/read', 'FINANCE'], ['GET', '/api/operating-cost/import/notices', 'FINANCE'], ['GET', '/api/operating-cost/import/history', 'FINANCE'],
       ['GET', '/api/salary/teachers', 'PAYROLL'], ['GET', '/api/salary/payroll-by-month', 'PAYROLL'],
       ['GET', '/api/salary/teacher-weights-by-month', 'PAYROLL'], ['GET', '/api/salary/employer-contributions', 'PAYROLL'],
       ['GET', '/api/teachers/:teacherId/allowances', 'STAFF_PAY'], ['GET', '/api/teachers/:teacherId/pay-pools', 'STAFF_PAY'], ['GET', '/api/salary/teachers/:teacherId', 'STAFF_PAY'],

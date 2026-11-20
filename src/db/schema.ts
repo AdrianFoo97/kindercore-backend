@@ -1292,9 +1292,67 @@ export const operatingCosts = mysqlTable('OperatingCost', {
   // that month's ratio. Effective inclusion = group.include AND
   // category.include AND entry.include.
   includeInOperatingCostSum: boolean('includeInOperatingCostSum').notNull().default(true),
+  // The P&L import that filled this amount (null = typed in). Cleared when someone changes the amount.
+  importId: varchar('importId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
+
+/**
+ * What to do with a P&L line by its name, remembered from earlier imports
+ * (or set up front — payroll lines are always skipped). `lineKey` is the
+ * normalised name (pnlImport.logic normaliseLineName).
+ */
+export const operatingCostImportRules = mysqlTable('OperatingCostImportRule', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  lineKey: varchar('lineKey', { length: 191 }).notNull(),
+  lineName: varchar('lineName', { length: 191 }).notNull(),
+  action: mysqlEnum('action', ['RECORD', 'SKIP']).notNull(),
+  categoryId: varchar('categoryId', { length: 36 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+}, t => ({ lineKey: uniqueIndex('OperatingCostImportRule_lineKey_key').on(t.lineKey) }));
+
+/** Every AI request, from every feature — for the monthly limit, usage in Settings → AI, and comparing providers. */
+export const aiRequests = mysqlTable('AiRequest', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  /** The AI feature (services/ai/registry AI_FEATURES), e.g. 'pnl-reading'. */
+  feature: varchar('feature', { length: 40 }).notNull(),
+  provider: varchar('provider', { length: 40 }).notNull(),
+  model: varchar('model', { length: 80 }).notNull(),
+  userId: varchar('userId', { length: 36 }).notNull(),
+  /** The answer fitted the feature's format (it may still fail the feature's checks). */
+  ok: boolean('ok').notNull(),
+  /** It also passed the feature's own checks (P&L reading: amounts printed, sections add up). */
+  passedChecks: boolean('passedChecks').notNull().default(false),
+  inputTokens: int('inputTokens'),
+  outputTokens: int('outputTokens'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+}, t => ({
+  providerCreated: index('AiRequest_provider_created_idx').on(t.provider, t.createdAt),
+  featureCreated: index('AiRequest_feature_created_idx').on(t.feature, t.createdAt),
+}));
+
+/** One line of a P&L that wasn't recorded, and why — shown on that month until dismissed. */
+export interface NotImportedLine { name: string; section: string; amount: number; reason: string }
+
+/** Each P&L imported into Operating Costs: who, which month, which reader, and what was left out. */
+export const operatingCostImports = mysqlTable('OperatingCostImport', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  year: int('year').notNull(),
+  month: int('month').notNull(), // 0-11, as OperatingCost
+  fileName: varchar('fileName', { length: 191 }).notNull(),
+  provider: varchar('provider', { length: 40 }).notNull(),
+  model: varchar('model', { length: 80 }).notNull(),
+  instructionsVersion: int('instructionsVersion').notNull(),
+  importedByUserId: varchar('importedByUserId', { length: 36 }).notNull(),
+  importedByName: varchar('importedByName', { length: 191 }).notNull(),
+  recordedCount: int('recordedCount').notNull(),
+  recordedTotal: double('recordedTotal').notNull(),
+  notImported: jsonColumn('notImported').$type<NotImportedLine[]>().notNull(),
+  dismissedAt: datetime('dismissedAt', { mode: 'date', fsp: 3 }),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+}, t => ({ month: index('OperatingCostImport_year_month_idx').on(t.year, t.month) }));
 
 export const classrooms = mysqlTable('Classroom', {
   id: varchar('id', { length: 36 }).primaryKey(),

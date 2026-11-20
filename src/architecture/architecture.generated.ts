@@ -121,6 +121,94 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "ai.routes",
+      "mount": "/api/ai",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/ai/settings",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getAiSettings",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/ai/settings",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "putAiCommon",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/ai/features/:key",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "putAiFeature",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/ai/keys/:provider",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "putAiKey",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/ai/keys/:provider",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "deleteAiKey",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/test",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "testAiProvider",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/ai/models/:provider",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getAiModels",
+          "controller": "ai.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/compare/pnl-reading",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware",
+            "testEnvOnly",
+            "pdfUpload"
+          ],
+          "handler": "comparePnlReading",
+          "controller": "ai.controller"
+        }
+      ]
+    },
+    {
       "id": "allowance.routes",
       "mount": "/api",
       "endpoints": [
@@ -1916,6 +2004,120 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "bulkUpsertEntries",
           "controller": "operatingCost.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/operating-cost/import/status",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)"
+          ],
+          "handler": "getImportStatus",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/operating-cost/import/read",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)",
+            "pdfUpload",
+            "logSensitiveAccess('FINANCE')"
+          ],
+          "handler": "readImport",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/operating-cost/import/apply",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)"
+          ],
+          "handler": "applyImportHandler",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/operating-cost/import/notices",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)",
+            "logSensitiveAccess('FINANCE')"
+          ],
+          "handler": "listImportNotices",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/operating-cost/import/notices/:id/dismiss",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)"
+          ],
+          "handler": "dismissImportNotice",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/operating-cost/import/notices/:id/record",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)"
+          ],
+          "handler": "recordNoticeLine",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/operating-cost/import/history",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.FINANCE)",
+            "logSensitiveAccess('FINANCE')"
+          ],
+          "handler": "getImportHistory",
+          "controller": "operatingCostImport.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/operating-cost/import/rules",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "getImportRules",
+          "controller": "pnlImportRules.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/operating-cost/import/rules",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "postImportRule",
+          "controller": "pnlImportRules.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/operating-cost/import/rules/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "putImportRule",
+          "controller": "pnlImportRules.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/operating-cost/import/rules/:id",
+          "middleware": [
+            "authMiddleware",
+            "adminMiddleware"
+          ],
+          "handler": "removeImportRule",
+          "controller": "pnlImportRules.controller"
         }
       ]
     },
@@ -3683,6 +3885,18 @@ export const ARCHITECTURE: Architecture = {
       "tables": []
     },
     {
+      "id": "ai.controller",
+      "services": [
+        "compare",
+        "config",
+        "registry",
+        "types",
+        "usage"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "allowance.controller",
       "services": [],
       "controllers": [],
@@ -4006,6 +4220,16 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "operatingCostImport.controller",
+      "services": [
+        "index",
+        "pnlImport.service",
+        "run"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "packages.controller",
       "services": [],
       "controllers": [],
@@ -4034,6 +4258,15 @@ export const ARCHITECTURE: Architecture = {
         "Subject",
         "Teacher"
       ]
+    },
+    {
+      "id": "pnlImportRules.controller",
+      "services": [
+        "pnlImport.service",
+        "pnlImportRules.service"
+      ],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "points.controller",
@@ -4479,11 +4712,46 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "pdfText",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "performanceScope.service",
       "services": [],
       "controllers": [],
       "tables": [
         "Teacher"
+      ]
+    },
+    {
+      "id": "pnlImport.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "pnlImport.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "OperatingCost",
+        "OperatingCostCategory",
+        "OperatingCostCategoryGroup",
+        "OperatingCostImport",
+        "OperatingCostImportRule",
+        "User"
+      ]
+    },
+    {
+      "id": "pnlImportRules.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "OperatingCostCategory",
+        "OperatingCostCategoryGroup",
+        "OperatingCostImportRule"
       ]
     },
     {
@@ -4555,6 +4823,12 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "secretBox",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "session.service",
       "services": [],
       "controllers": [],
@@ -4617,6 +4891,7 @@ export const ARCHITECTURE: Architecture = {
     }
   ],
   "tables": [
+    "AiRequest",
     "AllowanceType",
     "Appraisal",
     "AppraisalAssignment",
@@ -4658,6 +4933,8 @@ export const ARCHITECTURE: Architecture = {
     "OperatingCost",
     "OperatingCostCategory",
     "OperatingCostCategoryGroup",
+    "OperatingCostImport",
+    "OperatingCostImportRule",
     "Package",
     "PlannerTask",
     "PointsEarningRule",

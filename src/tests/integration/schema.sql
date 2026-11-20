@@ -11,6 +11,24 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `AiRequest` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `feature` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `provider` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `userId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ok` tinyint(1) NOT NULL,
+  `passedChecks` tinyint(1) NOT NULL DEFAULT '0',
+  `inputTokens` int DEFAULT NULL,
+  `outputTokens` int DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `AiRequest_provider_created_idx` (`provider`,`createdAt`),
+  KEY `AiRequest_feature_created_idx` (`feature`,`createdAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `AllowanceType` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -642,6 +660,7 @@ CREATE TABLE `OperatingCost` (
   `createdAt` datetime(3) NOT NULL,
   `updatedAt` datetime(3) NOT NULL,
   `includeInOperatingCostSum` tinyint(1) NOT NULL DEFAULT '1',
+  `importId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_oc_year_month_category` (`year`,`month`,`categoryId`),
   KEY `idx_oc_year` (`year`),
@@ -676,6 +695,41 @@ CREATE TABLE `OperatingCostCategoryGroup` (
   `includeInOperatingCostSum` tinyint(1) NOT NULL DEFAULT '1',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_ocg_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `OperatingCostImport` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `year` int NOT NULL,
+  `month` int NOT NULL,
+  `fileName` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `provider` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `instructionsVersion` int NOT NULL,
+  `importedByUserId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `importedByName` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recordedCount` int NOT NULL,
+  `recordedTotal` double NOT NULL,
+  `notImported` json NOT NULL,
+  `dismissedAt` datetime(3) DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `OperatingCostImport_year_month_idx` (`year`,`month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `OperatingCostImportRule` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `lineKey` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `lineName` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `action` enum('RECORD','SKIP') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `categoryId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  `updatedAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `OperatingCostImportRule_lineKey_key` (`lineKey`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

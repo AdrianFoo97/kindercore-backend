@@ -279,7 +279,8 @@ export async function bulkUpsertEntries(req: Request, res: Response): Promise<vo
       if (ex.amount !== entry.amount || (ex.notes ?? null) !== (entry.notes ?? null) || ex.includeInOperatingCostSum !== include) {
         await db
           .update(operatingCosts)
-          .set({ amount: entry.amount, notes: entry.notes ?? null, includeInOperatingCostSum: include, updatedAt: now })
+          // A changed amount is no longer the imported one.
+          .set({ amount: entry.amount, notes: entry.notes ?? null, includeInOperatingCostSum: include, updatedAt: now, ...(ex.amount !== entry.amount ? { importId: null } : {}) })
           .where(eq(operatingCosts.id, ex.id));
       }
     } else {
