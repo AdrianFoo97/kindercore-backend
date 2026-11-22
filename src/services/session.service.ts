@@ -61,3 +61,20 @@ export function sessionToken(req: Request): { token: string; via: 'cookie' | 'he
   if (header?.startsWith('Bearer ')) return { token: header.slice(7), via: 'header' };
   return null;
 }
+
+/**
+ * True only for a genuine, unexpired session token — checked by signature, no
+ * DB lookup. For "is this a signed-in person?" shortcuts outside authMiddleware
+ * (e.g. skipping a public form's rate limit): a made-up cookie or Bearer
+ * header must not count.
+ */
+export function hasValidSession(req: Request): boolean {
+  const session = sessionToken(req);
+  if (!session) return false;
+  try {
+    jwt.verify(session.token, process.env.JWT_SECRET!, { algorithms: ['HS256'] });
+    return true;
+  } catch {
+    return false;
+  }
+}

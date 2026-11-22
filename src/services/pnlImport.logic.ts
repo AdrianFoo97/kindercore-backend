@@ -140,6 +140,8 @@ export interface PreviewLine {
   amount: number;
   /** The amount was found printed in the PDF. */
   found: boolean;
+  /** What the PDF's own text says for this line, when it differs from the AI's reading (else null). */
+  textAmount: number | null;
   status: LineStatus;
   /** Matched or suggested category. */
   categoryId: string | null;
@@ -148,7 +150,7 @@ export interface PreviewLine {
 /** Every line of the reading with its status — what the preview screen shows. */
 export function previewLines(draft: StatementDraft, check: ReadingCheck, categories: CategoryRef[], rules: Map<string, ImportRule>): PreviewLine[] {
   return draft.sections.flatMap((s, si) => s.lines.map((l, li): PreviewLine => {
-    const base = { key: `${si}-${li}`, section: s.title, sectionKind: s.kind, name: l.name, amount: l.amount, found: check.sections[si].linesFound[li] };
+    const base = { key: `${si}-${li}`, section: s.title, sectionKind: s.kind, name: l.name, amount: l.amount, found: check.sections[si].linesFound[li], textAmount: null };
     if (!isCostSection(s.kind)) return { ...base, status: 'NOT_A_COST', categoryId: null };
     if (Math.abs(l.amount) < AMOUNT_TOLERANCE) return { ...base, status: 'ZERO', categoryId: null };
     if (l.amount < 0) return { ...base, status: 'NEGATIVE', categoryId: null };
@@ -256,4 +258,46 @@ export function readingDifferences(readings: { reader: string; draft: StatementD
       const values = Object.values(r.amounts);
       return values.some(v => v === null) || values.some(v => Math.abs((v ?? 0) - (values[0] ?? 0)) >= AMOUNT_TOLERANCE);
     });
+}
+
+// ── Defences against a tampered reading (prompt injection) ───────────────────
+
+/** Phrases written to steer an AI ("ignore previous instructions…") — never part of a real P&L. */
+const INSTRUCTION_PATTERNS = [
+  /\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(instructions?|prompts?|rules?|the above)\b/i,
+  /\b(system|developer)\s+prompt\b/i,
+  /\byou\s+are\s+(an?\s+|the\s+)?(ai|assistant|language model|llm|chatbot)\b/i,
+  /\b(as an ai|ai assistant|assistant:|<\/?(instructions?|system)>)/i,
+  /\b(report|set|change|change the)\b[^.\n]{0,40}\bas\b[^.\n]{0,20}\d[\d,]*\.\d{2}\b[^.\n]{0,30}\b(instead|every|all)\b/i,
+];
+
+/** True when the PDF's text contains wording aimed at an AI rather than a reader. */
+export function looksLikeInjection(pdfText: string): boolean {
+  return INSTRUCTION_PATTERNS.some(p => p.test(pdfText));
+}
+
+/**
+ * Lines where the AI's amount differs from what the PDF's own text says for
+ * the same line (read without AI). Every amount being printed somewhere isn't
+ * enough: a tampered reading can move printed amounts between lines. Returns
+ * "section index-line index" → the amount the text shows.
+ */
+export function textDisagreements(aiDraft: StatementDraft, textDraft: StatementDraft): Map<string, number> {
+  const fromText = new Map<string, number>();
+  for (const s of textDraft.sections) {
+    if (!isCostSection(s.kind)) continue;
+    for (const l of s.lines) {
+      const key = normaliseLineName(l.name);
+      fromText.set(key, round2((fromText.get(key) ?? 0) + l.amount));
+    }
+  }
+  const out = new Map<string, number>();
+  aiDraft.sections.forEach((s, si) => {
+    if (!isCostSection(s.kind)) return;
+    s.lines.forEach((l, li) => {
+      const printed = fromText.get(normaliseLineName(l.name));
+      if (printed !== undefined && Math.abs(printed - l.amount) >= AMOUNT_TOLERANCE) out.set(`${si}-${li}`, printed);
+    });
+  });
+  return out;
 }

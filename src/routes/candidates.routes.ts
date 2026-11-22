@@ -28,6 +28,7 @@ import { MODULES } from '../constants/authModules.js';
 import { logSensitiveAccess } from '../middlewares/accessLog.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PRIVATE_UPLOAD_ROOT } from './upload.routes.js';
+import { largeJsonBody } from '../middlewares/bodyLimit.middleware.js';
 
 // Resume uploads land in a per-candidate folder; multer writes a temp file
 // here first and the controller validates magic bytes before renaming it
@@ -96,7 +97,7 @@ candidatesRouter.post('/:id/schedule-interview',   authMiddleware, requireModule
 candidatesRouter.post('/:id/unschedule-interview', authMiddleware, requireModule(MODULES.HR), asyncHandler(unscheduleCandidateInterview));
 
 // Admin bulk import — admin only. Batches of up to 500 rows per POST.
-candidatesRouter.post('/import', authMiddleware, adminMiddleware, asyncHandler(importCandidates));
+candidatesRouter.post('/import', authMiddleware, adminMiddleware, largeJsonBody, asyncHandler(importCandidates));
 
 // Admin nuclear reset — deletes every candidate row + resume file.
 // Meant for import iteration on a fresh env, not for regular use.

@@ -10,8 +10,9 @@ import { APP_REQUEST_HEADER, APP_REQUEST_VALUE, SESSION_COOKIE } from '../../ser
 
 export interface LiveServer { base: string; close: () => Promise<void> }
 
-export async function startLiveServer(): Promise<LiveServer> {
-  const server: Server = createApp({ logRequests: false, limitLogins: false }).listen(0, '127.0.0.1');
+/** `limitLogins`: keep the real login rate limits on (off by default so tests can sign in freely). */
+export async function startLiveServer(opts: { limitLogins?: boolean } = {}): Promise<LiveServer> {
+  const server: Server = createApp({ logRequests: false, limitLogins: opts.limitLogins ?? false }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address() as AddressInfo;
   return {
@@ -24,6 +25,8 @@ export interface Reply { status: number; body: any }
 export interface Caller {
   /** A request as this person — with their session cookie and the app's header, as the app sends it. */
   call(method: string, path: string, body?: unknown, opts?: { appHeader?: boolean }): Promise<Reply>;
+  /** The session cookie header, for raw requests (e.g. a file upload). Absent when signed out. */
+  cookie?: string;
 }
 
 async function send(base: string, method: string, path: string, headers: Record<string, string>, body?: unknown): Promise<Reply> {
@@ -54,6 +57,7 @@ export async function signIn(base: string, email: string, password: string): Pro
   if (res.status !== 200 || !session) throw new Error(`Sign-in failed for ${email}: ${res.status}`);
   const cookie = `${SESSION_COOKIE}=${session}`;
   return {
+    cookie,
     call: (method, path, body, opts = {}) =>
       send(base, method, path, { cookie, ...(opts.appHeader === false ? {} : { [APP_REQUEST_HEADER]: APP_REQUEST_VALUE }) }, body),
   };

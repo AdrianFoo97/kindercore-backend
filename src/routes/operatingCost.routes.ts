@@ -12,6 +12,7 @@ import { authMiddleware, requireModule, requireAnyModule, adminMiddleware } from
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { logSensitiveAccess } from '../middlewares/accessLog.middleware.js';
+import { aiRequestLimit } from '../middlewares/aiLimit.middleware.js';
 
 export const operatingCostRouter = Router();
 
@@ -31,7 +32,7 @@ operatingCostRouter.put('/entries', authMiddleware, requireModule(MODULES.FINANC
 // Import P&L (Finance): read = preview only, apply = write; notices = what an import left out.
 operatingCostRouter.get('/import/status', authMiddleware, requireModule(MODULES.FINANCE), asyncHandler(getImportStatus));
 // A P&L holds revenue and salaries, so reading one is logged like other finance reads.
-operatingCostRouter.post('/import/read', authMiddleware, requireModule(MODULES.FINANCE), pdfUpload, logSensitiveAccess('FINANCE'), asyncHandler(readImport));
+operatingCostRouter.post('/import/read', authMiddleware, requireModule(MODULES.FINANCE), aiRequestLimit, pdfUpload, logSensitiveAccess('FINANCE'), asyncHandler(readImport));
 operatingCostRouter.post('/import/apply', authMiddleware, requireModule(MODULES.FINANCE), asyncHandler(applyImportHandler));
 operatingCostRouter.get('/import/notices', authMiddleware, requireModule(MODULES.FINANCE), logSensitiveAccess('FINANCE'), asyncHandler(listImportNotices));
 operatingCostRouter.post('/import/notices/:id/dismiss', authMiddleware, requireModule(MODULES.FINANCE), asyncHandler(dismissImportNotice));

@@ -6,10 +6,11 @@ import { noStoreApi } from './middlewares/noStore.middleware.js';
 import { requireAppRequest } from './middlewares/csrf.middleware.js';
 import { authMiddleware, requireModule } from './middlewares/auth.middleware.js';
 import { MODULES } from './constants/authModules.js';
-import { sessionToken } from './services/session.service.js';
+import { hasValidSession } from './services/session.service.js';
 import { sseClients } from './sse.js';
 import { UPLOAD_ROOT } from './routes/upload.routes.js';
 import { router } from './routes/index.js';
+import { smallJsonBody } from './middlewares/bodyLimit.middleware.js';
 
 // The Express app — every security header, limit, guard and route, in the
 // order they run. Built here (not in server.ts, which runs migrations and
@@ -22,6 +23,13 @@ export interface AppOptions {
   /** Rate-limit sign-in attempts (off in tests, which sign many people in). */
   limitLogins?: boolean;
 }
+
+/** Login limits: per IP, and per account (wrong passwords only). */
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const FAILED_LOGINS_PER_ACCOUNT = 10;
+/** Promo-code checks per IP per window — plenty for a parent, too few to guess codes. */
+const PROMO_CHECK_WINDOW_MS = 15 * 60 * 1000;
+const PROMO_CHECKS_PER_WINDOW = 30;
 
 export function createApp({ logRequests = true, limitLogins = true }: AppOptions = {}) {
   const app = express();
@@ -50,22 +58,32 @@ export function createApp({ logRequests = true, limitLogins = true }: AppOptions
   );
 
   // ── Body size limit ──
-  // 10 MB is the ceiling for the candidate-import endpoint (up to 500
-  // rows × text fields ≈ a few MB of JSON). Regular API traffic is
-  // nowhere near this — the limit is generous so imports don't fail
-  // with "request entity too large" and require a redeploy to unblock.
-  app.use(express.json({ limit: '10mb' }));
+  // Small for everyone; the candidate import gets its large allowance in its
+  // own route, after sign-in + admin (bodyLimit.middleware).
+  app.use(smallJsonBody);
 
   // ── Rate limiting ──
   if (limitLogins) {
     const authLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
+      windowMs: LOGIN_WINDOW_MS, // 15 minutes
       max: 10, // 10 login attempts per 15 min per IP
       message: { message: 'Too many login attempts. Please try again later.' },
       standardHeaders: true,
       legacyHeaders: false,
     });
-    app.use('/api/auth/login', authLimiter);
+    // Per ACCOUNT too: bots rotate IP addresses (or fake them in X-Forwarded-For),
+    // so the per-IP limit alone can't stop guessing one person's password.
+    // Only failed attempts count, so the real person signing in isn't affected.
+    const accountLimiter = rateLimit({
+      windowMs: LOGIN_WINDOW_MS,
+      limit: FAILED_LOGINS_PER_ACCOUNT,
+      keyGenerator: req => `email:${String(req.body?.email ?? '').trim().toLowerCase()}`,
+      skipSuccessfulRequests: true,
+      message: { message: 'Too many wrong passwords for this account. Please try again in 15 minutes.' },
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    app.use('/api/auth/login', authLimiter, accountLimiter);
   }
 
   const leadCreateLimiter = rateLimit({
@@ -77,7 +95,7 @@ export function createApp({ logRequests = true, limitLogins = true }: AppOptions
   });
   app.use('/api/leads', (req, _res, next) => {
     // Only rate-limit unauthenticated POST (public enquiry form); skip for logged-in users (imports)
-    if (req.method === 'POST' && req.path === '/' && !sessionToken(req)) return leadCreateLimiter(req, _res, next);
+    if (req.method === 'POST' && req.path === '/' && !hasValidSession(req)) return leadCreateLimiter(req, _res, next);
     next();
   });
 
@@ -93,11 +111,22 @@ export function createApp({ logRequests = true, limitLogins = true }: AppOptions
     legacyHeaders: false,
   });
   app.use('/api/candidates', (req, _res, next) => {
-    if (sessionToken(req)) return next();                    // signed-in staff: skip
+    if (hasValidSession(req)) return next();                 // signed-in staff: skip
     if (req.method === 'GET' && req.path === '/form-options') return next();
     if (req.method === 'POST') return candidatePublicLimiter(req, _res, next);
     next();
   });
+
+  // Public promo-code check on the enquiry form — a person checks one code;
+  // a bot guessing codes checks hundreds.
+  const promoCheckLimiter = rateLimit({
+    windowMs: PROMO_CHECK_WINDOW_MS,
+    limit: PROMO_CHECKS_PER_WINDOW,
+    message: { message: 'Too many tries. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/marketing-campaigns/check', promoCheckLimiter);
 
   // Public "New staff" form — a handful of joiners a month, so a tight cap.
   const staffJoinLimiter = rateLimit({
@@ -108,7 +137,7 @@ export function createApp({ logRequests = true, limitLogins = true }: AppOptions
     legacyHeaders: false,
   });
   app.use('/api/staff-joins', (req, _res, next) => {
-    if (req.method === 'POST' && req.path === '/' && !sessionToken(req)) return staffJoinLimiter(req, _res, next);
+    if (req.method === 'POST' && req.path === '/' && !hasValidSession(req)) return staffJoinLimiter(req, _res, next);
     next();
   });
 

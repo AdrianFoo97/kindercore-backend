@@ -138,6 +138,12 @@ export async function getCandidateFormOptions(_req: Request, res: Response): Pro
   res.json({ positions: openings, qualifications, experienceRanges, referralSources, address });
 }
 
+/** Where the Google Form bridge keeps uploaded resumes. */
+const RESUME_LINK_HOSTS = new Set(['drive.google.com', 'docs.google.com']);
+const isGoogleDriveLink = (url: string) => {
+  try { const u = new URL(url); return u.protocol === 'https:' && RESUME_LINK_HOSTS.has(u.hostname); } catch { return false; }
+};
+
 /** Public — anyone with the apply link can POST. No auth. */
 export async function createCandidate(req: Request, res: Response): Promise<void> {
   const parsed = createCandidateSchema.safeParse(req.body);
@@ -146,6 +152,12 @@ export async function createCandidate(req: Request, res: Response): Promise<void
     return;
   }
   const data = parsed.data;
+  // The public form only ever sends a Google Drive link (the Google Form bridge).
+  // Anything else would be a link of the applicant's choosing for HR to click.
+  if (data.resumeUrl && !isGoogleDriveLink(data.resumeUrl)) {
+    res.status(400).json({ error: 'Resume links must be Google Drive links.' });
+    return;
+  }
 
   const id = randomUUID();
   const now = new Date();

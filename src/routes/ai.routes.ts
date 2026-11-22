@@ -4,6 +4,7 @@ import { pdfUpload } from '../controllers/operatingCostImport.controller.js';
 import { testEnvOnly } from '../middlewares/testEnv.middleware.js';
 import { adminMiddleware, authMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { aiRequestLimit } from '../middlewares/aiLimit.middleware.js';
 
 // Settings → AI (admins). Shared by every AI feature; keys are write-only.
 export const aiRouter = Router();
@@ -16,4 +17,4 @@ aiRouter.delete('/keys/:provider', authMiddleware, adminMiddleware, asyncHandler
 aiRouter.post('/test', authMiddleware, adminMiddleware, asyncHandler(testAiProvider));
 aiRouter.get('/models/:provider', authMiddleware, adminMiddleware, asyncHandler(getAiModels));
 // Test site only (404 elsewhere): read one P&L with every provider, side by side. Imports nothing.
-aiRouter.post('/compare/pnl-reading', authMiddleware, adminMiddleware, testEnvOnly, pdfUpload, asyncHandler(comparePnlReading));
+aiRouter.post('/compare/pnl-reading', authMiddleware, adminMiddleware, testEnvOnly, aiRequestLimit, pdfUpload, asyncHandler(comparePnlReading));

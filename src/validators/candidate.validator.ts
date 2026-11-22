@@ -1,6 +1,16 @@
 import { z } from 'zod';
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
+/** Fits the database column (varchar 191) — longer is refused, never cut. */
+export const SHORT_TEXT_MAX = 191;
+/** Room for a real answer; a bot pasting 200 KB of junk is refused. */
+export const LONG_TEXT_MAX = 5000;
+/** The phone column is varchar(50). */
+const PHONE_MAX = 50;
+const short = () => z.string().min(1).max(SHORT_TEXT_MAX);
+const long = () => z.string().min(1).max(LONG_TEXT_MAX);
+/** Only https links can be stored as a resume — never javascript: or plain http. */
+const httpsUrl = z.string().url().max(2000).refine(u => u.startsWith('https://'), 'Must be an https:// link');
 const isoOrDateString = z.string().min(1);
 
 const commuteEnum = z.enum([
@@ -12,27 +22,27 @@ const commuteEnum = z.enum([
 // hand-crafted POSTs. `qualificationOther` is conditionally required
 // via .refine() when the candidate picks the "Others" bucket.
 export const createCandidateSchema = z.object({
-  fullName: z.string().min(1),
-  phone: z.string().min(1),
+  fullName: short(),
+  phone: z.string().min(1).max(PHONE_MAX),
   dob: dateString,
-  addressLocation: z.string().min(1),
+  addressLocation: short(),
   commuteTime: commuteEnum,
   availableFrom: dateString,
   preferredStartDate: dateString,
-  desiredPosition: z.string().min(1),
-  experienceRange: z.string().min(1),
-  qualification: z.string().min(1),
-  qualificationOther: z.string().min(1).optional(),
+  desiredPosition: short(),
+  experienceRange: short(),
+  qualification: short(),
+  qualificationOther: short().optional(),
   expectedSalary: z.number().min(0),
   /** Upper bound when the applicant gave a range. Optional across
    *  all channels — only meaningful when > expectedSalary. */
   expectedSalaryMax: z.number().min(0).optional(),
-  salaryJustification: z.string().min(1),
-  careerGoals: z.string().min(1),
-  whyKindergartenTeacher: z.string().min(1),
-  howDidYouKnow: z.string().min(1),
+  salaryJustification: long(),
+  careerGoals: long(),
+  whyKindergartenTeacher: long(),
+  howDidYouKnow: short(),
   /** The only optional free-text field on the form. */
-  notes: z.string().optional(),
+  notes: z.string().max(LONG_TEXT_MAX).optional(),
   /** Which channel the application came through. Native /apply omits
    *  this (server defaults to 'apply_form'); the Google Form → Apps
    *  Script bridge sets 'google_form'; the admin bulk import endpoint
@@ -45,14 +55,14 @@ export const createCandidateSchema = z.object({
    *  the applicant uploaded a resume through Google Forms (lives in
    *  Drive). Ignored by the public /apply flow which uses a separate
    *  file-upload endpoint. */
-  resumeUrl: z.string().url().optional(),
+  resumeUrl: httpsUrl.optional(),
   /** Pipeline status — only accepted from the admin import path so
    *  historical rows can land already-triaged. The public /apply flow
    *  and Google Form bridge should NOT set this; server defaults to
    *  'NEW' when omitted. */
   status: z.enum(['NEW', 'CONTACTED', 'INTERVIEWING', 'PENDING_DECISION', 'OFFER_SENT', 'HIRED', 'REJECTED', 'TALENT_BANK']).optional(),
   /** Free-text reason paired with a REJECTED status. Also import-only. */
-  rejectionReason: z.string().optional(),
+  rejectionReason: z.string().max(LONG_TEXT_MAX).optional(),
   /** Original submission timestamp — only meaningful from the admin
    *  import path so historical rows land with their real
    *  chronological order. Accepts anything Date() can parse (ISO,
@@ -116,7 +126,7 @@ export const createCandidateSchema = z.object({
 // payroll-relevant field must be a real, non-placeholder value so a hire
 // never produces a half-configured teacher.
 export const hireCandidateSchema = z.object({
-  phone: z.string().min(1),
+  phone: z.string().min(1).max(PHONE_MAX),
   positionId: z.string().min(1),
   level: z.number().int().min(0).max(10).default(0),
   employmentType: z.enum(['full-time', 'part-time']),

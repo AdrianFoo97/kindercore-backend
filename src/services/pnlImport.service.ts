@@ -8,7 +8,7 @@ import { readStatement, type StatementDraft, type StatementReading } from './pnl
 import { TextReadError, readStatementText } from './pnlReading/textReader.js';
 import { pdfText } from './pdfText.js';
 import {
-  DEFAULT_SKIP_LINES, checkReading, normaliseLineName, planImport, previewLines, readingPasses,
+  DEFAULT_SKIP_LINES, checkReading, looksLikeInjection, normaliseLineName, planImport, previewLines, readingPasses, textDisagreements,
   type CategoryRef, type ImportRule, type LineDecision, type PreviewLine, type SectionCheck,
 } from './pnlImport.logic.js';
 
@@ -51,6 +51,8 @@ export interface ImportPreview {
   /** Why the backup provider read it (null = the main one did). */
   backupReason: string | null;
   hasText: boolean;
+  /** The PDF contains wording aimed at an AI ("ignore previous instructions…") — a person must check it. */
+  injectionSuspected: boolean;
   sections: (SectionCheck & { title: string; kind: string })[];
   lines: PreviewLine[];
   /** Amounts already entered for that month, by category id. */
@@ -61,6 +63,11 @@ export interface ImportPreview {
 
 /** Who reads the P&L when no AI is used — recorded on the import like an AI provider would be. */
 export const NO_AI = { provider: 'none', model: 'pdf-text', instructionsVersion: 0 } as const;
+
+/** The text reading, or null when the layout can't be read that way (the cross-check is then skipped). */
+function readTextQuietly(text: string): StatementDraft | null {
+  try { return readStatementText(text); } catch { return null; }
+}
 
 /** Reads the P&L from its own printed text, without AI (the person chose to, or AI is off). */
 function readWithoutAi(text: string): StatementReading {
@@ -78,10 +85,14 @@ function readWithoutAi(text: string): StatementReading {
  */
 export async function previewImport(pdf: Buffer, userId: string, opts: { withoutAi?: boolean } = {}): Promise<ImportPreview> {
   const text = await pdfText(pdf);
+  // A second, independent reading from the PDF's own text — to catch an AI reading that moved amounts between lines.
+  const byText = readTextQuietly(text);
+  const agrees = (draft: StatementDraft) => !byText || textDisagreements(draft, byText).size === 0;
   const reading = opts.withoutAi
     ? readWithoutAi(text)
-    : await readStatement(pdf, { userId, passes: draft => readingPasses(draft, checkReading(draft, text)) });
+    : await readStatement(pdf, { userId, passes: draft => readingPasses(draft, checkReading(draft, text)) && agrees(draft) });
   const check = checkReading(reading.draft, text);
+  const disagreements = !opts.withoutAi && byText ? textDisagreements(reading.draft, byText) : new Map<string, number>();
   const [categories, rules, groups] = await Promise.all([
     categoryRefs(), rulesByKey(),
     db.select({ id: operatingCostCategoryGroups.id, name: operatingCostCategoryGroups.name })
@@ -95,11 +106,12 @@ export async function previewImport(pdf: Buffer, userId: string, opts: { without
     instructionsVersion: reading.instructionsVersion,
     backupReason: reading.backupReason,
     hasText: check.hasText,
+    injectionSuspected: looksLikeInjection(text),
     sections: reading.draft.sections.map((s, i) => ({
       title: s.title, kind: s.kind,
       sum: check.sections[i].sum, printedSubtotal: check.sections[i].printedSubtotal, addsUp: check.sections[i].addsUp,
     })),
-    lines: previewLines(reading.draft, check, categories, rules),
+    lines: previewLines(reading.draft, check, categories, rules).map(l => ({ ...l, textAmount: disagreements.get(l.key) ?? null })),
     existing: Object.fromEntries(await existingAmounts(year, month - 1)),
     categories,
     groups,

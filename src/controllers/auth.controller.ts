@@ -9,6 +9,12 @@ import { hasLeft, staffLeftMessage, STAFF_LEFT_CODE } from '../services/staffAcc
 import { loginSchema } from '../validators/auth.validator.js';
 import { accessRolesProblem, rolesByUser, setUserRoles } from '../services/accessRoles.service.js';
 
+/** Same cost as real password hashes (activate uses 10 rounds), so a check against it takes as long. */
+const PASSWORD_HASH_ROUNDS = 10;
+let dummy: Promise<string> | null = null;
+/** A hash no password matches — checked when there's no account, to keep login timing even. */
+const dummyHash = () => (dummy ??= bcrypt.hash(randomBytes(32).toString('hex'), PASSWORD_HASH_ROUNDS));
+
 export async function login(req: Request, res: Response): Promise<void> {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -18,13 +24,12 @@ export async function login(req: Request, res: Response): Promise<void> {
 
   const { email, password } = parsed.data;
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  if (!user) {
-    res.status(401).json({ message: 'Invalid credentials' });
-    return;
-  }
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
+  // Always run one real password check — against a dummy hash when there's no
+  // account (or no password yet) — so the answer takes the same time either
+  // way and timing can't reveal which emails have accounts.
+  const hash = user?.passwordHash || await dummyHash();
+  const valid = await bcrypt.compare(password, hash);
+  if (!user || !user.passwordHash || !valid) {
     res.status(401).json({ message: 'Invalid credentials' });
     return;
   }

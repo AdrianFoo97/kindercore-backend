@@ -24,10 +24,19 @@ const upload = multer({
   },
 });
 
-/** Accepts one PDF under `file`, with a clear message for the wrong type or size. */
+/** PDF files start with "%PDF-" (the spec allows it anywhere in the first 1024 bytes). */
+const PDF_HEADER_WINDOW = 1024;
+export const looksLikePdf = (file: Buffer) => file.subarray(0, PDF_HEADER_WINDOW).includes('%PDF-');
+
+/** Accepts one PDF under `file`, with a clear message for the wrong type, size or contents. */
 export function pdfUpload(req: Request, res: Response, next: NextFunction): void {
   upload.single('file')(req, res, err => {
-    if (!err) { next(); return; }
+    if (!err) {
+      // The browser's label ("application/pdf") is just a claim — check the file really is a PDF.
+      if (req.file && !looksLikePdf(req.file.buffer)) { res.status(400).json({ message: 'That file isn’t a PDF.' }); return; }
+      next();
+      return;
+    }
     const tooBig = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE';
     res.status(400).json({ message: tooBig ? 'That file is over 10 MB. Is it the P&L?' : err instanceof Error ? err.message : 'Upload failed' });
   });

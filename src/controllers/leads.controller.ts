@@ -11,6 +11,7 @@ import { systemRoleFor, deriveIsQualified, deriveVisitOutcome } from '../constan
 import { todayInMalaysia, dateKey } from '../utils/dateKey.js';
 import { notify } from '../services/notifications.service.js';
 import { newLeadMessage } from '../services/notifications.logic.js';
+import { hasValidSession } from '../services/session.service.js';
 
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSf6qYfHqYruNIVFou3g9_ug_YBWBHdv0F98u1xQxo327TSZNQ/formResponse';
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
@@ -211,10 +212,12 @@ export async function createLead(req: Request, res: Response): Promise<void> {
   recentSubmissions.push({ key: `phone:${parentPhone}`, ts: now });
   recentSubmissions.push({ key: `ip:${req.ip}`, ts: now });
 
-  console.log('[Lead] New submission received:', JSON.stringify(parsed.data, null, 2));
-
   const id = randomUUID();
-  const submittedAt = submittedAtRaw ? new Date(submittedAtRaw) : new Date();
+  console.log(`[Lead] New submission ${id}`); // no names or phone numbers in the logs
+  // Only signed-in staff (an import) may set when a lead came in — the public
+  // form always gets "now", so bots can't bury fake enquiries among old ones.
+  const given = submittedAtRaw && hasValidSession(req) ? new Date(submittedAtRaw) : null;
+  const submittedAt = given && !Number.isNaN(given.getTime()) ? given : new Date();
   await db.insert(leads).values({
     id, childName: normalizeName(childName), parentPhone, childDob: new Date(childDob), enrolmentYear,
     relationship, programme, preferredAppointmentTime, addressLocation,

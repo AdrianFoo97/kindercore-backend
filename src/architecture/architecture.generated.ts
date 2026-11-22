@@ -201,6 +201,7 @@ export const ARCHITECTURE: Architecture = {
             "authMiddleware",
             "adminMiddleware",
             "testEnvOnly",
+            "aiRequestLimit",
             "pdfUpload"
           ],
           "handler": "comparePnlReading",
@@ -1086,7 +1087,8 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/candidates/import",
           "middleware": [
             "authMiddleware",
-            "adminMiddleware"
+            "adminMiddleware",
+            "largeJsonBody"
           ],
           "handler": "importCandidates",
           "controller": "candidates.controller"
@@ -2021,6 +2023,7 @@ export const ARCHITECTURE: Architecture = {
           "middleware": [
             "authMiddleware",
             "requireModule(MODULES.FINANCE)",
+            "aiRequestLimit",
             "pdfUpload",
             "logSensitiveAccess('FINANCE')"
           ],
@@ -4157,7 +4160,8 @@ export const ARCHITECTURE: Architecture = {
       "id": "leads.controller",
       "services": [
         "notifications.logic",
-        "notifications.service"
+        "notifications.service",
+        "session.service"
       ],
       "controllers": [],
       "tables": [
