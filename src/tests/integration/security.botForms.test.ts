@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { pool, db } from '../../db/client.js';
-import { candidates, leads, notifications } from '../../db/schema.js';
+import { candidates, incidentReportStudents, leads, notifications, studentEnrollments, students } from '../../db/schema.js';
 import fs from 'fs';
 import path from 'path';
 import { PRIVATE_UPLOAD_ROOT } from '../../routes/upload.routes.js';
@@ -17,7 +17,7 @@ import { APP_REQUEST_HEADER, APP_REQUEST_VALUE, SESSION_COOKIE } from '../../ser
 
 let server: LiveServer;
 beforeAll(async () => {
-  await resetTables(notifications, leads, candidates);
+  await resetTables(notifications, incidentReportStudents, studentEnrollments, students, leads, candidates);
   server = await startLiveServer();
 }, 120_000);
 afterAll(async () => { await server?.close(); await pool.end(); });

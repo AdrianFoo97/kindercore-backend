@@ -34,6 +34,8 @@ const EXPECTED: Record<string, string[]> = {
   'builtin:FRONT_DESK_OFFICER': ['NEW_STUDENT', 'STUDENT_WITHDRAWN'],
   'builtin:HR_MANAGER': HR,
   'builtin:HR_DIRECTOR': HR,
+  // A Team Lead only manages their team: no recruitment / new-staff news, just sign-offs.
+  'builtin:TEAM_LEAD': ['APPRAISAL_SIGN_OFF'],
   'builtin:ACCOUNTS_EXECUTIVE': ['ITEM_BOUGHT'],
   'builtin:FINANCE_MANAGER': ['ITEM_BOUGHT', 'COSTS_RECORDED'],
   // A plain teacher: only the “About you” ones (added below for every staff account).

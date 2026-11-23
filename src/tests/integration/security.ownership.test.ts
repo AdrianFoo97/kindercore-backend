@@ -38,6 +38,12 @@ beforeEach(async () => {
   ]);
   // HR's existing module fixture lives on the office role; give it HR explicitly.
   await db.update(authRoleModules).set({ module: 'HR' }).where(eq(authRoleModules.id, 'arm-1'));
+  // …as whole-school HR with pay (team-only / no-pay HR: security.teamAccess.test.ts).
+  const office = moduleRows.find(m => m.id === 'arm-1')!.authRoleId;
+  await db.insert(authRoleViews).values([
+    { id: 'arv-office-all', authRoleId: office, view: 'HR_SEE_ALL_STAFF', createdAt: NOW },
+    { id: 'arv-office-pay', authRoleId: office, view: 'HR_SEE_PAY', createdAt: NOW },
+  ]);
 });
 afterAll(async () => {
   await pool.end();

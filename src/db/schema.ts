@@ -16,6 +16,10 @@ import { index,
 } from 'drizzle-orm/mysql-core';
 // Every JSON column but SystemSetting.value (it has its own reading) — see jsonColumn.
 import { jsonColumn } from './jsonColumn.js';
+import { customType } from 'drizzle-orm/mysql-core';
+
+/** Raw bytes (up to 16 MB) — for images kept in the database. */
+const mediumBlob = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return 'mediumblob'; } });
 
 export const users = mysqlTable('User', {
   id: varchar('id', { length: 36 }).primaryKey(),
@@ -1526,4 +1530,15 @@ export const candidates = mysqlTable('Candidate', {
   // no utm_source param.
   utmSource: varchar('utmSource', { length: 191 }),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
+});
+
+// Images kept in the database rather than on disk (position badges): the host
+// builds every deploy into a fresh folder, so files on disk vanish on deploy.
+// Served publicly at /uploads/<kind>s/<id>.<ext> (badges are shown to everyone).
+export const storedImages = mysqlTable('StoredImage', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  kind: varchar('kind', { length: 32 }).notNull(),
+  mimeType: varchar('mimeType', { length: 64 }).notNull(),
+  data: mediumBlob('data').notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });

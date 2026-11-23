@@ -21,8 +21,10 @@ export const ACCESS_FUNCTIONS: AccessFunction[] = [
     description: 'See every facility issue staff report and mark it In progress or Resolved.' },
   { key: 'OPERATION_PURCHASE_MANAGE', module: MODULES.OPERATION, label: 'Manage the shopping list',
     description: 'See everything staff asked to be bought and tick items Bought (with cost and receipt) or Not buying.' },
-  { key: 'HR_SEE_ALL_STAFF', module: MODULES.HR, label: 'See every staff member in Performance Management',
-    description: 'Appraisals, the appraisal schedule and practice observations for all staff — not just the people who report to you.' },
+  { key: 'HR_SEE_ALL_STAFF', module: MODULES.HR, label: 'Whole-school HR — every staff member',
+    description: 'Every staff record, appraisal, observation and points balance — not just the people who report to you — plus recruitment, new staff, onboarding and the reward workbench.' },
+  { key: 'HR_SEE_PAY', module: MODULES.HR, label: 'See pay & salaries',
+    description: 'Salaries, allowances, pay settings and payroll for the staff they can see. Without it, HRMS shows no pay at all.' },
 ];
 export const ACCESS_FUNCTION_KEYS = ACCESS_FUNCTIONS.map(f => f.key);
 
@@ -30,7 +32,7 @@ export const ACCESS_FUNCTION_KEYS = ACCESS_FUNCTIONS.map(f => f.key);
 export const MODULE_INCLUDES: Record<ModuleKey, string[]> = {
   MARKETING: ['Leads — add, update status, book visits, WhatsApp parents, delete and restore', 'Campaigns'],
   STUDENTS: ['Students — records, enrolment, withdraw and reactivate', 'Student onboarding'],
-  HR: ['Staff records, including pay and personal details', 'Recruitment — candidates, interviews and offers', 'New staff and staff onboarding', 'Appraisals, appraisal schedule and practice observations — for their team', 'Points grants and reward redemptions'],
+  HR: ['Staff records of their team (everyone below them in the reporting line) — no pay', 'Appraisals, appraisal schedule and practice observations — for their team', 'Career, training and points of their team'],
   FINANCE: ['Operating costs'],
   OPERATION: ['How-To Guides — use them and suggest changes', 'Report incidents and facility issues (their own)', 'Ask for items to be bought', 'Score appraisals they’re asked to do'],
   ANALYSIS: ['Reports — sales & marketing, sales, revenue, staff cost, operating cost, finance, profit sharing, annual bonus'],
@@ -58,10 +60,12 @@ export const BUILT_IN_ROLES: BuiltInRole[] = [
     'Leads, campaigns and the enquiry pipeline.', [MODULES.MARKETING]),
   role('FRONT_DESK_OFFICER', 'Admissions & Students', 'Front Desk Officer',
     'Students: records, enrolment, onboarding and attendance.', [MODULES.STUDENTS]),
+  role('TEAM_LEAD', 'HRMS', 'Team Lead',
+    'HRMS for the people under them in the reporting line — their records, appraisals, training and points. No pay.', [MODULES.HR]),
   role('HR_MANAGER', 'HRMS', 'HR Manager',
-    'All of HRMS — recruitment, staff records with pay, points. Performance Management for their team (everyone below them in the reporting line).', [MODULES.HR]),
+    'All of HRMS for every staff member — recruitment, staff records, appraisals, points. No pay.', [MODULES.HR], ['HR_SEE_ALL_STAFF']),
   role('HR_DIRECTOR', 'HRMS', 'HR Director',
-    'Everything an HR Manager can, for all staff.', [MODULES.HR], ['HR_SEE_ALL_STAFF']),
+    'Everything an HR Manager can, plus salaries, allowances, pay settings and payroll.', [MODULES.HR], ['HR_SEE_ALL_STAFF', 'HR_SEE_PAY']),
   role('ACCOUNTS_EXECUTIVE', 'Finance', 'Accounts Executive',
     'Finance: operating costs.', [MODULES.FINANCE]),
   role('FINANCE_MANAGER', 'Finance', 'Finance Manager',

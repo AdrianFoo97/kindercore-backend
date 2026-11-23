@@ -41,7 +41,7 @@ describe('Access roles — built-in and your own', () => {
     await db.insert(users).values(await activeUser({ id: 'u-dir', email: 'dir@kindertech.test', role: 'USER', authRoleId: 'builtin:HR_DIRECTOR' }));
     const g = await resolveGrants('u-dir');
     expect([...g.modules]).toEqual(['HR']);
-    expect([...g.views]).toEqual(['HR_SEE_ALL_STAFF']);
+    expect([...g.views].sort()).toEqual(['HR_SEE_ALL_STAFF', 'HR_SEE_PAY']);
   });
 
   it('refuses to change or delete a built-in role', async () => {
@@ -82,7 +82,7 @@ describe('Access roles — built-in and your own', () => {
     expect((await call(setUserAuthRoles, { authRoleIds: ['builtin:HR_DIRECTOR', 'builtin:FINANCE_MANAGER'] }, { id: 'u-p' })).statusCode).toBe(200);
     const g = await resolveGrants('u-p');
     expect([...g.modules].sort()).toEqual(['ANALYSIS', 'FINANCE', 'HR']);
-    expect([...g.views]).toEqual(['HR_SEE_ALL_STAFF']);
+    expect([...g.views].sort()).toEqual(['HR_SEE_ALL_STAFF', 'HR_SEE_PAY']);
     // Taking one role off keeps the other; [] removes them all.
     await call(setUserAuthRoles, { authRoleIds: ['builtin:FINANCE_MANAGER'] }, { id: 'u-p' });
     expect((await resolveGrants('u-p')).modules.has('HR')).toBe(false);

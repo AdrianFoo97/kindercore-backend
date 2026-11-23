@@ -11,14 +11,15 @@ import {
 import { authMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { wholeSchoolHr } from '../middlewares/teamAccess.middleware.js';
 
 export const plannerRouter = Router();
 
 // Teachers
 plannerRouter.get('/teachers', authMiddleware, asyncHandler(getTeachers));
-plannerRouter.post('/teachers', authMiddleware, requireModule(MODULES.HR), asyncHandler(createTeacher));
+plannerRouter.post('/teachers', authMiddleware, wholeSchoolHr(), asyncHandler(createTeacher));
 plannerRouter.put('/teachers/:id', authMiddleware, requireAnyModule(MODULES.HR, MODULES.TOOLS), asyncHandler(updateTeacher));
-plannerRouter.delete('/teachers/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(deleteTeacher));
+plannerRouter.delete('/teachers/:id', authMiddleware, wholeSchoolHr(), asyncHandler(deleteTeacher));
 
 // Classrooms
 plannerRouter.get('/classrooms', authMiddleware, requireAnyModule(MODULES.TOOLS, MODULES.HR), asyncHandler(getClassrooms));

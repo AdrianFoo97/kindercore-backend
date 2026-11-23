@@ -2,9 +2,10 @@ import { Router } from 'express';
 import {
   listObservations, getObservation, createObservation, advanceStage, saveStepResultsDraft, getTeacherTraining, recordTrainingGiven, sendBackForTraining, saveObservationMarking,
 } from '../controllers/sop-observations.controller.js';
-import { adminMiddleware, authMiddleware, requireModule, selfOrModule } from '../middlewares/auth.middleware.js';
+import { authMiddleware, requireModule } from '../middlewares/auth.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { selfOrTeam, wholeSchoolHr } from '../middlewares/teamAccess.middleware.js';
 
 export const sopObservationsRouter = Router();
 
@@ -16,8 +17,8 @@ sopObservationsRouter.post('/sop-observations/:id/advance', authMiddleware, requ
 sopObservationsRouter.post('/sop-observations/:id/send-back', authMiddleware, requireModule(MODULES.HR), asyncHandler(sendBackForTraining));
 sopObservationsRouter.post('/sop-observations/:id/step-results', authMiddleware, requireModule(MODULES.HR), asyncHandler(saveStepResultsDraft));
 // Teacher app → My training: their SOP observations as trainee and as trainer (their own, or HR).
-sopObservationsRouter.get('/teachers/:teacherId/training', authMiddleware, selfOrModule(MODULES.HR), asyncHandler(getTeacherTraining));
+sopObservationsRouter.get('/teachers/:teacherId/training', authMiddleware, selfOrTeam(), asyncHandler(getTeacherTraining));
 // Teacher app → My training → Trainer: the assigned trainer records the day they gave the training (or HR for them).
-sopObservationsRouter.post('/teachers/:teacherId/training/:observationId/trained', authMiddleware, selfOrModule(MODULES.HR), asyncHandler(recordTrainingGiven));
+sopObservationsRouter.post('/teachers/:teacherId/training/:observationId/trained', authMiddleware, selfOrTeam(), asyncHandler(recordTrainingGiven));
 // Settings → Practice observations: how new observations mark their steps (admins).
-sopObservationsRouter.put('/sop-observation-marking', authMiddleware, adminMiddleware, asyncHandler(saveObservationMarking));
+sopObservationsRouter.put('/sop-observation-marking', authMiddleware, wholeSchoolHr(), asyncHandler(saveObservationMarking));

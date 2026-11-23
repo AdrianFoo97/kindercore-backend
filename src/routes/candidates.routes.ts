@@ -22,13 +22,14 @@ import {
   resetAllCandidates,
   getCandidatePhoneIndex,
 } from '../controllers/candidates.controller.js';
-import { authMiddleware, adminMiddleware, requireModule, requireAnyModule } from '../middlewares/auth.middleware.js';
+import { authMiddleware, adminMiddleware, requireAnyModule } from '../middlewares/auth.middleware.js';
 import { testEnvOnly } from '../middlewares/testEnv.middleware.js';
 import { MODULES } from '../constants/authModules.js';
 import { logSensitiveAccess } from '../middlewares/accessLog.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PRIVATE_UPLOAD_ROOT } from './upload.routes.js';
 import { largeJsonBody } from '../middlewares/bodyLimit.middleware.js';
+import { wholeSchoolHr } from '../middlewares/teamAccess.middleware.js';
 
 // Resume uploads land in a per-candidate folder; multer writes a temp file
 // here first and the controller validates magic bytes before renaming it
@@ -77,24 +78,24 @@ candidatesRouter.post('/:id/resume', (req, res, next) => {
 }, asyncHandler(uploadCandidateResume));
 
 // Admin
-candidatesRouter.get('/', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidates));
-candidatesRouter.get('/stats', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidateStats));
+candidatesRouter.get('/', authMiddleware, wholeSchoolHr(), asyncHandler(getCandidates));
+candidatesRouter.get('/stats', authMiddleware, wholeSchoolHr(), asyncHandler(getCandidateStats));
 candidatesRouter.get('/upcoming-interviews', authMiddleware, requireAnyModule(MODULES.HR, MODULES.MARKETING), asyncHandler(getUpcomingCandidateInterviews));
 // Cross-tab phone list — feeds the repeat-applicant pill in the admin list.
 // Kept above /:id so Express doesn't route "phone-index" to getCandidateById.
-candidatesRouter.get('/phone-index', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidatePhoneIndex));
-candidatesRouter.get('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(getCandidateById));
-candidatesRouter.patch('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(updateCandidate));
+candidatesRouter.get('/phone-index', authMiddleware, wholeSchoolHr(), asyncHandler(getCandidatePhoneIndex));
+candidatesRouter.get('/:id', authMiddleware, wholeSchoolHr(), asyncHandler(getCandidateById));
+candidatesRouter.patch('/:id', authMiddleware, wholeSchoolHr(), asyncHandler(updateCandidate));
 // Confirms hire details and creates the Teacher record in one step —
 // separate from the generic PATCH because it also writes to Teacher/CareerRecord.
-candidatesRouter.post('/:id/hire', authMiddleware, requireModule(MODULES.HR), asyncHandler(hireCandidate));
-candidatesRouter.delete('/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(deleteCandidate));
-candidatesRouter.get('/:id/resume', authMiddleware, requireModule(MODULES.HR), logSensitiveAccess('APPLICANTS'), asyncHandler(downloadCandidateResume));
+candidatesRouter.post('/:id/hire', authMiddleware, wholeSchoolHr(), asyncHandler(hireCandidate));
+candidatesRouter.delete('/:id', authMiddleware, wholeSchoolHr(), asyncHandler(deleteCandidate));
+candidatesRouter.get('/:id/resume', authMiddleware, wholeSchoolHr(), logSensitiveAccess('APPLICANTS'), asyncHandler(downloadCandidateResume));
 // Interview scheduling with Google Calendar sync. The frontend calls
 // /schedule-interview by default; if the calendar step fails, it retries
 // with skipCalendar: true which persists to the DB only.
-candidatesRouter.post('/:id/schedule-interview',   authMiddleware, requireModule(MODULES.HR), asyncHandler(scheduleCandidateInterview));
-candidatesRouter.post('/:id/unschedule-interview', authMiddleware, requireModule(MODULES.HR), asyncHandler(unscheduleCandidateInterview));
+candidatesRouter.post('/:id/schedule-interview',   authMiddleware, wholeSchoolHr(), asyncHandler(scheduleCandidateInterview));
+candidatesRouter.post('/:id/unschedule-interview', authMiddleware, wholeSchoolHr(), asyncHandler(unscheduleCandidateInterview));
 
 // Admin bulk import — admin only. Batches of up to 500 rows per POST.
 candidatesRouter.post('/import', authMiddleware, adminMiddleware, largeJsonBody, asyncHandler(importCandidates));

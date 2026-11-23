@@ -81,7 +81,7 @@ describe('Notifications — what each one says and where it opens', () => {
   });
 
   it('lists only the events someone’s roles give, naming every role that gives each', () => {
-    const roles = [{ name: 'Marketing Executive', modules: ['MARKETING'], functions: [] }, { name: 'Principal', modules: ['MARKETING', 'HR'], functions: [] }];
+    const roles = [{ name: 'Marketing Executive', modules: ['MARKETING'], functions: [] }, { name: 'Principal', modules: ['MARKETING', 'HR'], functions: ['HR_SEE_ALL_STAFF'] }];
     const shown = notificationSettings(roles, false, ['NEW_APPLICATION']);
     expect(shown.find(e => e.kind === 'NEW_LEAD')).toMatchObject({ from: ['Marketing Executive', 'Principal'], enabled: true });
     expect(shown.find(e => e.kind === 'NEW_APPLICATION')).toMatchObject({ from: ['Principal'], enabled: false });

@@ -3,7 +3,9 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { authMiddleware, adminMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware } from '../middlewares/auth.middleware.js';
+import { hrWithPay } from '../middlewares/teamAccess.middleware.js';
+import { BADGE_KIND, BADGE_URL_PREFIX, saveImage } from '../services/storedImage.service.js';
 
 export const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_ROOT || path.resolve(process.cwd(), 'uploads'));
 /** Private upload root — NOT served by the static `/uploads` route. Used
@@ -45,16 +47,9 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/svg+xml': '.svg',
 };
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, BADGES_DIR),
-  filename: (_req, file, cb) => {
-    const ext = EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase() ?? '';
-    cb(null, `${randomUUID()}${ext}`);
-  },
-});
-
+// Badges are kept in the database (storedImage.service), not on disk — read into memory here.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME.has(file.mimetype)) {
@@ -88,12 +83,13 @@ const uploadBugReportPhotos = multer({
   },
 });
 
+export { BADGES_DIR };
 export const uploadRouter = Router();
 
 uploadRouter.post(
   '/badge',
   authMiddleware,
-  adminMiddleware, // position badge images — managed in Settings (Admin)
+  hrWithPay(), // position badge images — managed in Settings → Positions (HR with pay)
   (req, res, next) => {
     upload.single('image')(req, res, (err) => {
       if (err) {
@@ -103,10 +99,11 @@ uploadRouter.post(
       next();
     });
   },
-  (req, res) => {
+  async (req, res) => {
     const file = (req as any).file as Express.Multer.File | undefined;
     if (!file) return res.status(400).json({ message: 'No file uploaded' });
-    res.json({ url: `/uploads/badges/${file.filename}` });
+    const id = await saveImage(BADGE_KIND, file.mimetype, file.buffer);
+    res.json({ url: `${BADGE_URL_PREFIX}${id}${EXT_BY_MIME[file.mimetype] ?? ''}` });
   },
 );
 

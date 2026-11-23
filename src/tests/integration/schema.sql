@@ -1132,6 +1132,17 @@ CREATE TABLE `StaffJoinRequest` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `StoredImage` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mimeType` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `data` mediumblob NOT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `Student` (
   `id` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `leadId` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,

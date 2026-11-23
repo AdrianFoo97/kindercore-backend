@@ -12,6 +12,11 @@ import { UPLOAD_ROOT } from './routes/upload.routes.js';
 import { router } from './routes/index.js';
 import { smallJsonBody } from './middlewares/bodyLimit.middleware.js';
 
+import { BADGE_KIND, findImage, idFromFileName } from './services/storedImage.service.js';
+
+/** Badges rarely change and each upload gets a new URL — browsers may keep them a week. */
+const BADGE_CACHE_SECONDS = 7 * 24 * 60 * 60;
+
 // The Express app — every security header, limit, guard and route, in the
 // order they run. Built here (not in server.ts, which runs migrations and
 // listens) so the access-control tests can exercise exactly the production
@@ -185,6 +190,19 @@ export function createApp({ logRequests = true, limitLogins = true }: AppOptions
     (_req, res, next) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       next();
+    },
+    // Badges are kept in the database; anything not found there is looked for on disk.
+    (req, res, next) => {
+      const m = req.path.match(/^\/badges\/([^/]+)$/);
+      if (!m) { next(); return; }
+      findImage(BADGE_KIND, idFromFileName(m[1])).then(image => {
+        if (!image) { next(); return; }
+        res.setHeader('Content-Type', image.mimeType);
+        res.setHeader('Cache-Control', `public, max-age=${BADGE_CACHE_SECONDS}`);
+        // An uploaded SVG must never run script if opened directly.
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+        res.send(image.data);
+      }).catch(next);
     },
     express.static(UPLOAD_ROOT, { maxAge: '7d', fallthrough: false }),
   );

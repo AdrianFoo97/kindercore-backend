@@ -11,9 +11,10 @@ import { pool } from './db/client.js';
 import { SYSTEM_LOST_REASONS } from './constants/lostReasons.js';
 import { REPLACED_ROLE_NAMES } from './constants/accessRoles.js';
 import path from 'path';
-import { PRIVATE_UPLOAD_ROOT, UPLOAD_ROOT } from './routes/upload.routes.js';
+import { BADGES_DIR, PRIVATE_UPLOAD_ROOT, UPLOAD_ROOT } from './routes/upload.routes.js';
 import { purgeOldNotifications } from './services/notifications.service.js';
 import { ensureDefaultImportRules } from './services/pnlImport.service.js';
+import { copyBadgeFilesIntoDb } from './services/storedImage.service.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -1079,6 +1080,15 @@ async function runMigrations() {
       \`createdAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`),
       KEY \`PurchaseRequestLog_request_idx\` (\`purchaseRequestId\`, \`createdAt\`)
+    )`,
+    // Images kept in the database (position badges) — files on disk vanish on deploy.
+    `CREATE TABLE IF NOT EXISTS \`StoredImage\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`kind\` VARCHAR(32) NOT NULL,
+      \`mimeType\` VARCHAR(64) NOT NULL,
+      \`data\` MEDIUMBLOB NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
     )`,
   ];
 
@@ -2687,6 +2697,10 @@ runMigrations()
       console.log(`[backend] DATABASE_URL: ${masked}`);
       warnIfReaderKeyMissing();
       warnIfUploadsInsideApp();
+      // Badges still on disk from before they lived in the database: copy them in (once).
+      copyBadgeFilesIntoDb(BADGES_DIR)
+        .then(n => { if (n) console.log(`[migrate] Copied ${n} position badge(s) into the database`); })
+        .catch(e => console.warn('[migrate] Badge copy skipped:', e.message));
       startAppraisalScheduler();
     });
   })

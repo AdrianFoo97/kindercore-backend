@@ -14,7 +14,8 @@ import { APPROVED_ANY_SIGNED_IN } from '../securityPolicy.js';
 
 // The approved list lives in ../securityPolicy.ts (shared with the live HTTP sweep).
 
-const GATES = /^(adminMiddleware|superadminMiddleware|requireModule\(|requireAnyModule\(|requireView\(|selfOrModule\()/;
+// …plus the HRMS team / pay rules (teamAccess.middleware).
+const GATES = /^(adminMiddleware|superadminMiddleware|requireModule\(|requireAnyModule\(|requireView\(|selfOrModule\(|selfOrTeam\(|teamMember\(|selfOrTeamPay\(|teamPay\(|payrollAccess\(|wholeSchoolHr\(|hrWithPay\(|settingKeyOwner\()/;
 const endpoints = ARCHITECTURE.routeGroups.flatMap(g => g.endpoints);
 const key = (e: { method: string; path: string }) => `${e.method} ${e.path}`;
 const signedInOnly = endpoints.filter(e => e.middleware.includes('authMiddleware') && !e.middleware.some(m => GATES.test(m)));
@@ -93,35 +94,48 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(gateOf('DELETE', '/api/auth/users/:id')).toEqual(['adminMiddleware']);
   });
 
-  it('pay data is limited to HR / Finance / Analysis, or the teacher\'s own record', () => {
-    expect(gateOf('GET', '/api/salary/teachers')).toEqual(['requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)']);
-    expect(gateOf('GET', '/api/salary/payroll-by-month')).toEqual(['requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)']);
-    expect(gateOf('GET', '/api/teachers/:teacherId/allowances')).toEqual(['selfOrModule(MODULES.HR)']);
-    expect(gateOf('PUT', '/api/teachers/:teacherId/allowances')).toEqual(['requireModule(MODULES.HR)']);
+  it('pay data is limited to HR with “See pay & salaries” (for their team), Finance / Analysis, or the teacher\'s own record', () => {
+    expect(gateOf('GET', '/api/salary/teachers')).toEqual(['payrollAccess()']);
+    expect(gateOf('GET', '/api/salary/payroll-by-month')).toEqual(['payrollAccess()']);
+    expect(gateOf('GET', '/api/salary/teachers/:teacherId')).toEqual(['selfOrTeamPay()']);
+    expect(gateOf('GET', '/api/teachers/:teacherId/allowances')).toEqual(['selfOrTeamPay()']);
+    expect(gateOf('PUT', '/api/teachers/:teacherId/allowances')).toEqual(['teamPay()']);
   });
 
   it('the school\'s finance figures are Finance / Analysis only; a teacher gets just their own pool figures', () => {
     expect(gateOf('GET', '/api/finance/summary')).toEqual(['requireAnyModule(MODULES.FINANCE, MODULES.ANALYSIS)']);
-    expect(gateOf('GET', '/api/salary/teacher-weights-by-month')).toEqual(['requireAnyModule(MODULES.HR, MODULES.FINANCE, MODULES.ANALYSIS)']);
-    expect(gateOf('GET', '/api/teachers/:teacherId/pay-pools')).toEqual(['selfOrModule(MODULES.HR)']);
+    expect(gateOf('GET', '/api/salary/teacher-weights-by-month')).toEqual(['payrollAccess()']);
+    expect(gateOf('GET', '/api/teachers/:teacherId/pay-pools')).toEqual(['selfOrTeamPay()']);
   });
 
-  it('granting and editing points is HR-only; a teacher\'s own points are theirs or HR\'s', () => {
-    expect(gateOf('POST', '/api/teachers/:teacherId/points/grant')).toEqual(['requireModule(MODULES.HR)']);
-    expect(gateOf('PATCH', '/api/transactions/:id')).toEqual(['requireModule(MODULES.HR)']);
-    expect(gateOf('GET', '/api/teachers/:teacherId/points')).toEqual(['selfOrModule(MODULES.HR)']);
-    expect(gateOf('POST', '/api/teachers/:teacherId/rewards/redeem')).toEqual(['selfOrModule(MODULES.HR)']);
+  it('HR grants points to their team, only whole-school HR edits the ledger; a teacher\'s own points are theirs or their team HR\'s', () => {
+    expect(gateOf('POST', '/api/teachers/:teacherId/points/grant')).toEqual(['teamMember()']);
+    expect(gateOf('PATCH', '/api/transactions/:id')).toEqual(['wholeSchoolHr()']);
+    expect(gateOf('GET', '/api/teachers/:teacherId/points')).toEqual(['selfOrTeam()']);
+    expect(gateOf('POST', '/api/teachers/:teacherId/rewards/redeem')).toEqual(['selfOrTeam()']);
   });
 
-  it('job applicants\' details and resumes are HR-only', () => {
-    expect(gateOf('GET', '/api/candidates')).toEqual(['requireModule(MODULES.HR)']);
-    expect(gateOf('GET', '/api/candidates/:id/resume')).toEqual(['requireModule(MODULES.HR)']);
+  it('job applicants\' details and resumes are for whole-school HR only', () => {
+    expect(gateOf('GET', '/api/candidates')).toEqual(['wholeSchoolHr()']);
+    expect(gateOf('GET', '/api/candidates/:id/resume')).toEqual(['wholeSchoolHr()']);
   });
 
-  it('settings-type templates (reward catalog, rules, positions, cost categories) are Admin-only to change', () => {
+  it('settings-type templates are changed only by the area whose Settings page they’re on (reward catalog → HR, positions → HR with pay, cost categories → Finance)', () => {
+    for (const [m, p, gate] of [
+      ['POST', '/api/points/rewards', 'requireModule(MODULES.HR)'], ['PATCH', '/api/points/rules/:id', 'requireModule(MODULES.HR)'],
+      ['PUT', '/api/salary/positions/:positionId', 'hrWithPay()'], ['POST', '/api/allowance-types', 'hrWithPay()'],
+      ['POST', '/api/operating-cost/categories', 'requireModule(MODULES.FINANCE)'], ['DELETE', '/api/career-missions/:id', 'requireModule(MODULES.HR)'],
+      ['POST', '/api/appraisal-templates', 'wholeSchoolHr()'], ['PUT', '/api/packages/programmes', 'requireModule(MODULES.MARKETING)'],
+      ['PATCH', '/api/settings/:key', 'settingKeyOwner()'],
+    ] as const) {
+      expect(gateOf(m, p), `${m} ${p}`).toEqual([gate]);
+    }
+  });
+
+  it('the company, integrations, AI, departments and team & access stay Admin-only', () => {
     for (const [m, p] of [
-      ['POST', '/api/points/rewards'], ['PATCH', '/api/points/rules/:id'], ['PUT', '/api/salary/positions/:positionId'],
-      ['POST', '/api/operating-cost/categories'], ['DELETE', '/api/career-missions/:id'], ['POST', '/api/allowance-types'],
+      ['PUT', '/api/ai/settings'], ['PATCH', '/api/google/calendar'], ['PUT', '/api/salary/departments/:departmentId'],
+      ['POST', '/api/auth/invite'], ['PUT', '/api/auth/users/:id/auth-roles'], ['POST', '/api/auth-roles'],
     ] as const) {
       expect(gateOf(m, p), `${m} ${p}`).toEqual(['adminMiddleware']);
     }
