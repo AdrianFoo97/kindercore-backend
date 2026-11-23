@@ -91,4 +91,18 @@ describe('Staff record — who someone can report to', () => {
     expect(personReportsToProblem('EI', null, false, positions, mgmt)).toMatch(/only Management staff/);
     expect(personReportsToProblem('EP', null, false, positions, mgmt)).toBeNull();
   });
+
+  it('follows the position reporting line — a Junior EI reports to a Supervisor or above, never a Senior EI', () => {
+    const line = [
+      { positionId: 'EI', name: 'Junior EI', departmentId: 'ACAD', titleWeight: 2, reportsToPositionId: 'SV' },
+      { positionId: 'SEI', name: 'Senior EI', departmentId: 'ACAD', titleWeight: 3, reportsToPositionId: 'SV' },
+      { positionId: 'SV', name: 'Supervisor', departmentId: 'ACAD', titleWeight: 4, reportsToPositionId: 'EP' },
+      { positionId: 'EP', name: 'Principal', departmentId: 'MGMT', titleWeight: 6, reportsToPositionId: null },
+    ];
+    const mgmt = new Set(['MGMT']);
+    expect(personReportsToProblem('EI', 'SV', true, line, mgmt)).toBeNull();
+    expect(personReportsToProblem('EI', 'EP', true, line, mgmt)).toBeNull();
+    expect(personReportsToProblem('EI', 'SEI', true, line, mgmt)).toBe('They report to someone in a position above theirs: Supervisor, Principal.');
+    expect(personReportsToProblem('SV', 'SEI', true, line, mgmt)).toMatch(/above theirs: Principal/);
+  });
 });

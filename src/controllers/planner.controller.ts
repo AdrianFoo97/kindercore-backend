@@ -262,7 +262,7 @@ export async function updateTeacher(req: Request, res: Response): Promise<void> 
     const managerId = parsed.data.reportsToTeacherId ?? null;
     const [mgr] = managerId ? await db.select({ positionId: teachers.positionId }).from(teachers).where(eq(teachers.id, managerId)) : [];
     const [allPositions, depts] = await Promise.all([
-      db.select({ positionId: positions.positionId, departmentId: positions.departmentId, titleWeight: positions.titleWeight }).from(positions),
+      db.select({ positionId: positions.positionId, name: positions.name, departmentId: positions.departmentId, titleWeight: positions.titleWeight, reportsToPositionId: positions.reportsToPositionId }).from(positions),
       db.select({ id: departments.departmentId, m: departments.isManagement }).from(departments),
     ]);
     const management = new Set(depts.filter(d => d.m).map(d => d.id));

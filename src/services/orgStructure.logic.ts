@@ -101,7 +101,7 @@ export function entryTiers<P extends CareerPosition>(all: P[], tiers: number): S
 // anyone in a Management department. Only Management staff may report to
 // nobody (the top of the organisation).
 
-export interface RankedPosition { positionId: string; departmentId: string | null; titleWeight: number }
+export interface RankedPosition { positionId: string; departmentId: string | null; titleWeight: number; reportsToPositionId?: string | null; name?: string }
 
 /** Why this person can't report to that manager (null = nobody) — or null when they can. */
 export function personReportsToProblem(
@@ -112,7 +112,29 @@ export function personReportsToProblem(
   const selfInManagement = !!self?.departmentId && management.has(self.departmentId);
   if (!managerChosen) return selfInManagement ? null : 'Pick who they report to — only Management staff can report to nobody.';
   const mgr = positions.find(p => p.positionId === managerPositionId) ?? null;
+  // Their position's reporting line (Settings → Positions) decides: anyone in a position above it in that line.
+  const line = positionsAbove(selfPositionId, positions);
+  if (line.length) {
+    if (mgr && line.some(p => p.positionId === mgr.positionId)) return null;
+    return `They report to someone in a position above theirs: ${line.map(p => p.name ?? p.positionId).join(', ')}.`;
+  }
+  // No line set for their position yet: someone higher in their own department, or anyone in Management.
   if (mgr?.departmentId && management.has(mgr.departmentId)) return null;
   if (self && mgr && self.departmentId && mgr.departmentId === self.departmentId && mgr.titleWeight > self.titleWeight) return null;
   return 'They can report to someone higher-ranked in their own department, or anyone in Management.';
+}
+
+/** The positions above this one in its reporting line, nearest first (Junior EI → Supervisor → … → Principal). Stops on a loop. */
+export function positionsAbove<P extends RankedPosition>(positionId: string | null, positions: P[]): P[] {
+  const out: P[] = [];
+  const seen = new Set<string>(positionId ? [positionId] : []);
+  let next = positions.find(p => p.positionId === positionId)?.reportsToPositionId ?? null;
+  while (next && !seen.has(next)) {
+    seen.add(next);
+    const p = positions.find(x => x.positionId === next);
+    if (!p) break;
+    out.push(p);
+    next = p.reportsToPositionId ?? null;
+  }
+  return out;
 }
