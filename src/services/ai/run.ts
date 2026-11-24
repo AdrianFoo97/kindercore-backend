@@ -1,7 +1,7 @@
 import { commonModelFor, effectiveChoice, loadCommonConfig, loadFeatureConfigs, makeClient } from './config.js';
 import { providerLabel, type AiFeatureKey } from './registry.js';
 import { recordAiRequest, requestsThisMonth, type AiRequestRecord } from './usage.js';
-import { AiError, type AiClient, type AiJsonTask } from './types.js';
+import { AiError, type AiClient, type AiImage, type AiImageTask, type AiJsonTask } from './types.js';
 
 // The one way every feature runs an AI task. It applies Settings → AI: the
 // feature's on/off and provider, the common backup and monthly limit — and
@@ -104,4 +104,53 @@ export async function runAiTask<T>(feature: AiFeatureKey, task: AiJsonTask, opts
   }
   if ('result' in first) return done(s.primary, first.result, null);
   throw first.error;
+}
+
+// ── Pictures ──
+
+/** The main provider if it can draw, else the backup if that can — Claude can't, OpenAI can. */
+function drawers(s: AiSetup): AiClient[] {
+  return [s.primary, s.backup].filter((c): c is AiClient => !!c?.makeImage);
+}
+
+export const NO_DRAWER_MESSAGE = 'None of the AI providers set up for this can draw images. An admin can choose OpenAI for it in Settings → AI.';
+
+/** Whether a drawing feature can be used right now (switched on, with a provider that can draw). */
+export async function aiImageStatus(feature: AiFeatureKey): Promise<{ available: boolean; reason: string | null }> {
+  const s = await aiSetup(feature);
+  if (!s.enabled) return { available: false, reason: 'This AI feature is switched off in Settings → AI.' };
+  if (!s.primary) return { available: false, reason: 'No AI provider is set up. An admin can set one up in Settings → AI.' };
+  return drawers(s).length ? { available: true, reason: null } : { available: false, reason: NO_DRAWER_MESSAGE };
+}
+
+export interface AiImageRun extends AiImage { provider: string; model: string }
+
+/**
+ * Draws a picture with the first provider that can draw (main, then backup);
+ * if that one fails, the next tries. Same on/off, limit and request record as runAiTask.
+ */
+export async function runAiImage(feature: AiFeatureKey, task: AiImageTask, opts: { userId: string }, setup?: AiSetup, ledger: AiLedger = DB_LEDGER): Promise<AiImageRun> {
+  const s = setup ?? await aiSetup(feature);
+  if (!s.enabled) throw new AiError('This AI feature is switched off in Settings → AI.');
+  const clients = drawers(s);
+  if (!clients.length) throw new AiError(NO_DRAWER_MESSAGE);
+  let lastError: AiError | null = null;
+  for (const client of clients) {
+    if (s.monthlyLimit !== null && (await ledger.countThisMonth(client.provider)) >= s.monthlyLimit) {
+      lastError = new AiError(`This month’s limit of ${s.monthlyLimit} AI requests with ${providerLabel(client.provider)} is used up.`);
+      continue;
+    }
+    const base = { feature, provider: client.provider, model: client.model, userId: opts.userId };
+    try {
+      const image = await client.makeImage!(task);
+      const model = image.model ?? client.model;
+      await ledger.record({ ...base, model, ok: true, passedChecks: true, usage: image.usage });
+      return { ...image, provider: client.provider, model };
+    } catch (e) {
+      await ledger.record({ ...base, ok: false, passedChecks: false, usage: null });
+      if (!(e instanceof AiError)) throw e;
+      lastError = e;
+    }
+  }
+  throw lastError!;
 }

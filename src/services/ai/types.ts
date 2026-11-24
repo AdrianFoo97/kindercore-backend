@@ -21,6 +21,22 @@ export interface AiJsonTask {
   schemaName: string;
   /** A PDF to read, if any. */
   pdf?: Buffer;
+  /** A document's text to read (e.g. a spreadsheet as CSV), if any — sent before the instructions. */
+  documentText?: string;
+}
+
+/** Draw one picture from a description (e.g. a guide's poster). */
+export interface AiImageTask {
+  prompt: string;
+  /** Portrait for a poster. */
+  orientation: 'portrait' | 'square' | 'landscape';
+}
+
+/** A drawn picture, plus what it cost. */
+export interface AiImage {
+  data: Buffer; mimeType: string; usage: AiUsage | null;
+  /** The model that drew it, when it isn't the client's own (e.g. an image model behind a text-model setting). */
+  model?: string;
 }
 
 /** One provider + model, ready to run tasks. Adapters translate only — they never decide. */
@@ -28,6 +44,8 @@ export interface AiClient {
   provider: string;
   model: string;
   runJson(task: AiJsonTask): Promise<AiAnswer>;
+  /** Only providers that can draw have this (OpenAI today; Claude can't make images). */
+  makeImage?(task: AiImageTask): Promise<AiImage>;
 }
 
 /** A model offered in Settings → AI's model picker. */
@@ -40,3 +58,8 @@ export class AiError extends Error {
     this.name = 'AiError';
   }
 }
+
+/** A document's text, fenced so the model reads it as data, never as instructions. */
+export const documentBlock = (text: string) => `<document>
+${text}
+</document>`;

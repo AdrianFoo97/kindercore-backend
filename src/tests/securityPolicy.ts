@@ -57,6 +57,9 @@ export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/sop-revisions': 'Guide improvement proposals — the handler shows non-reviewers only their own.',
   'GET /api/sop-revisions/:id': 'One proposal — scoped in the handler like the list.',
   'POST /api/sop-revisions': 'Any staff member can propose an improvement to a guide.',
+  'POST /api/sop-steps/images': 'A photo for a guide step — anyone who can propose a guide change can add one; it only shows once a step uses it.',
+  'GET /api/sop-templates/:id/poster/image/:imageId': 'A How-To Guide poster picture — guides are read by all staff.',
+  'GET /api/sop-steps/images/:id': 'A guide step photo — guides are read by all staff.',
   'POST /api/sop-revisions/:id/resubmit': 'Resending your own suggestion after a send-back — the handler only allows the person who sent it.',
   'POST /api/upload/bug-report-photos': 'Screenshots attached to a bug report (anyone signed in can report a bug).',
   'POST /api/incidents': 'Any staff member must be able to report an incident with a child, straight away.',
@@ -69,5 +72,6 @@ export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'PATCH /api/purchase-requests/:id': 'Editing your own purchase request — the handler allows only the requester, and only before approval.',
   'DELETE /api/purchase-requests/:id': 'Withdrawing your own purchase request — the handler allows only the requester, and only before approval.',
   'POST /api/purchase-requests/:id/bought-myself': 'Marking your own self-buy as bought (cost + receipt) — the handler allows only the requester, only for "I\'ll buy it myself" requests, and only once approved.',
+  'GET /api/purchase-requests/:id/photos/:fileId': 'A purchase request\'s photo — the handler only serves it to the requester, shopping-list managers or Admins.',
   'GET /api/facility-issues/:id/attachments/:fileId': 'A report\'s photo / video — the handler only serves it to the reporter, facility managers or Admins.',
 };

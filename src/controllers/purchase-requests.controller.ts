@@ -11,6 +11,8 @@ import { parseWeek, weekRange, weekSpend } from '../services/purchaseWeek.servic
 import { sendPrivateFile } from '../services/privateUploads.service.js';
 import { notify, notifyOwner } from '../services/notifications.service.js';
 import { itemBoughtMessage, itemRequestedMessage, myRequestMessage } from '../services/notifications.logic.js';
+import { PURCHASE_PHOTOS_DIR } from '../services/purchasePhotos.service.js';
+import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 
 // Purchase requests (Operation → Shopping List). Any staff member asks for
 // something to be bought; shopping-list managers (OPERATION_PURCHASE_MANAGE
@@ -75,14 +77,17 @@ export function parseCost(raw: unknown): { ok: true; value: string | null | unde
 
 /** Any signed-in staff member can ask for something to be bought; "Requested by" and the time are the server's. */
 export async function createPurchaseRequest(req: Request, res: Response): Promise<void> {
+  // Photos (optional) arrive as multipart — purchasePhotosUpload has already saved them; a refused request deletes them.
+  const photos = (req.files as Express.Multer.File[] | undefined) ?? [];
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) { validationError(res, parsed.error); return; }
+  if (!parsed.success) { discardUploads(photos); validationError(res, parsed.error); return; }
   const d = parsed.data;
   const who = await actor(req);
   const now = new Date();
   const id = randomUUID();
   await db.transaction(async tx => {
     await tx.insert(purchaseRequests).values({
+      photos: photos.length ? photos.map(toAttachment) : null,
       id, item: d.item, quantity: d.quantity, purpose: d.purpose,
       note: d.note || null, link: d.link || null, status: 'REQUESTED', buyer: d.buyer,
       requestedByUserId: who.authorUserId, requestedByName: who.authorName,
@@ -374,4 +379,18 @@ export async function getPurchaseReceipt(req: Request, res: Response): Promise<v
   const existing = await loadOne(req.params.id);
   if (!existing?.receipt) { res.status(404).json({ message: 'No receipt' }); return; }
   sendPrivateFile(res, PURCHASE_RECEIPTS_DIR, existing.receipt.id, existing.receipt.mime);
+}
+
+/** A photo the requester attached — to them, the shopping-list managers and Admins (asked for with or without its extension, see facility attachments). */
+export async function getPurchasePhoto(req: Request, res: Response): Promise<void> {
+  const existing = await loadOne(req.params.id);
+  const wanted = req.params.fileId;
+  const file = existing?.photos?.find(p => p.id === wanted || p.id.replace(/\.[a-z0-9]+$/i, '') === wanted);
+  if (!existing || !file) { res.status(404).json({ message: 'Photo not found' }); return; }
+  const mayView = existing.requestedByUserId === req.user!.id
+    || isAdminRole(req.user!.role)
+    || (await resolveGrants(req.user!.id)).views.has('OPERATION_PURCHASE_MANAGE');
+  if (!mayView) { res.status(403).json({ message: 'Forbidden' }); return; }
+  // The id comes from the stored list, never straight from the URL, so it can't point outside the folder.
+  sendPrivateFile(res, PURCHASE_PHOTOS_DIR, file.id, file.mime);
 }

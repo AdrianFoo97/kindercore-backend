@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import {
   approveAllPurchases, approvePurchase, cancelPurchaseRequest, createPurchaseRequest, getPurchaseReceipt, getShoppingList,
-  listMyPurchaseRequests, markBoughtMyself, markPurchaseBought, markPurchaseNotBuying, returnPurchaseToList, setPurchaseNote, updatePurchaseRequest,
+  listMyPurchaseRequests, markBoughtMyself, markPurchaseBought, markPurchaseNotBuying, returnPurchaseToList, setPurchaseNote, updatePurchaseRequest, getPurchasePhoto
 } from '../controllers/purchase-requests.controller.js';
 import { authMiddleware, requireView } from '../middlewares/auth.middleware.js';
 import { purchaseReceiptUpload } from '../services/purchaseReceipts.service.js';
+import { purchasePhotosUpload } from '../services/purchasePhotos.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const purchaseRequestsRouter = Router();
@@ -15,7 +16,9 @@ export const purchaseRequestsRouter = Router();
 //    (ownership + status checked in the handler);
 //  - shopping-list managers (OPERATION_PURCHASE_MANAGE view, granted per role
 //    in Admin → Views; Admins always) approve the list and tick items off.
-purchaseRequestsRouter.post('/purchase-requests', authMiddleware, asyncHandler(createPurchaseRequest));
+purchaseRequestsRouter.post('/purchase-requests', authMiddleware, purchasePhotosUpload, asyncHandler(createPurchaseRequest));
+// A request's photo — the handler lets in only the requester, shopping-list managers and Admins.
+purchaseRequestsRouter.get('/purchase-requests/:id/photos/:fileId', authMiddleware, asyncHandler(getPurchasePhoto));
 purchaseRequestsRouter.get('/purchase-requests/mine', authMiddleware, asyncHandler(listMyPurchaseRequests));
 purchaseRequestsRouter.patch('/purchase-requests/:id', authMiddleware, asyncHandler(updatePurchaseRequest));
 purchaseRequestsRouter.delete('/purchase-requests/:id', authMiddleware, asyncHandler(cancelPurchaseRequest));

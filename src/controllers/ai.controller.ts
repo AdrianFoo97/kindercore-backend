@@ -44,6 +44,12 @@ const commonSchema = z.object({
   monthlyLimit: z.number().int().min(1).max(MAX_MONTHLY_LIMIT).nullable(),
 });
 
+/** Providers with a working API key — the only ones that may be newly chosen. */
+async function usableProviders(): Promise<Set<ProviderId>> {
+  return new Set((await providerStatuses()).filter(s => s.keySource && !s.keyUnreadable).map(s => s.id));
+}
+const noKeyMessage = (p: ProviderId) => `${PROVIDERS[p].label} has no working API key — add one in the Providers tab first.`;
+
 export async function putAiCommon(req: Request, res: Response): Promise<void> {
   const parsed = commonSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ message: 'Some AI settings are invalid.' }); return; }
@@ -53,6 +59,12 @@ export async function putAiCommon(req: Request, res: Response): Promise<void> {
   const next: CommonAiConfig = { provider: c.provider, backup: c.backup, models, monthlyLimit: c.monthlyLimit };
   for (const p of [next.provider, next.backup]) {
     if (p && !commonModelFor(next, p)) { res.status(400).json({ message: `Enter the ${PROVIDERS[p].label} model to use.` }); return; }
+  }
+  // Only a provider that can be used (it has a working key) may be newly chosen as the default or backup.
+  // One already saved can stay while its key is sorted out, so the rest of the settings can still be saved.
+  const [saved, usable] = await Promise.all([loadCommonConfig(), usableProviders()]);
+  for (const [p, was] of [[next.provider, saved.provider], [next.backup, saved.backup]] as const) {
+    if (p && p !== was && !usable.has(p)) { res.status(400).json({ message: noKeyMessage(p) }); return; }
   }
   await saveCommonConfig(next);
   res.json(await settingsView());
@@ -70,6 +82,11 @@ export async function putAiFeature(req: Request, res: Response): Promise<void> {
   if (!parsed.success) { res.status(400).json({ message: 'Some settings for this feature are invalid.' }); return; }
   const f = parsed.data as FeatureAiConfig;
   const next: FeatureAiConfig = { enabled: f.enabled, provider: f.provider, model: f.provider ? (f.model || null) : null };
+  // A feature's own provider follows the same rule: only one with a working key may be newly chosen.
+  const was = (await loadFeatureConfigs())[req.params.key].provider;
+  if (next.provider && next.provider !== was && !(await usableProviders()).has(next.provider)) {
+    res.status(400).json({ message: noKeyMessage(next.provider) }); return;
+  }
   if (next.provider && !next.model && !commonModelFor(await loadCommonConfig(), next.provider)) {
     res.status(400).json({ message: `Enter the ${PROVIDERS[next.provider].label} model for this feature.` }); return;
   }

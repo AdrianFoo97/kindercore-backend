@@ -8,6 +8,7 @@ import {
   sopTemplateRevisions, sopTemplates, sopSteps, sopTemplateCategories, users,
 } from '../db/schema.js';
 import { notify } from '../services/notifications.service.js';
+import { UNKNOWN_IMAGE_MESSAGE, unknownGuideImageIds } from '../services/guideStepImages.service.js';
 import { guideSuggestedMessage } from '../services/notifications.logic.js';
 
 // mysql2 only auto-parses a JSON column if the server reports it as the
@@ -74,7 +75,16 @@ const proposedStepSchema = z.object({
   title: z.string().min(1).max(191),
   detail: z.string().nullable().optional(),
   linkedTemplateId: z.string().min(1).max(36).nullable().optional(),
+  /** A stored step photo (POST /sop-steps/images). */
+  imageId: z.string().uuid().nullable().optional(),
 });
+
+/** True (and answered 400) when a step points at a photo that isn't a stored step photo. */
+async function refusedImages(steps: { imageId?: string | null }[], res: Response): Promise<boolean> {
+  if (!(await unknownGuideImageIds(steps.map(st => st.imageId))).length) return false;
+  res.status(400).json({ message: UNKNOWN_IMAGE_MESSAGE });
+  return true;
+}
 
 const createRevisionSchema = z.object({
   // Editing an existing SOP vs. proposing a brand-new one — a new proposal
@@ -163,6 +173,7 @@ export async function createRevision(req: Request, res: Response): Promise<void>
     res.status(400).json({ message: REASONS_REQUIRED });
     return;
   }
+  if (await refusedImages(parsed.data.steps, res)) return;
   const [userRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, proposer.id));
 
   const now = new Date();
@@ -220,6 +231,7 @@ export async function updateRevision(req: Request, res: Response): Promise<void>
     res.status(409).json({ message: 'Revision has already been reviewed' });
     return;
   }
+  if (await refusedImages(parsed.data.steps, res)) return;
 
   await db.update(sopTemplateRevisions).set({
     title: parsed.data.title,
@@ -255,7 +267,7 @@ export async function approveRevision(req: Request, res: Response): Promise<void
   const reviewer = req.user!;
   const [reviewerRow] = await db.select({ name: users.name }).from(users).where(eq(users.id, reviewer.id));
   const now = new Date();
-  const steps = parseJsonField(revision.stepsJson) as { section: string; title: string; detail?: string | null; linkedTemplateId?: string | null }[];
+  const steps = parseJsonField(revision.stepsJson) as { section: string; title: string; detail?: string | null; linkedTemplateId?: string | null; imageId?: string | null }[];
   const categoryIds = revision.categoryIdsJson == null ? null : (parseJsonField(revision.categoryIdsJson) as string[]);
 
   let templateId = revision.sopTemplateId;
@@ -309,6 +321,7 @@ export async function approveRevision(req: Request, res: Response): Promise<void
         title: st.title,
         detail: st.detail ?? null,
         linkedTemplateId: st.linkedTemplateId ?? null,
+        imageId: st.imageId ?? null,
         displayOrder: i,
         createdAt: now,
         updatedAt: now,
@@ -434,6 +447,7 @@ export async function resubmitRevision(req: Request, res: Response): Promise<voi
     res.status(400).json({ message: REASONS_REQUIRED });
     return;
   }
+  if (await refusedImages(parsed.data.steps, res)) return;
 
   await db.update(sopTemplateRevisions).set({
     title: parsed.data.title,

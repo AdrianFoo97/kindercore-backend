@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import {
@@ -37,7 +37,7 @@ export async function listMissions(req: Request, res: Response): Promise<void> {
   res.json(rows);
 }
 
-const upsertMissionSchema = z.object({
+export const upsertMissionSchema = z.object({
   positionId: z.string().min(1).max(10),
   title: z.string().min(1).max(191),
   category: z.string().min(1).max(50),
@@ -135,6 +135,37 @@ export async function deleteMission(req: Request, res: Response): Promise<void> 
   if (!existing) { res.status(404).json({ message: 'Mission not found' }); return; }
   await db.update(careerMissions).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(careerMissions.id, id));
   res.json({ ok: true });
+}
+
+/** How many missions one bulk action may touch (a position has a few dozen at most). */
+const MAX_BULK = 500;
+
+const bulkSchema = z.object({
+  ids: z.array(z.string().min(1).max(36)).min(1).max(MAX_BULK),
+  /** Archive them (same as deleting one by one) … */
+  delete: z.literal(true).optional(),
+  /** … or set the same details on all of them. */
+  set: z.object({
+    difficulty: z.enum(DIFFICULTIES).optional(),
+    required: z.boolean().optional(),
+    highPriority: z.boolean().optional(),
+    category: z.string().min(1).max(50).optional(),
+  }).strict().optional(),
+}).refine(b => !!b.delete !== !!(b.set && Object.keys(b.set).length), 'Choose either delete or the details to change.');
+
+/** Several missions at once: archive them, or change the same details on all of them. All or nothing. */
+export async function bulkUpdateMissions(req: Request, res: Response): Promise<void> {
+  const parsed = bulkSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ message: parsed.error.errors[0]?.message ?? 'Validation error' }); return; }
+  const { ids, set } = parsed.data;
+  if (set?.category && !(await assertCategoryExists(set.category))) { res.status(400).json({ message: `Category "${set.category}" does not exist` }); return; }
+  const found = await db.select({ id: careerMissions.id }).from(careerMissions).where(and(inArray(careerMissions.id, ids), isNull(careerMissions.deletedAt)));
+  if (found.length !== new Set(ids).size) { res.status(404).json({ message: 'Some of those missions no longer exist — reload and try again.' }); return; }
+  const now = new Date();
+  await db.update(careerMissions)
+    .set(parsed.data.delete ? { deletedAt: now, updatedAt: now } : { ...set, updatedAt: now })
+    .where(inArray(careerMissions.id, ids));
+  res.json({ updated: found.length });
 }
 
 const reorderSchema = z.object({

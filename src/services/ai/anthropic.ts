@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { AiError, type AiAnswer, type AiClient, type AiJsonTask, type ModelOption } from './types.js';
+import { AiError, type AiAnswer, type AiClient, type AiJsonTask, type ModelOption, documentBlock } from './types.js';
 
 // Anthropic (Claude) behind the AI layer. Translates only: a task in, the
 // parsed answer out. Deciding what to do with it is the feature's job.
@@ -26,6 +26,7 @@ export function anthropicClient(opts: { apiKey?: string; model?: string; client?
     async runJson(task: AiJsonTask): Promise<AiAnswer> {
       const content: Anthropic.Beta.Messages.BetaContentBlockParam[] = [];
       if (task.pdf) content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: task.pdf.toString('base64') } });
+      if (task.documentText !== undefined) content.push({ type: 'text', text: documentBlock(task.documentText) });
       content.push({ type: 'text', text: task.instructions });
       let message: Anthropic.Beta.Messages.BetaMessage;
       try {

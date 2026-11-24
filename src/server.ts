@@ -1093,6 +1093,15 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // SopStep — an optional photo per How-To Guide step (StoredImage id).
+    `ALTER TABLE \`SopStep\` ADD COLUMN \`imageId\` VARCHAR(36) NULL AFTER \`linkedTemplateId\``,
+    // SopTemplate — the AI-drawn poster, the guide version it was drawn from, and a new one awaiting review.
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`posterImageId\` VARCHAR(36) NULL AFTER \`icon\``,
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`posterVersion\` INT NULL AFTER \`posterImageId\``,
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`posterMadeAt\` DATETIME(3) NULL AFTER \`posterVersion\``,
+    `ALTER TABLE \`SopTemplate\` ADD COLUMN \`posterDraftImageId\` VARCHAR(36) NULL AFTER \`posterMadeAt\``,
+    // PurchaseRequest — photos the requester attached.
+    `ALTER TABLE \`PurchaseRequest\` ADD COLUMN \`photos\` JSON NULL AFTER \`link\``,
     // OperatingCost — the P&L import that filled this amount (null = typed in).
     `ALTER TABLE \`OperatingCost\` ADD COLUMN \`importId\` VARCHAR(36) NULL AFTER \`includeInOperatingCostSum\``,
     // BugReport — a short title above the description.

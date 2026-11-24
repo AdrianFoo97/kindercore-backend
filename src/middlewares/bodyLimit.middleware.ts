@@ -10,7 +10,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 export const SMALL_JSON_LIMIT = '1mb';
 export const LARGE_JSON_LIMIT = '10mb';
 /** The routes allowed a large body (each reads it in its route, after the access checks). */
-export const LARGE_BODY_PATHS = ['/api/candidates/import', '/api/operating-cost/import/read', '/api/ai/compare/pnl-reading'];
+export const LARGE_BODY_PATHS = ['/api/candidates/import', '/api/operating-cost/import/read', '/api/ai/compare/pnl-reading', '/api/career-missions/import/read'];
 
 const small = express.json({ limit: SMALL_JSON_LIMIT });
 

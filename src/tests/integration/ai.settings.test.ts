@@ -75,3 +75,20 @@ describe('Settings — AI (shared by every AI feature)', () => {
     expect((await call(putAiKey, { key: 'short' }, { provider: 'anthropic' })).statusCode).toBe(400);
   });
 });
+
+describe('Settings — AI: only a provider that can be used', () => {
+  it('won’t newly choose a provider with no API key — as the default, the backup or a feature’s own — though one already chosen can stay while its key is sorted out', async () => {
+    const noKey = await call(putAiCommon, { provider: 'anthropic', backup: null, models: {}, monthlyLimit: null });
+    expect(noKey.statusCode).toBe(400);
+    expect(noKey.body.message).toMatch(/no working API key/);
+    expect((await call(putAiFeature, { enabled: true, provider: 'openai', model: 'gpt-x' }, { key: 'pnl-reading' })).statusCode).toBe(400);
+
+    await call(putAiKey, { key: KEY }, { provider: 'anthropic' });
+    expect((await call(putAiCommon, { provider: 'anthropic', backup: null, models: {}, monthlyLimit: null })).statusCode).toBe(200);
+    expect((await call(putAiCommon, { provider: 'anthropic', backup: 'openai', models: { openai: 'gpt-x' }, monthlyLimit: null })).statusCode).toBe(400);
+
+    // The key goes: the saved default stays, and other settings can still be saved.
+    await call(deleteAiKey, {}, { provider: 'anthropic' });
+    expect((await call(putAiCommon, { provider: 'anthropic', backup: null, models: {}, monthlyLimit: 50 })).statusCode).toBe(200);
+  });
+});

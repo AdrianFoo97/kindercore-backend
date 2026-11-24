@@ -647,6 +647,14 @@ export const sopTemplates = mysqlTable('SopTemplate', {
   // FA icon name (with the `fa` prefix, e.g. 'faClipboardCheck') — see
   // ALLOWED_ICONS in sop-templates.controller.ts for the picker allow-list.
   icon: varchar('icon', { length: 50 }).notNull().default('faClipboardCheck'),
+  // The AI-drawn poster (StoredImage, kind 'guide-poster') — made once on request
+  // and reused; posterVersion is the guide version it was drawn from, so an
+  // older poster can be flagged. posterDraftImageId: a new one waiting to be
+  // checked (Use this / Try again) before it replaces the poster.
+  posterImageId: varchar('posterImageId', { length: 36 }),
+  posterVersion: int('posterVersion'),
+  posterMadeAt: datetime('posterMadeAt', { mode: 'date', fsp: 3 }),
+  posterDraftImageId: varchar('posterDraftImageId', { length: 36 }),
   displayOrder: int('displayOrder').notNull().default(0),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -824,6 +832,8 @@ export const purchaseRequests = mysqlTable('PurchaseRequest', {
   buyer: mysqlEnum('buyer', ['SUPERVISOR', 'SELF']).notNull().default('SUPERVISOR'),
   cost: decimal('cost', { precision: 10, scale: 2 }),
   // Receipt photo — private upload root (purchaseReceipts.service), managers only.
+  // Photos the requester attached (e.g. the exact product) — private files, see purchasePhotos.service.
+  photos: jsonColumn('photos').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }[]>(),
   receipt: jsonColumn('receipt').$type<{ id: string; kind: 'image' | 'video'; mime: string; size: number; name: string }>(),
   declineReason: varchar('declineReason', { length: 500 }),
   // The supervisor's note on the item ("Out of stock at MR DIY, trying again
@@ -940,6 +950,10 @@ export const sopSteps = mysqlTable('SopStep', {
   // Left dangling (not nulled out) if the target is later deleted; the
   // frontend only renders the link when it can still resolve a title.
   linkedTemplateId: varchar('linkedTemplateId', { length: 36 }),
+  // Optional photo for the step (StoredImage, kind 'guide-step') — shown on the
+  // guide and its poster. Never changed in place: a new photo is a new id, so
+  // older revisions keep the picture they had.
+  imageId: varchar('imageId', { length: 36 }),
   displayOrder: int('displayOrder').notNull().default(0),
   deletedAt: datetime('deletedAt', { mode: 'date', fsp: 3 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),

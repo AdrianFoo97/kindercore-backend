@@ -4,6 +4,8 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { sopSteps, sopTemplates } from '../db/schema.js';
+import { findImage, idFromFileName, saveImage } from '../services/storedImage.service.js';
+import { GUIDE_STEP_IMAGE_KIND, UNKNOWN_IMAGE_MESSAGE, unknownGuideImageIds } from '../services/guideStepImages.service.js';
 
 async function assertTemplateExists(sopTemplateId: string): Promise<boolean> {
   const [row] = await db.select({ id: sopTemplates.id }).from(sopTemplates).where(eq(sopTemplates.id, sopTemplateId));
@@ -28,6 +30,7 @@ const upsertStepSchema = z.object({
   title: z.string().min(1).max(191),
   detail: z.string().nullable().optional(),
   linkedTemplateId: z.string().min(1).max(36).nullable().optional(),
+  imageId: z.string().uuid().nullable().optional(),
   displayOrder: z.number().int().min(0).optional(),
 });
 
@@ -54,6 +57,10 @@ export async function createStep(req: Request, res: Response): Promise<void> {
     res.status(400).json({ message: 'Linked How-To Guide does not exist' });
     return;
   }
+  if ((await unknownGuideImageIds([parsed.data.imageId])).length) {
+    res.status(400).json({ message: UNKNOWN_IMAGE_MESSAGE });
+    return;
+  }
   const now = new Date();
   let displayOrder = parsed.data.displayOrder;
   if (displayOrder == null) {
@@ -71,6 +78,7 @@ export async function createStep(req: Request, res: Response): Promise<void> {
     title: parsed.data.title,
     detail: parsed.data.detail ?? null,
     linkedTemplateId: parsed.data.linkedTemplateId ?? null,
+    imageId: parsed.data.imageId ?? null,
     displayOrder,
     createdAt: now,
     updatedAt: now,
@@ -105,6 +113,10 @@ export async function updateStep(req: Request, res: Response): Promise<void> {
       res.status(400).json({ message: 'Linked How-To Guide does not exist' });
       return;
     }
+  }
+  if ((await unknownGuideImageIds([parsed.data.imageId])).length) {
+    res.status(400).json({ message: UNKNOWN_IMAGE_MESSAGE });
+    return;
   }
   await db.update(sopSteps).set({ ...parsed.data, updatedAt: new Date() }).where(eq(sopSteps.id, id));
   const [row] = await db.select().from(sopSteps).where(eq(sopSteps.id, id));
@@ -141,4 +153,21 @@ export async function reorderSteps(req: Request, res: Response): Promise<void> {
     }
   });
   res.json({ ok: true });
+}
+
+/** A step photo, from the editor — stored now; it only appears on the guide once a step (or an approved proposal) uses it. */
+export async function uploadStepImage(req: Request, res: Response): Promise<void> {
+  if (!req.file) { res.status(400).json({ message: 'Choose a photo to add' }); return; }
+  const id = await saveImage(GUIDE_STEP_IMAGE_KIND, req.file.mimetype, req.file.buffer);
+  res.status(201).json({ id });
+}
+
+/** A step photo, for signed-in staff. The id never changes what it shows, so it can be cached for good. */
+export async function getStepImage(req: Request, res: Response): Promise<void> {
+  const image = await findImage(GUIDE_STEP_IMAGE_KIND, idFromFileName(req.params.id));
+  if (!image) { res.status(404).json({ message: 'Photo not found' }); return; }
+  res.setHeader('Content-Type', image.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(image.data);
 }

@@ -12,7 +12,7 @@ const ALLOWED_ICONS = [
   'faHeart', 'faTrophy', 'faMedal',
 ] as const;
 
-const upsertSchema = z.object({
+export const upsertCategorySchema = z.object({
   code: z.string().min(1).max(50).regex(/^[A-Z0-9_]+$/, 'Code must be uppercase letters, digits, or underscore'),
   name: z.string().min(1).max(191),
   achievementName: z.string().min(1).max(191),
@@ -28,7 +28,7 @@ export async function listCategories(_req: Request, res: Response): Promise<void
 }
 
 export async function createCategory(req: Request, res: Response): Promise<void> {
-  const parsed = upsertSchema.safeParse(req.body);
+  const parsed = upsertCategorySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ message: 'Validation error', errors: parsed.error.errors });
     return;
@@ -59,7 +59,7 @@ export async function createCategory(req: Request, res: Response): Promise<void>
   res.json(row);
 }
 
-const patchSchema = upsertSchema.partial().omit({ code: true });
+const patchSchema = upsertCategorySchema.partial().omit({ code: true });
 
 export async function updateCategory(req: Request, res: Response): Promise<void> {
   const { code } = req.params;

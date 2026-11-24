@@ -97,6 +97,9 @@ describe('Security — a default teacher cannot approve, decide or manage', () =
   const MANAGER_ACTIONS: [string, string, unknown?][] = [
     // How-To Guides — reviewing suggestions and editing the live guides.
     ['POST', '/api/sop-revisions/any/approve'],
+    // How-To Guides — making (or replacing) a guide's AI poster.
+    ['POST', '/api/sop-templates/any/poster/draft'],
+    ['POST', '/api/sop-templates/any/poster/accept'],
     // Practice observations — certifying a trainee, or sending them back for more training.
     ['POST', '/api/sop-observations/any/advance', {}],
     ['POST', '/api/sop-observations/any/send-back', { stepResults: [] }],

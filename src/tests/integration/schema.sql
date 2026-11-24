@@ -842,6 +842,7 @@ CREATE TABLE `PurchaseRequest` (
   `purpose` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `note` text COLLATE utf8mb4_unicode_ci,
   `link` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `photos` json DEFAULT NULL,
   `status` enum('REQUESTED','APPROVED','BOUGHT','NOT_BUYING','CANCELLED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'REQUESTED',
   `buyer` enum('SUPERVISOR','SELF') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'SUPERVISOR',
   `cost` decimal(10,2) DEFAULT NULL,
@@ -1033,6 +1034,7 @@ CREATE TABLE `SopStep` (
   `createdAt` datetime(3) NOT NULL,
   `updatedAt` datetime(3) NOT NULL,
   `linkedTemplateId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `imageId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `SopStep_sopTemplateId_idx` (`sopTemplateId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1050,6 +1052,10 @@ CREATE TABLE `SopTemplate` (
   `videoUrl` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `currentVersion` int NOT NULL DEFAULT '1',
   `icon` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'faClipboardCheck',
+  `posterImageId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `posterVersion` int DEFAULT NULL,
+  `posterMadeAt` datetime(3) DEFAULT NULL,
+  `posterDraftImageId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

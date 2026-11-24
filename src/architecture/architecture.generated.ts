@@ -206,6 +206,17 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "comparePnlReading",
           "controller": "ai.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/rewrite-message",
+          "middleware": [
+            "authMiddleware",
+            "requireAnyModule(MODULES.MARKETING, MODULES.HR)",
+            "aiRequestLimit"
+          ],
+          "handler": "rewriteMessageHandler",
+          "controller": "messageRewrite.controller"
         }
       ]
     },
@@ -1169,6 +1180,48 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "reorderMissions",
           "controller": "career-missions.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/career-missions/bulk",
+          "middleware": [
+            "authMiddleware",
+            "wholeSchoolHr()"
+          ],
+          "handler": "bulkUpdateMissions",
+          "controller": "career-missions.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/career-missions/import/template",
+          "middleware": [
+            "authMiddleware",
+            "wholeSchoolHr()"
+          ],
+          "handler": "getMissionTemplate",
+          "controller": "missionImport.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/career-missions/import/read",
+          "middleware": [
+            "authMiddleware",
+            "wholeSchoolHr()",
+            "aiRequestLimit",
+            "missionFileUpload"
+          ],
+          "handler": "readMissionImport",
+          "controller": "missionImport.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/career-missions/import/apply",
+          "middleware": [
+            "authMiddleware",
+            "wholeSchoolHr()"
+          ],
+          "handler": "applyMissionImportHandler",
+          "controller": "missionImport.controller"
         },
         {
           "method": "GET",
@@ -2752,9 +2805,19 @@ export const ARCHITECTURE: Architecture = {
           "method": "POST",
           "path": "/api/purchase-requests",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "purchasePhotosUpload"
           ],
           "handler": "createPurchaseRequest",
+          "controller": "purchase-requests.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/purchase-requests/:id/photos/:fileId",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getPurchasePhoto",
           "controller": "purchase-requests.controller"
         },
         {
@@ -3399,6 +3462,25 @@ export const ARCHITECTURE: Architecture = {
         },
         {
           "method": "POST",
+          "path": "/api/sop-steps/images",
+          "middleware": [
+            "authMiddleware",
+            "guideStepImageUpload"
+          ],
+          "handler": "uploadStepImage",
+          "controller": "sop-steps.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sop-steps/images/:id",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getStepImage",
+          "controller": "sop-steps.controller"
+        },
+        {
+          "method": "POST",
           "path": "/api/sop-steps",
           "middleware": [
             "authMiddleware",
@@ -3451,6 +3533,56 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "listTemplates",
           "controller": "sop-templates.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sop-templates/poster/ai-status",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
+          ],
+          "handler": "getPosterAiStatus",
+          "controller": "guidePoster.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop-templates/:id/poster/draft",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')",
+            "aiRequestLimit"
+          ],
+          "handler": "drawPoster",
+          "controller": "guidePoster.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop-templates/:id/poster/accept",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
+          ],
+          "handler": "acceptPoster",
+          "controller": "guidePoster.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sop-templates/:id/poster/draft",
+          "middleware": [
+            "authMiddleware",
+            "requireView('OPERATION_SOP_APPROVE')"
+          ],
+          "handler": "discardPoster",
+          "controller": "guidePoster.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sop-templates/:id/poster/image/:imageId",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getPosterImage",
+          "controller": "guidePoster.controller"
         },
         {
           "method": "POST",
@@ -4133,6 +4265,17 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "guidePoster.controller",
+      "services": [
+        "index",
+        "run",
+        "storedImage.service",
+        "types"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "incidents.controller",
       "services": [
         "notifications.logic",
@@ -4195,6 +4338,14 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "messageRewrite.controller",
+      "services": [
+        "index"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "mission-categories.controller",
       "services": [],
       "controllers": [],
@@ -4202,6 +4353,17 @@ export const ARCHITECTURE: Architecture = {
         "CareerMission",
         "MissionCategory"
       ]
+    },
+    {
+      "id": "missionImport.controller",
+      "services": [
+        "index"
+      ],
+      "controllers": [
+        "career-missions.controller",
+        "mission-categories.controller"
+      ],
+      "tables": []
     },
     {
       "id": "notifications.controller",
@@ -4300,6 +4462,7 @@ export const ARCHITECTURE: Architecture = {
         "notifications.service",
         "privateUploads.service",
         "purchaseLog.service",
+        "purchasePhotos.service",
         "purchaseReceipts.service",
         "purchaseWeek.service"
       ],
@@ -4379,6 +4542,7 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "sop-revisions.controller",
       "services": [
+        "guideStepImages.service",
         "notifications.logic",
         "notifications.service"
       ],
@@ -4401,7 +4565,10 @@ export const ARCHITECTURE: Architecture = {
     },
     {
       "id": "sop-steps.controller",
-      "services": [],
+      "services": [
+        "guideStepImages.service",
+        "storedImage.service"
+      ],
       "controllers": [],
       "tables": [
         "SopStep",
@@ -4653,6 +4820,14 @@ export const ARCHITECTURE: Architecture = {
       "tables": []
     },
     {
+      "id": "guideStepImages.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "StoredImage"
+      ]
+    },
+    {
       "id": "messageTemplates.logic",
       "services": [],
       "controllers": [],
@@ -4780,6 +4955,12 @@ export const ARCHITECTURE: Architecture = {
       "tables": [
         "PurchaseRequestLog"
       ]
+    },
+    {
+      "id": "purchasePhotos.service",
+      "services": [],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "purchaseReceipts.service",

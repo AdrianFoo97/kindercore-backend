@@ -42,6 +42,9 @@ export interface AiFeature {
 /** Every feature that uses AI. */
 export const AI_FEATURES = [
   { key: 'pnl-reading', label: 'Read P&L statements', category: 'Finance', description: 'Reads the P&L PDF when importing it into Operating Costs.' },
+  { key: 'message-rewrite', label: 'Rewrite message templates', category: 'Marketing', description: 'Rewrites a WhatsApp message template the way you ask (e.g. more professional), keeping its placeholders.' },
+  { key: 'guide-poster', label: 'Draw How-To Guide posters', category: 'Operation', description: 'Draws a printable poster of a guide’s steps. Needs a provider that can draw images (OpenAI).' },
+  { key: 'career-mission-reading', label: 'Read career mission lists', category: 'HR', description: 'Reads an Excel or PDF list of career missions and categories when importing them.' },
 ] as const satisfies readonly AiFeature[];
 
 export type AiFeatureKey = typeof AI_FEATURES[number]['key'];
