@@ -11,7 +11,7 @@ import { PASSWORD, activeUser } from '../fixtures/users.js';
 let server: LiveServer;
 const as: Record<string, Caller> = {};
 const ROLES = {
-  marketing: 'builtin:MARKETING_EXECUTIVE', finance: 'builtin:ACCOUNTS_EXECUTIVE', lead: 'builtin:TEAM_LEAD',
+  marketing: 'builtin:MARKETING_EXECUTIVE', finance: 'builtin:ACCOUNTS_EXECUTIVE', analyst: 'builtin:ANALYST', lead: 'builtin:TEAM_LEAD',
   hrm: 'builtin:HR_MANAGER', director: 'builtin:HR_DIRECTOR', teacher: 'builtin:TEACHER',
 };
 
@@ -36,9 +36,10 @@ describe('Settings — each area changes only its own settings', () => {
     }
   });
 
-  it('lets Finance change the finance ratios, not Marketing’s', async () => {
-    expect((await save('finance', 'profit_share_percent', 0.1)).status).toBe(200);
-    expect((await save('finance', 'appointment_duration_minutes', 30)).status).toBe(403);
+  it('lets those who run the pool reports change the finance ratios — not Finance-only staff or Marketing', async () => {
+    expect((await save('analyst', 'profit_share_percent', 0.1)).status).toBe(200);
+    expect((await save('finance', 'profit_share_percent', 0.1)).status).toBe(403);
+    expect((await save('analyst', 'appointment_duration_minutes', 30)).status).toBe(403);
   });
 
   it('keeps recruitment, appraisal set-up and pay settings for HR with the matching functions — not a Team Lead', async () => {
@@ -61,7 +62,10 @@ describe('Settings — each area changes only its own settings', () => {
 
   it('lets each area change its own catalogs: Marketing the programmes, HR the career missions, Finance the cost groups', async () => {
     expect((await as.marketing.call('PUT', '/api/packages/programmes', { programmes: [] })).status).not.toBe(403);
-    expect((await as.lead.call('POST', '/api/career-missions', {})).status).not.toBe(403);
+    expect((await as.hrm.call('POST', '/api/career-missions', {})).status).not.toBe(403);
+    // The school's missions are HR Manager and above — a Team Lead only sets them for their team.
+    expect((await as.lead.call('POST', '/api/career-missions', {})).status).toBe(403);
+    expect((await as.lead.call('POST', '/api/mission-categories', {})).status).toBe(403);
     expect((await as.finance.call('POST', '/api/operating-cost/groups', {})).status).not.toBe(403);
     expect((await as.teacher.call('POST', '/api/career-missions', {})).status).toBe(403);
     expect((await as.marketing.call('POST', '/api/operating-cost/groups', {})).status).toBe(403);

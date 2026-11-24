@@ -10,7 +10,8 @@ export interface AccessNeed { module: ModuleKey; fn?: string }
 
 const MARKETING: AccessNeed[] = [{ module: MODULES.MARKETING }];
 const STUDENTS: AccessNeed[] = [{ module: MODULES.STUDENTS }];
-const FINANCE: AccessNeed[] = [{ module: MODULES.FINANCE }];
+/** Finance targets: they drive the Profit Sharing / Annual Bonus reports. */
+const ANALYSIS: AccessNeed[] = [{ module: MODULES.ANALYSIS }];
 /** Whole-school HR (recruitment, onboarding, appraisal set-up). */
 const WHOLE_SCHOOL_HR: AccessNeed[] = [{ module: MODULES.HR, fn: 'HR_SEE_ALL_STAFF' }];
 /** HR with “See pay & salaries” (statutory contributions). */
@@ -36,8 +37,8 @@ export const SETTING_KEY_ACCESS: Record<string, AccessNeed[]> = {
     'interview_duration_minutes', 'recruitment_interview_confirm_lead_days', 'appraisal_score_bands',
     ...bothLanguages(['interview_wa_template', 'interview_confirm_wa_template', 'offer_wa_template']),
   ], WHOLE_SCHOOL_HR),
-  // Money → Finance (incl. the pay-pool appraisal thresholds).
-  ...byKey(['expense_ratio_target', 'profit_share_percent', 'annual_bonus_percent', 'minimum_appraisal_for_eligibility', 'high_performer_appraisal_threshold'], FINANCE),
+  // Money → Finance (targets + the pay-pool appraisal thresholds) — for whoever runs the pool reports.
+  ...byKey(['expense_ratio_target', 'profit_share_percent', 'annual_bonus_percent', 'minimum_appraisal_for_eligibility', 'high_performer_appraisal_threshold'], ANALYSIS),
 };
 
 /** Statutory contributions (Payroll → Allowances): EPF / SOCSO / EIS rates, ceilings and switches. */

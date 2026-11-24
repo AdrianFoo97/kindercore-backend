@@ -1135,7 +1135,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/career-missions",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "createMission",
           "controller": "career-missions.controller"
@@ -1145,7 +1145,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/career-missions/:id",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "updateMission",
           "controller": "career-missions.controller"
@@ -1155,7 +1155,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/career-missions/:id",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "deleteMission",
           "controller": "career-missions.controller"
@@ -1165,7 +1165,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/career-missions/reorder",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "reorderMissions",
           "controller": "career-missions.controller"
@@ -1817,7 +1817,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/mission-categories",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "createCategory",
           "controller": "mission-categories.controller"
@@ -1827,7 +1827,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/mission-categories/:code",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "updateCategory",
           "controller": "mission-categories.controller"
@@ -1837,7 +1837,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/mission-categories/:code",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "deleteCategory",
           "controller": "mission-categories.controller"
@@ -1847,7 +1847,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/mission-categories/reorder",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "reorderCategories",
           "controller": "mission-categories.controller"
@@ -2539,7 +2539,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/points/rules",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "createRule",
           "controller": "points.controller"
@@ -2549,7 +2549,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/points/rules/:id",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "updateRule",
           "controller": "points.controller"
@@ -2559,7 +2559,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/points/rules/:id",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "deleteRule",
           "controller": "points.controller"
@@ -2578,7 +2578,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/points/rewards",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "createReward",
           "controller": "points.controller"
@@ -2588,7 +2588,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/points/rewards/:id",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "updateReward",
           "controller": "points.controller"
@@ -2598,7 +2598,7 @@ export const ARCHITECTURE: Architecture = {
           "path": "/api/points/rewards/:id",
           "middleware": [
             "authMiddleware",
-            "requireModule(MODULES.HR)"
+            "wholeSchoolHr()"
           ],
           "handler": "deleteReward",
           "controller": "points.controller"

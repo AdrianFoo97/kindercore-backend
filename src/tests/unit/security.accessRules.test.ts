@@ -120,11 +120,11 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(gateOf('GET', '/api/candidates/:id/resume')).toEqual(['wholeSchoolHr()']);
   });
 
-  it('settings-type templates are changed only by the area whose Settings page they’re on (reward catalog → HR, positions → HR with pay, cost categories → Finance)', () => {
+  it('settings-type templates are changed only by the area whose Settings page they’re on (reward catalog and missions → HR Manager and above, positions → HR with pay, cost categories → Finance)', () => {
     for (const [m, p, gate] of [
-      ['POST', '/api/points/rewards', 'requireModule(MODULES.HR)'], ['PATCH', '/api/points/rules/:id', 'requireModule(MODULES.HR)'],
+      ['POST', '/api/points/rewards', 'wholeSchoolHr()'], ['PATCH', '/api/points/rules/:id', 'wholeSchoolHr()'],
       ['PUT', '/api/salary/positions/:positionId', 'hrWithPay()'], ['POST', '/api/allowance-types', 'hrWithPay()'],
-      ['POST', '/api/operating-cost/categories', 'requireModule(MODULES.FINANCE)'], ['DELETE', '/api/career-missions/:id', 'requireModule(MODULES.HR)'],
+      ['POST', '/api/operating-cost/categories', 'requireModule(MODULES.FINANCE)'], ['DELETE', '/api/career-missions/:id', 'wholeSchoolHr()'],
       ['POST', '/api/appraisal-templates', 'wholeSchoolHr()'], ['PUT', '/api/packages/programmes', 'requireModule(MODULES.MARKETING)'],
       ['PATCH', '/api/settings/:key', 'settingKeyOwner()'],
     ] as const) {

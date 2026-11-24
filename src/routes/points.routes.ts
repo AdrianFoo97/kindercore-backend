@@ -8,23 +8,22 @@ import {
   setGoal, clearGoal,
   getStandings,
 } from '../controllers/points.controller.js';
-import { authMiddleware, requireModule } from '../middlewares/auth.middleware.js';
+import { authMiddleware } from '../middlewares/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { selfOrTeam, teamMember, wholeSchoolHr } from '../middlewares/teamAccess.middleware.js';
-import { MODULES } from '../constants/authModules.js';
 
 export const pointsRouter = Router();
 
 // Admin global catalog / rules
 pointsRouter.get('/points/rules', authMiddleware, asyncHandler(listRules));
-pointsRouter.post('/points/rules', authMiddleware, requireModule(MODULES.HR), asyncHandler(createRule));
-pointsRouter.patch('/points/rules/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(updateRule));
-pointsRouter.delete('/points/rules/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(deleteRule));
+pointsRouter.post('/points/rules', authMiddleware, wholeSchoolHr(), asyncHandler(createRule));
+pointsRouter.patch('/points/rules/:id', authMiddleware, wholeSchoolHr(), asyncHandler(updateRule));
+pointsRouter.delete('/points/rules/:id', authMiddleware, wholeSchoolHr(), asyncHandler(deleteRule));
 
 pointsRouter.get('/points/rewards', authMiddleware, asyncHandler(listRewards));
-pointsRouter.post('/points/rewards', authMiddleware, requireModule(MODULES.HR), asyncHandler(createReward));
-pointsRouter.patch('/points/rewards/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(updateReward));
-pointsRouter.delete('/points/rewards/:id', authMiddleware, requireModule(MODULES.HR), asyncHandler(deleteReward));
+pointsRouter.post('/points/rewards', authMiddleware, wholeSchoolHr(), asyncHandler(createReward));
+pointsRouter.patch('/points/rewards/:id', authMiddleware, wholeSchoolHr(), asyncHandler(updateReward));
+pointsRouter.delete('/points/rewards/:id', authMiddleware, wholeSchoolHr(), asyncHandler(deleteReward));
 
 // Teacher-scoped points
 pointsRouter.get('/teachers/:teacherId/points', authMiddleware, selfOrTeam(), asyncHandler(getTeacherPoints));
