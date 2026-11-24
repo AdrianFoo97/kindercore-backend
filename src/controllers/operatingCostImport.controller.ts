@@ -5,6 +5,7 @@ import { PNL_READING_FEATURE, StatementReadError } from '../services/pnlReading/
 import { aiFeatureStatus } from '../services/ai/run.js';
 import { ImportProblem, applyImport, dismissNotice, importHistory, openNotices, previewImport, recordNotImportedLine, type ApplyInput, type RecordLineInput } from '../services/pnlImport.service.js';
 import { isAdminRole } from '../middlewares/auth.middleware.js';
+import { largeJsonBody } from '../middlewares/bodyLimit.middleware.js';
 
 // Finance → Operating Costs → Import P&L. Read (preview, saves nothing),
 // apply, and the "not imported" notices on each month.
@@ -12,8 +13,12 @@ import { isAdminRole } from '../middlewares/auth.middleware.js';
 /** Error code telling the import page the AI failed — it then offers to read without AI. */
 export const AI_FAILED = 'AI_FAILED';
 
-/** A P&L is a few pages; anything bigger is almost certainly the wrong file. */
-const MAX_PDF_BYTES = 10 * 1024 * 1024;
+/**
+ * A P&L is a few pages; anything bigger is almost certainly the wrong file.
+ * 7 MB so its base64 (×4/3 ≈ 9.4 MB) fits LARGE_JSON_LIMIT.
+ */
+const MAX_PDF_BYTES = 7 * 1024 * 1024;
+const TOO_BIG = 'That file is over 7 MB. Is it the P&L?';
 
 const upload = multer({
   storage: multer.memoryStorage(), // read and forgotten — the PDF is never saved
@@ -28,8 +33,21 @@ const upload = multer({
 const PDF_HEADER_WINDOW = 1024;
 export const looksLikePdf = (file: Buffer) => file.subarray(0, PDF_HEADER_WINDOW).includes('%PDF-');
 
-/** Accepts one PDF under `file`, with a clear message for the wrong type, size or contents. */
+const pdfJsonSchema = z.object({
+  fileName: z.string().max(255).optional(),
+  /** The PDF's bytes as base64. */
+  pdfBase64: z.string().min(1),
+  withoutAi: z.boolean().optional(),
+});
+
+/**
+ * Accepts one PDF, with a clear message for the wrong type, size or contents —
+ * as JSON (`pdfBase64`, what the app sends: Hostinger's firewall answers a PDF
+ * file upload with a bare 403 before it reaches us) or as a form upload under
+ * `file` (scripts and tests). Either way the handler gets `req.file`.
+ */
 export function pdfUpload(req: Request, res: Response, next: NextFunction): void {
+  if (req.is('application/json')) { pdfFromJson(req, res, next); return; }
   upload.single('file')(req, res, err => {
     if (!err) {
       // The browser's label ("application/pdf") is just a claim — check the file really is a PDF.
@@ -38,7 +56,26 @@ export function pdfUpload(req: Request, res: Response, next: NextFunction): void
       return;
     }
     const tooBig = err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE';
-    res.status(400).json({ message: tooBig ? 'That file is over 10 MB. Is it the P&L?' : err instanceof Error ? err.message : 'Upload failed' });
+    res.status(400).json({ message: tooBig ? TOO_BIG : err instanceof Error ? err.message : 'Upload failed' });
+  });
+}
+
+/** The JSON form: parse it (large allowance — this runs after sign-in and the access check), decode, check. */
+function pdfFromJson(req: Request, res: Response, next: NextFunction): void {
+  largeJsonBody(req, res, err => {
+    if (err) {
+      const tooBig = (err as { type?: string }).type === 'entity.too.large';
+      res.status(400).json({ message: tooBig ? TOO_BIG : 'Upload failed' });
+      return;
+    }
+    const parsed = pdfJsonSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ message: 'Choose a PDF file.' }); return; }
+    const buffer = Buffer.from(parsed.data.pdfBase64, 'base64');
+    if (buffer.length > MAX_PDF_BYTES) { res.status(400).json({ message: TOO_BIG }); return; }
+    if (!looksLikePdf(buffer)) { res.status(400).json({ message: 'That file isn’t a PDF.' }); return; }
+    req.file = { buffer, originalname: parsed.data.fileName || 'P&L.pdf', mimetype: 'application/pdf', size: buffer.length } as Express.Multer.File;
+    req.body = { withoutAi: parsed.data.withoutAi ? '1' : undefined }; // same shape as the form upload
+    next();
   });
 }
 
