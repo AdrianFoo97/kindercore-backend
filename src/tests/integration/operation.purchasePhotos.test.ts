@@ -68,4 +68,30 @@ describe('Shopping list — photos on a request', () => {
     expect(none.status).toBe(201);
     expect((await none.json() as { photos: unknown }).photos).toBeNull();
   });
+
+  it('lets the requester change the photos while it waits for approval — removing one deletes its file, and 3 is still the most', async () => {
+    const res = await request(tina, [{ data: PNG, type: 'image/png', name: 'first.png' }]);
+    const body = await res.json() as { id: string; photos: { id: string }[] };
+    const first = body.photos[0].id;
+
+    const edit = (keep: string[], files: { data: Buffer; type: string; name: string }[]) => {
+      const form = new FormData();
+      for (const [k, v] of Object.entries({ item: 'Glue sticks', quantity: '2 boxes', purpose: 'Sunflower class art', buyer: 'SUPERVISOR', keepPhotos: JSON.stringify(keep) })) form.append(k, v);
+      for (const x of files) form.append('photos', new Blob([x.data], { type: x.type }), x.name);
+      return fetch(`${server.base}/api/purchase-requests/${body.id}`, { method: 'PATCH', body: form, headers: { cookie: tina.cookie!, [APP_REQUEST_HEADER]: APP_REQUEST_VALUE } });
+    };
+
+    // Swap the first photo for two new ones.
+    const swapped = await edit([], [{ data: PNG, type: 'image/png', name: 'a.png' }, { data: PNG, type: 'image/png', name: 'b.png' }]);
+    expect(swapped.status).toBe(200);
+    const after = await swapped.json() as { photos: { id: string; name: string }[]; history: { kind: string; detail: string | null }[] };
+    expect(after.photos.map(p => p.name)).toEqual(['a.png', 'b.png']);
+    created.push(...after.photos.map(p => p.id));
+    expect(fs.existsSync(path.join(PURCHASE_PHOTOS_DIR, first))).toBe(false);
+    expect(after.history.at(-1)).toMatchObject({ kind: 'EDITED', detail: expect.stringContaining('photos') });
+
+    // Keeping both and adding two more would make 4.
+    const tooMany = await edit(after.photos.map(p => p.id), [{ data: PNG, type: 'image/png', name: 'c.png' }, { data: PNG, type: 'image/png', name: 'd.png' }]);
+    expect(tooMany.status).toBe(400);
+  });
 });

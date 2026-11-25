@@ -41,6 +41,8 @@ export const users = mysqlTable('User', {
   // whatever this resolves to with whatever the teacher/position chain
   // resolves to, so a user can have either, both, or neither.
   authRoleId: varchar('authRoleId', { length: 36 }),
+  // Their own profile photo (StoredImage, kind 'profile') — set on My Profile.
+  photoImageId: varchar('photoImageId', { length: 36 }),
   // Activity for Settings → Team Members: last successful sign-in, and the
   // last signed-in request (stamped by authMiddleware, at most once a minute).
   lastLoginAt: datetime('lastLoginAt', { mode: 'date', fsp: 3 }),

@@ -1093,6 +1093,8 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // User — their own profile photo (StoredImage id).
+    `ALTER TABLE \`User\` ADD COLUMN \`photoImageId\` VARCHAR(36) NULL AFTER \`authRoleId\``,
     // SopStep — an optional photo per How-To Guide step (StoredImage id).
     `ALTER TABLE \`SopStep\` ADD COLUMN \`imageId\` VARCHAR(36) NULL AFTER \`linkedTemplateId\``,
     // SopTemplate — the AI-drawn poster, the guide version it was drawn from, and a new one awaiting review.

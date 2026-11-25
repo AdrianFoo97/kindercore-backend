@@ -30,6 +30,9 @@ export const APPROVED_PUBLIC: Record<string, string> = {
 export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/me/permissions': 'Your own permissions — scoped to the caller.',
   'GET /api/notifications': 'Your own notifications only — filtered to the caller.',
+  'GET /api/auth/me/photo': 'Your own profile photo — always the caller\'s, no user id in the address.',
+  'PUT /api/auth/me/photo': 'Sets your own profile photo — always the caller\'s.',
+  'DELETE /api/auth/me/photo': 'Removes your own profile photo — always the caller\'s.',
   'POST /api/notifications/read-all': 'Marks only the caller\'s own notifications read.',
   'GET /api/notifications/settings': 'Which events the caller receives — their own choices only.',
   'PUT /api/notifications/settings': 'Saves the caller\'s own notification choices; unknown events are refused.',

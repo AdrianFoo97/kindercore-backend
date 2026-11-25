@@ -11,7 +11,7 @@ import { parseWeek, weekRange, weekSpend } from '../services/purchaseWeek.servic
 import { sendPrivateFile } from '../services/privateUploads.service.js';
 import { notify, notifyOwner } from '../services/notifications.service.js';
 import { itemBoughtMessage, itemRequestedMessage, myRequestMessage } from '../services/notifications.logic.js';
-import { PURCHASE_PHOTOS_DIR } from '../services/purchasePhotos.service.js';
+import { MAX_PURCHASE_PHOTOS, PURCHASE_PHOTOS_DIR } from '../services/purchasePhotos.service.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 
 // Purchase requests (Operation → Shopping List). Any staff member asks for
@@ -115,22 +115,55 @@ async function ownEditable(req: Request, res: Response) {
 
 const FIELD_LABELS: Record<string, string> = { item: 'item', quantity: 'how many', purpose: 'what for', note: 'notes', link: 'shop link', buyer: 'who buys it' };
 
-/** The requester edits their own request — only while it's waiting for approval. */
+/** Which photos to keep, from the edit form (a JSON list of ids) — null when not sent (keep them all), or "bad". */
+function readKeptPhotos(raw: unknown): string[] | null | 'bad' {
+  if (raw === undefined) return null;
+  try {
+    const parsed = z.array(z.string().max(100)).max(MAX_PURCHASE_PHOTOS).safeParse(typeof raw === 'string' ? JSON.parse(raw) : raw);
+    return parsed.success ? parsed.data : 'bad';
+  } catch {
+    return 'bad';
+  }
+}
+
+/**
+ * The requester edits their own request — only while it's waiting for approval.
+ * Photos: new ones arrive as multipart (purchasePhotosUpload); "keepPhotos" lists the
+ * existing ones to keep (left out = keep all). At most MAX_PURCHASE_PHOTOS in all.
+ */
 export async function updatePurchaseRequest(req: Request, res: Response): Promise<void> {
+  const added = (req.files as Express.Multer.File[] | undefined) ?? [];
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) { validationError(res, parsed.error); return; }
+  if (!parsed.success) { discardUploads(added); validationError(res, parsed.error); return; }
   const existing = await ownEditable(req, res);
-  if (!existing) return;
+  if (!existing) { discardUploads(added); return; }
+  const keep = readKeptPhotos(req.body?.keepPhotos);
+  if (keep === 'bad') { discardUploads(added); res.status(400).json({ message: 'Some of the photos couldn’t be read — reload and try again.' }); return; }
+  const current = existing.photos ?? [];
+  const kept = keep === null ? current : current.filter(p => keep.includes(p.id));
+  if (kept.length + added.length > MAX_PURCHASE_PHOTOS) {
+    discardUploads(added);
+    res.status(400).json({ message: `Attach up to ${MAX_PURCHASE_PHOTOS} photos` });
+    return;
+  }
+  const removed = current.filter(p => !kept.includes(p));
+  const photosChanged = added.length > 0 || removed.length > 0;
+  const photos = [...kept, ...added.map(toAttachment)];
+
   const d = parsed.data;
   const next = { item: d.item, quantity: d.quantity, purpose: d.purpose, note: d.note || null, link: d.link || null, buyer: d.buyer };
-  const changed = (Object.keys(next) as (keyof typeof next)[]).filter(k => next[k] !== existing[k]);
+  const changed = (Object.keys(next) as (keyof typeof next)[]).filter(k => next[k] !== existing[k]).map(k => FIELD_LABELS[k]);
+  if (photosChanged) changed.push('photos');
   if (changed.length === 0) { await respondWith(res, existing.id); return; }
   const who = await actor(req);
   const now = new Date();
   await db.transaction(async tx => {
-    await tx.update(purchaseRequests).set({ ...next, updatedAt: now }).where(eq(purchaseRequests.id, existing.id));
-    await logPurchase(tx, { requestId: existing.id, kind: 'EDITED', detail: `Changed ${changed.map(k => FIELD_LABELS[k]).join(', ')}`, ...who, at: now });
+    await tx.update(purchaseRequests).set({ ...next, ...(photosChanged ? { photos: photos.length ? photos : null } : {}), updatedAt: now })
+      .where(eq(purchaseRequests.id, existing.id));
+    await logPurchase(tx, { requestId: existing.id, kind: 'EDITED', detail: `Changed ${changed.join(', ')}`, ...who, at: now });
   });
+  // Saved — now the removed photos' files can go (ids come from the stored list, never the URL).
+  discardUploads(removed.map(p => ({ path: path.join(PURCHASE_PHOTOS_DIR, p.id) })));
   await respondWith(res, existing.id);
 }
 

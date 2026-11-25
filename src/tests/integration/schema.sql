@@ -1364,6 +1364,7 @@ CREATE TABLE `User` (
   `activated` tinyint(1) NOT NULL DEFAULT '1',
   `teacherId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `authRoleId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `photoImageId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `lastLoginAt` datetime(3) DEFAULT NULL,
   `lastSeenAt` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),

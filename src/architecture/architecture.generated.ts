@@ -855,6 +855,34 @@ export const ARCHITECTURE: Architecture = {
           "controller": "auth.controller"
         },
         {
+          "method": "GET",
+          "path": "/api/auth/me/photo",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getMyPhoto",
+          "controller": "profilePhoto.controller"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/auth/me/photo",
+          "middleware": [
+            "authMiddleware",
+            "profilePhotoUpload"
+          ],
+          "handler": "putMyPhoto",
+          "controller": "profilePhoto.controller"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/auth/me/photo",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "deleteMyPhoto",
+          "controller": "profilePhoto.controller"
+        },
+        {
           "method": "POST",
           "path": "/api/auth/invite",
           "middleware": [
@@ -2833,7 +2861,8 @@ export const ARCHITECTURE: Architecture = {
           "method": "PATCH",
           "path": "/api/purchase-requests/:id",
           "middleware": [
-            "authMiddleware"
+            "authMiddleware",
+            "purchasePhotosUpload"
           ],
           "handler": "updatePurchaseRequest",
           "controller": "purchase-requests.controller"
@@ -4456,6 +4485,14 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "profilePhoto.controller",
+      "services": [
+        "profilePhoto.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "purchase-requests.controller",
       "services": [
         "notifications.logic",
@@ -4947,6 +4984,15 @@ export const ARCHITECTURE: Architecture = {
       "services": [],
       "controllers": [],
       "tables": []
+    },
+    {
+      "id": "profilePhoto.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "StoredImage",
+        "User"
+      ]
     },
     {
       "id": "purchaseLog.service",

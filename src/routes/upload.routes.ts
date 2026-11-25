@@ -60,23 +60,27 @@ const upload = multer({
   },
 });
 
-// Real device screenshots (JPEG) — no SVG here, this is photo evidence, not
-// an icon picker. Same 5 MB per-file cap, capped at 4 files per report so a
-// bug report can't be used to dump unlimited disk usage.
-const BUG_REPORT_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+// Device screenshots and short screen recordings — no SVG here, this is
+// evidence, not an icon picker. Photos up to 5 MB, videos up to 50 MB, and at
+// most 4 files per report so a bug report can't be used to dump unlimited disk usage.
+const BUG_REPORT_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const BUG_REPORT_VIDEO_EXT: Record<string, string> = { 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm' };
+const MAX_BUG_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_BUG_VIDEO_BYTES = 50 * 1024 * 1024;
 const bugReportStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, BUG_REPORTS_DIR),
   filename: (_req, file, cb) => {
-    const ext = EXT_BY_MIME[file.mimetype] ?? path.extname(file.originalname).toLowerCase() ?? '';
+    const ext = EXT_BY_MIME[file.mimetype] ?? BUG_REPORT_VIDEO_EXT[file.mimetype] ?? '';
     cb(null, `${randomUUID()}${ext}`);
   },
 });
 const uploadBugReportPhotos = multer({
   storage: bugReportStorage,
-  limits: { fileSize: 5 * 1024 * 1024, files: 4 },
+  // Multer's limit is per file, whatever the kind — the video cap; photos are checked to 5 MB after.
+  limits: { fileSize: MAX_BUG_VIDEO_BYTES, files: 4 },
   fileFilter: (_req, file, cb) => {
-    if (!BUG_REPORT_ALLOWED_MIME.has(file.mimetype)) {
-      cb(new Error('Only PNG, JPG or WebP images are allowed'));
+    if (!BUG_REPORT_IMAGE_MIME.has(file.mimetype) && !(file.mimetype in BUG_REPORT_VIDEO_EXT)) {
+      cb(new Error('Only photos (PNG, JPG, WebP) or videos (MP4, MOV, WebM) can be attached'));
       return;
     }
     cb(null, true);
@@ -122,6 +126,11 @@ uploadRouter.post(
   (req, res) => {
     const files = (req as any).files as Express.Multer.File[] | undefined;
     if (!files || files.length === 0) return res.status(400).json({ message: 'No files uploaded' });
+    const bigPhoto = files.find(f => BUG_REPORT_IMAGE_MIME.has(f.mimetype) && f.size > MAX_BUG_PHOTO_BYTES);
+    if (bigPhoto) {
+      for (const f of files) fs.rm(f.path, { force: true }, () => { /* best effort */ });
+      return res.status(400).json({ message: `Each photo must be under ${MAX_BUG_PHOTO_BYTES / 1024 / 1024} MB` });
+    }
     res.json({ urls: files.map(f => `/uploads/bug-reports/${f.filename}`) });
   },
 );

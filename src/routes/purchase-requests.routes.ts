@@ -20,7 +20,8 @@ purchaseRequestsRouter.post('/purchase-requests', authMiddleware, purchasePhotos
 // A request's photo — the handler lets in only the requester, shopping-list managers and Admins.
 purchaseRequestsRouter.get('/purchase-requests/:id/photos/:fileId', authMiddleware, asyncHandler(getPurchasePhoto));
 purchaseRequestsRouter.get('/purchase-requests/mine', authMiddleware, asyncHandler(listMyPurchaseRequests));
-purchaseRequestsRouter.patch('/purchase-requests/:id', authMiddleware, asyncHandler(updatePurchaseRequest));
+// Editing (before approval) can add or remove photos too.
+purchaseRequestsRouter.patch('/purchase-requests/:id', authMiddleware, purchasePhotosUpload, asyncHandler(updatePurchaseRequest));
 purchaseRequestsRouter.delete('/purchase-requests/:id', authMiddleware, asyncHandler(cancelPurchaseRequest));
 purchaseRequestsRouter.post('/purchase-requests/:id/bought-myself', authMiddleware, purchaseReceiptUpload, asyncHandler(markBoughtMyself));
 purchaseRequestsRouter.get('/purchase-requests/shopping-list', authMiddleware, requireView('OPERATION_PURCHASE_MANAGE'), asyncHandler(getShoppingList));
