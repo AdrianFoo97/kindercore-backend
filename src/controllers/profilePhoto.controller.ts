@@ -1,7 +1,11 @@
 import type { Request, Response } from 'express';
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
+import { db } from '../db/client.js';
+import { users } from '../db/schema.js';
 import { profilePhoto, removeProfilePhoto, setProfilePhoto } from '../services/profilePhoto.service.js';
 
-// My Profile → photo. Always the caller's own — there's no user id in these addresses.
+// My Profile → photo and display name. Always the caller's own — there's no user id in these addresses.
 
 export async function getMyPhoto(req: Request, res: Response): Promise<void> {
   const photo = await profilePhoto(req.user!.id);
@@ -22,4 +26,19 @@ export async function putMyPhoto(req: Request, res: Response): Promise<void> {
 export async function deleteMyPhoto(req: Request, res: Response): Promise<void> {
   await removeProfilePhoto(req.user!.id);
   res.json({ ok: true });
+}
+
+/** Longest display name — fits the account button and Home without cutting off. */
+export const MAX_DISPLAY_NAME = 60;
+const displayNameSchema = z.object({ displayName: z.string().max(MAX_DISPLAY_NAME, `Keep it to ${MAX_DISPLAY_NAME} characters.`).nullable() });
+
+/** The name the app shows you by. Blank (or the same as your full name) goes back to your full name. */
+export async function putMyDisplayName(req: Request, res: Response): Promise<void> {
+  const parsed = displayNameSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ message: parsed.error.errors[0]?.message ?? 'Validation error' }); return; }
+  const [me] = await db.select({ name: users.name }).from(users).where(eq(users.id, req.user!.id));
+  const typed = (parsed.data.displayName ?? '').replace(/\s+/g, ' ').trim();
+  const displayName = typed && typed !== me?.name ? typed : null;
+  await db.update(users).set({ displayName }).where(eq(users.id, req.user!.id));
+  res.json({ displayName });
 }

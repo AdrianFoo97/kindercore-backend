@@ -43,6 +43,9 @@ export const users = mysqlTable('User', {
   authRoleId: varchar('authRoleId', { length: 36 }),
   // Their own profile photo (StoredImage, kind 'profile') — set on My Profile.
   photoImageId: varchar('photoImageId', { length: 36 }),
+  // What the app calls them (My Profile) — null = their full name. Records (requested by,
+  // signed off by…) always keep the full name.
+  displayName: varchar('displayName', { length: 60 }),
   // Activity for Settings → Team Members: last successful sign-in, and the
   // last signed-in request (stamped by authMiddleware, at most once a minute).
   lastLoginAt: datetime('lastLoginAt', { mode: 'date', fsp: 3 }),

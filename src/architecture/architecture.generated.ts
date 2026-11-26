@@ -883,6 +883,15 @@ export const ARCHITECTURE: Architecture = {
           "controller": "profilePhoto.controller"
         },
         {
+          "method": "PUT",
+          "path": "/api/auth/me/display-name",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "putMyDisplayName",
+          "controller": "profilePhoto.controller"
+        },
+        {
           "method": "POST",
           "path": "/api/auth/invite",
           "middleware": [
@@ -4490,7 +4499,9 @@ export const ARCHITECTURE: Architecture = {
         "profilePhoto.service"
       ],
       "controllers": [],
-      "tables": []
+      "tables": [
+        "User"
+      ]
     },
     {
       "id": "purchase-requests.controller",

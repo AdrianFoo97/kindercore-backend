@@ -1093,6 +1093,8 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // User — the name the app shows them by (null = their full name).
+    `ALTER TABLE \`User\` ADD COLUMN \`displayName\` VARCHAR(60) NULL AFTER \`photoImageId\``,
     // User — their own profile photo (StoredImage id).
     `ALTER TABLE \`User\` ADD COLUMN \`photoImageId\` VARCHAR(36) NULL AFTER \`authRoleId\``,
     // SopStep — an optional photo per How-To Guide step (StoredImage id).

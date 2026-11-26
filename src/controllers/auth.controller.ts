@@ -52,7 +52,7 @@ export async function login(req: Request, res: Response): Promise<void> {
   await db.update(users).set({ lastLoginAt: now, lastSeenAt: now }).where(eq(users.id, user.id));
 
   res.json({
-    user: { id: user.id, email: user.email, name: user.name, role: user.role, teacherId: user.teacherId },
+    user: { id: user.id, email: user.email, name: user.name, displayName: user.displayName ?? null, role: user.role, teacherId: user.teacherId },
   });
 }
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { db, pool } from '../../db/client.js';
 import { storedImages, userAuthRoles, users } from '../../db/schema.js';
 import { resetTables } from './testDb.js';
@@ -49,6 +50,18 @@ describe('My Profile — your own photo', () => {
     expect((await tina.call('DELETE', '/api/auth/me/photo')).status).toBe(200);
     expect((await get(tina)).status).toBe(404);
     expect(await db.select().from(storedImages)).toHaveLength(0);
+  });
+
+  it('sets your display name — shown at sign-in — and blank (or your full name) goes back to the full name', async () => {
+    const set = await tina.call('PUT', '/api/auth/me/display-name', { displayName: '  Teacher   Tina ' });
+    expect(set.status).toBe(200);
+    expect(set.body).toEqual({ displayName: 'Teacher Tina' });
+    const again = await fetch(`${server.base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'tina@kindertech.test', password: PASSWORD }) });
+    expect((await again.json() as { user: { displayName: string | null } }).user.displayName).toBe('Teacher Tina');
+    expect((await tina.call('PUT', '/api/auth/me/display-name', { displayName: '' })).body).toEqual({ displayName: null });
+    const [me] = await db.select({ name: users.name }).from(users).where(eq(users.id, 'u-tina'));
+    expect((await tina.call('PUT', '/api/auth/me/display-name', { displayName: me.name })).body).toEqual({ displayName: null });
+    expect((await tina.call('PUT', '/api/auth/me/display-name', { displayName: 'x'.repeat(61) })).status).toBe(400);
   });
 
   it('only takes a photo, and only from someone signed in', async () => {

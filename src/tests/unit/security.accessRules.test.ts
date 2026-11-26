@@ -31,14 +31,14 @@ describe('Security — every sensitive area is limited to the right role', () =>
     expect(Object.keys(APPROVED_ANY_SIGNED_IN).filter(k => !actual.has(k))).toEqual([]);
   });
 
-  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report, a facility issue, a purchase request (or editing your own), a guide proposal (or resending your own) and its step photos, choosing and reading your own notifications, or your own profile photo', () => {
+  it('nothing open to every signed-in user can change data, except filing a bug report, an incident report, a facility issue, a purchase request (or editing your own), a guide proposal (or resending your own) and its step photos, choosing and reading your own notifications, or your own profile photo and display name', () => {
     const writes = signedInOnly.filter(e => e.method !== 'GET').map(key).sort();
     expect(writes).toEqual([
       'DELETE /api/auth/me/photo', 'DELETE /api/purchase-requests/:id', 'PATCH /api/purchase-requests/:id',
       'POST /api/bug-reports', 'POST /api/facility-issues', 'POST /api/incidents',
       'POST /api/notifications/:id/read', 'POST /api/notifications/read-all', 'POST /api/purchase-requests',
       'POST /api/purchase-requests/:id/bought-myself', 'POST /api/sop-revisions', 'POST /api/sop-revisions/:id/resubmit', 'POST /api/sop-steps/images', 'POST /api/upload/bug-report-photos',
-      'PUT /api/auth/me/photo', 'PUT /api/notifications/settings',
+      'PUT /api/auth/me/display-name', 'PUT /api/auth/me/photo', 'PUT /api/notifications/settings',
     ]);
   });
 
