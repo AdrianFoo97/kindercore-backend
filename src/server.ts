@@ -1090,9 +1090,54 @@ async function runMigrations() {
       \`createdAt\` DATETIME(3) NOT NULL,
       PRIMARY KEY (\`id\`)
     )`,
+    // Profit sharing — each publish / unpublish of a month's pool (latest row = its state).
+    `CREATE TABLE IF NOT EXISTS \`ProfitSharePublication\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`year\` INT NOT NULL,
+      \`month\` INT NOT NULL,
+      \`action\` ENUM('PUBLISHED', 'UNPUBLISHED') NOT NULL,
+      \`poolAmount\` DECIMAL(12,2) NULL,
+      \`annualBonusAmount\` DECIMAL(12,2) NULL,
+      \`hit\` TINYINT(1) NULL,
+      \`reason\` VARCHAR(500) NULL,
+      \`byUserId\` VARCHAR(36) NOT NULL,
+      \`byName\` VARCHAR(191) NOT NULL,
+      \`createdAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`),
+      INDEX \`ProfitSharePublication_year_month_idx\` (\`year\`, \`month\`)
+    )`,
+    // School news on Home — one post per source record (e.g. a new student).
+    `CREATE TABLE IF NOT EXISTS \`SchoolNews\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`kind\` ENUM('ENROLMENT') NOT NULL,
+      \`sourceId\` VARCHAR(36) NOT NULL,
+      \`title\` VARCHAR(191) NOT NULL,
+      \`body\` VARCHAR(300) NOT NULL,
+      \`postedAt\` DATETIME(3) NOT NULL,
+      \`hiddenAt\` DATETIME(3) NULL,
+      \`hiddenByUserId\` VARCHAR(36) NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`SchoolNews_kind_sourceId_key\` (\`kind\`, \`sourceId\`)
+    )`,
+    // Feature requests — any staff member sends an idea from the ⋯ menu; admins review them.
+    `CREATE TABLE IF NOT EXISTS \`FeatureRequest\` (
+      \`id\` VARCHAR(36) NOT NULL,
+      \`title\` VARCHAR(120) NOT NULL,
+      \`message\` TEXT NOT NULL,
+      \`pageUrl\` VARCHAR(500) NULL,
+      \`appVersion\` VARCHAR(20) NULL,
+      \`requestedByUserId\` VARCHAR(36) NOT NULL,
+      \`requestedByName\` VARCHAR(191) NOT NULL,
+      \`status\` ENUM('NEW', 'REVIEWED') NOT NULL DEFAULT 'NEW',
+      \`createdAt\` DATETIME(3) NOT NULL,
+      \`updatedAt\` DATETIME(3) NOT NULL,
+      PRIMARY KEY (\`id\`)
+    )`,
   ];
 
   const addColumns = [
+    // ProfitSharePublication — publishing a month freezes its annual-bonus contribution too.
+    `ALTER TABLE \`ProfitSharePublication\` ADD COLUMN \`annualBonusAmount\` DECIMAL(12,2) NULL AFTER \`poolAmount\``,
     // User — the name the app shows them by (null = their full name).
     `ALTER TABLE \`User\` ADD COLUMN \`displayName\` VARCHAR(60) NULL AFTER \`photoImageId\``,
     // User — their own profile photo (StoredImage id).

@@ -32,7 +32,7 @@ describe('Login', () => {
 
     expect(r.statusCode).toBe(200);
     expect(r.body.user).toEqual({
-      id: 'user-admin', email: ADMIN_EMAIL, name: 'Ada Admin', role: 'ADMIN', teacherId: null,
+      id: 'user-admin', email: ADMIN_EMAIL, name: 'Ada Admin', displayName: null, role: 'ADMIN', teacherId: null,
     });
   });
 

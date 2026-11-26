@@ -82,7 +82,7 @@ describe('Access roles — built-in and your own', () => {
     expect((await call(setUserAuthRoles, { authRoleIds: ['builtin:HR_DIRECTOR', 'builtin:FINANCE_MANAGER'] }, { id: 'u-p' })).statusCode).toBe(200);
     const g = await resolveGrants('u-p');
     expect([...g.modules].sort()).toEqual(['ANALYSIS', 'FINANCE', 'HR']);
-    expect([...g.views].sort()).toEqual(['HR_SEE_ALL_STAFF', 'HR_SEE_PAY']);
+    expect([...g.views].sort()).toEqual(['ANALYSIS_PROFIT_PUBLISH', 'HR_SEE_ALL_STAFF', 'HR_SEE_PAY']);
     // Taking one role off keeps the other; [] removes them all.
     await call(setUserAuthRoles, { authRoleIds: ['builtin:FINANCE_MANAGER'] }, { id: 'u-p' });
     expect((await resolveGrants('u-p')).modules.has('HR')).toBe(false);

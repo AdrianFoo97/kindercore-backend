@@ -1431,6 +1431,41 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "feature-requests.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/feature-requests",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "createFeatureRequest",
+          "controller": "feature-requests.controller"
+        },
+        {
+          "method": "GET",
+          "path": "/api/feature-requests",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
+          ],
+          "handler": "listFeatureRequests",
+          "controller": "feature-requests.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/feature-requests/:id/review",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
+          ],
+          "handler": "reviewFeatureRequest",
+          "controller": "feature-requests.controller"
+        }
+      ]
+    },
+    {
       "id": "finance.routes",
       "mount": "/api/finance",
       "endpoints": [
@@ -2835,6 +2870,43 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "profitSharePublish.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/profit-sharing/publications",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.ANALYSIS)",
+            "logSensitiveAccess('FINANCE')"
+          ],
+          "handler": "getPublications",
+          "controller": "profitSharePublish.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/profit-sharing/publications/:year/:month/publish",
+          "middleware": [
+            "authMiddleware",
+            "requireView(PROFIT_PUBLISH_FUNCTION)"
+          ],
+          "handler": "postPublish",
+          "controller": "profitSharePublish.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/profit-sharing/publications/:year/:month/unpublish",
+          "middleware": [
+            "authMiddleware",
+            "requireView(PROFIT_PUBLISH_FUNCTION)"
+          ],
+          "handler": "postUnpublish",
+          "controller": "profitSharePublish.controller"
+        }
+      ]
+    },
+    {
       "id": "purchase-requests.routes",
       "mount": "/api",
       "endpoints": [
@@ -3123,6 +3195,31 @@ export const ARCHITECTURE: Architecture = {
           ],
           "handler": "getEmployerContributions",
           "controller": "salary.controller"
+        }
+      ]
+    },
+    {
+      "id": "schoolNews.routes",
+      "mount": "/api",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/school-news",
+          "middleware": [
+            "authMiddleware"
+          ],
+          "handler": "getSchoolNews",
+          "controller": "schoolNews.controller"
+        },
+        {
+          "method": "POST",
+          "path": "/api/school-news/:id/hide",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.STUDENTS)"
+          ],
+          "handler": "postHideSchoolNews",
+          "controller": "schoolNews.controller"
         }
       ]
     },
@@ -4284,6 +4381,18 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "feature-requests.controller",
+      "services": [
+        "notifications.logic",
+        "notifications.service"
+      ],
+      "controllers": [],
+      "tables": [
+        "FeatureRequest",
+        "User"
+      ]
+    },
+    {
       "id": "finance.controller",
       "services": [
         "finance.service",
@@ -4504,6 +4613,15 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "profitSharePublish.controller",
+      "services": [
+        "profitSharePublish.logic",
+        "profitSharePublish.service"
+      ],
+      "controllers": [],
+      "tables": []
+    },
+    {
       "id": "purchase-requests.controller",
       "services": [
         "notifications.logic",
@@ -4540,6 +4658,14 @@ export const ARCHITECTURE: Architecture = {
         "Teacher",
         "TeacherAllowance"
       ]
+    },
+    {
+      "id": "schoolNews.controller",
+      "services": [
+        "schoolNews.service"
+      ],
+      "controllers": [],
+      "tables": []
     },
     {
       "id": "settings.controller",
@@ -4679,7 +4805,8 @@ export const ARCHITECTURE: Architecture = {
       "services": [
         "checklist.logic",
         "notifications.logic",
-        "notifications.service"
+        "notifications.service",
+        "schoolNews.service"
       ],
       "controllers": [],
       "tables": [
@@ -4918,6 +5045,7 @@ export const ARCHITECTURE: Architecture = {
       "services": [],
       "controllers": [],
       "tables": [
+        "ProfitSharePublication",
         "SystemSetting"
       ]
     },
@@ -5006,6 +5134,21 @@ export const ARCHITECTURE: Architecture = {
       ]
     },
     {
+      "id": "profitSharePublish.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "profitSharePublish.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "ProfitSharePublication",
+        "User"
+      ]
+    },
+    {
       "id": "purchaseLog.service",
       "services": [],
       "controllers": [],
@@ -5065,6 +5208,24 @@ export const ARCHITECTURE: Architecture = {
         "Package",
         "Student",
         "StudentEnrollment"
+      ]
+    },
+    {
+      "id": "schoolNews.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "schoolNews.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "Package",
+        "SchoolNews",
+        "Student",
+        "SystemSetting",
+        "User"
       ]
     },
     {
@@ -5172,6 +5333,7 @@ export const ARCHITECTURE: Architecture = {
     "Classroom",
     "Department",
     "FacilityIssue",
+    "FeatureRequest",
     "GoogleConnection",
     "IncidentReport",
     "IncidentReportLog",
@@ -5195,11 +5357,13 @@ export const ARCHITECTURE: Architecture = {
     "PointsRewardItem",
     "PointsTransaction",
     "Position",
+    "ProfitSharePublication",
     "PurchaseRequest",
     "PurchaseRequestLog",
     "RewardRedemption",
     "SavedTimetable",
     "ScheduleBlock",
+    "SchoolNews",
     "SensitiveAccessLog",
     "SopCategory",
     "SopFavorite",

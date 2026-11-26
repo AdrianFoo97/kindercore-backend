@@ -60,10 +60,11 @@ describe('Notifications — what each one says and where it opens', () => {
   });
 
   it('offers the “about you” notifications to every staff member, whatever their roles — and to no one without a staff record', () => {
-    const personal = ['MY_REQUEST_UPDATE', 'MY_REPORT_UPDATE', 'MY_APPRAISAL_READY', 'MY_POINTS', 'MY_REWARD_DELIVERED'];
+    const personal = ['MY_REQUEST_UPDATE', 'MY_REPORT_UPDATE', 'MY_APPRAISAL_READY', 'MY_POINTS', 'SCHOOL_NEWS', 'PROFIT_SHARE_PUBLISHED', 'MY_REWARD_DELIVERED'];
     const teacher = notificationSettings([{ name: 'Teacher', modules: ['OPERATION'], functions: [] }], false, [], true);
     expect(teacher.map(e => e.kind)).toEqual(personal);
-    expect(teacher.every(e => e.from[0] === 'Your own work')).toBe(true);
+    // School news comes from being on the staff; the rest are about your own work.
+    expect(teacher.every(e => e.from[0] === (e.kind === 'SCHOOL_NEWS' ? 'Being on the staff' : 'Your own work'))).toBe(true);
     expect(notificationSettings([], true, [], false).some(e => personal.includes(e.kind))).toBe(false);
     expect(mayReceive('MY_POINTS', [], false, true)).toBe(true);
     expect(mayReceive('MY_POINTS', [], true, false)).toBe(false);

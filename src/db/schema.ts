@@ -738,6 +738,60 @@ export const bugReports = mysqlTable('BugReport', {
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 
+// Profit sharing — each publish / unpublish of one month (Analysis → Profit
+// Sharing, Finance Manager only): its team pool and annual-bonus contribution
+// together. The latest row for a month is its state; staff see that month on
+// Pay (Pools and Annual Bonus) only while it's published, at the amounts frozen here.
+export const profitSharePublications = mysqlTable('ProfitSharePublication', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  year: int('year').notNull(),
+  /** 0 = January. */
+  month: int('month').notNull(),
+  action: mysqlEnum('action', ['PUBLISHED', 'UNPUBLISHED']).notNull(),
+  /** The month's profit-sharing pool as worked out when published (RM); null on an unpublish. */
+  poolAmount: decimal('poolAmount', { precision: 12, scale: 2 }),
+  /** The month's annual-bonus contribution, frozen in the same publish (RM); null on an unpublish. */
+  annualBonusAmount: decimal('annualBonusAmount', { precision: 12, scale: 2 }),
+  /** Whether the month met the expense target (its pool is RM 0 when it didn't). */
+  hit: boolean('hit'),
+  /** Why it was taken back — required on an unpublish. */
+  reason: varchar('reason', { length: 500 }),
+  byUserId: varchar('byUserId', { length: 36 }).notNull(),
+  byName: varchar('byName', { length: 191 }).notNull(),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+}, t => ({ byMonth: index('ProfitSharePublication_year_month_idx').on(t.year, t.month) }));
+
+// School news on everyone's Home (first kind: a new child enrols). Only safe,
+// celebratory text — the class and start date, never the child's name. One
+// post per source record (`kind` + `sourceId`, unique), so it's never posted twice.
+export const schoolNews = mysqlTable('SchoolNews', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  kind: mysqlEnum('kind', ['ENROLMENT']).notNull(),
+  /** The record it's about (for ENROLMENT, the student) — kept for de-duplication, never shown. */
+  sourceId: varchar('sourceId', { length: 36 }).notNull(),
+  title: varchar('title', { length: 191 }).notNull(),
+  body: varchar('body', { length: 300 }).notNull(),
+  postedAt: datetime('postedAt', { mode: 'date', fsp: 3 }).notNull(),
+  hiddenAt: datetime('hiddenAt', { mode: 'date', fsp: 3 }),
+  hiddenByUserId: varchar('hiddenByUserId', { length: 36 }),
+}, t => ({ oncePerSource: uniqueIndex('SchoolNews_kind_sourceId_key').on(t.kind, t.sourceId) }));
+
+// Feature ideas sent from the ⋯ menu (Request a feature). Admins review them in
+// Tools → Feature requests; the sender only gets a "sent" confirmation — no status to follow.
+export const featureRequests = mysqlTable('FeatureRequest', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  title: varchar('title', { length: 120 }).notNull(),
+  message: text('message').notNull(),
+  // Where they were when they sent it (path + query).
+  pageUrl: varchar('pageUrl', { length: 500 }),
+  appVersion: varchar('appVersion', { length: 20 }),
+  requestedByUserId: varchar('requestedByUserId', { length: 36 }).notNull(),
+  requestedByName: varchar('requestedByName', { length: 191 }).notNull(),
+  status: mysqlEnum('status', ['NEW', 'REVIEWED']).notNull().default('NEW'),
+  createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
+  updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
+});
+
 // Incident reports (Operation → Incidents) — replaces the old Google Form.
 // Any staff member can file one (teachers from their mobile app); the
 // Operation module follows it up: OPEN → PARENT_INFORMED → RESOLVED.

@@ -23,10 +23,15 @@ export const ACCESS_FUNCTIONS: AccessFunction[] = [
     description: 'See everything staff asked to be bought and tick items Bought (with cost and receipt) or Not buying.' },
   { key: 'HR_SEE_ALL_STAFF', module: MODULES.HR, label: 'Whole-school HR — every staff member',
     description: 'Every staff record, appraisal, observation and points balance — not just the people who report to you — plus recruitment, new staff, onboarding and the reward workbench.' },
+  { key: 'ANALYSIS_PROFIT_PUBLISH', module: MODULES.ANALYSIS, label: 'Publish profit sharing',
+    description: 'Publish a month’s profit-sharing pool so staff see it on Pay, or take it back with a reason. Staff see no month until it’s published.' },
   { key: 'HR_SEE_PAY', module: MODULES.HR, label: 'See pay & salaries',
     description: 'Salaries, allowances, pay settings and payroll for the staff they can see. Without it, HRMS shows no pay at all.' },
 ];
 export const ACCESS_FUNCTION_KEYS = ACCESS_FUNCTIONS.map(f => f.key);
+
+/** Publishing profit sharing — decided to be the Finance Manager's alone, so the Principal (otherwise every function) doesn't get it. */
+export const PROFIT_PUBLISH_FUNCTION = 'ANALYSIS_PROFIT_PUBLISH';
 
 /** What each module opens on its own (before any functions) — shown on every role so it's clear what it allows. Keep in step with the Navbar. */
 export const MODULE_INCLUDES: Record<ModuleKey, string[]> = {
@@ -69,7 +74,7 @@ export const BUILT_IN_ROLES: BuiltInRole[] = [
   role('ACCOUNTS_EXECUTIVE', 'Finance', 'Accounts Executive',
     'Finance: operating costs.', [MODULES.FINANCE]),
   role('FINANCE_MANAGER', 'Finance', 'Finance Manager',
-    'Everything an Accounts Executive can, plus the Analysis reports.', [MODULES.FINANCE, MODULES.ANALYSIS]),
+    'Everything an Accounts Executive can, plus the Analysis reports and publishing profit sharing.', [MODULES.FINANCE, MODULES.ANALYSIS], [PROFIT_PUBLISH_FUNCTION]),
   role('TEACHER', 'Operation', 'Teacher',
     'Use guides, suggest improvements, report incidents and facility issues, request items. Their own appraisals, training and pay.', [MODULES.OPERATION]),
   role('SUPERVISOR', 'Operation', 'Supervisor',
@@ -79,7 +84,7 @@ export const BUILT_IN_ROLES: BuiltInRole[] = [
     'Everything a Supervisor can, plus facility issues.',
     [MODULES.OPERATION], ['OPERATION_SOP_APPROVE', 'OPERATION_INCIDENT_MANAGE', 'OPERATION_PURCHASE_MANAGE', 'OPERATION_FACILITY_MANAGE']),
   role('PRINCIPAL', 'Management', 'Principal',
-    'Every module and every function, for all staff.', ALL_MODULES, ACCESS_FUNCTION_KEYS),
+    'Every module and every function, for all staff — except publishing profit sharing (the Finance Manager’s).', ALL_MODULES, ACCESS_FUNCTION_KEYS.filter(k => k !== PROFIT_PUBLISH_FUNCTION)),
   role('ANALYST', 'Management', 'Analyst',
     'The Analysis reports only.', [MODULES.ANALYSIS]),
 ];

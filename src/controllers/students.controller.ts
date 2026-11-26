@@ -7,6 +7,7 @@ import { leads, packages, students, studentEnrollments, systemSettings } from '.
 import { MAX_CHECKLIST_ITEMS, checklistProgressItemSchema, freshChecklist, parseChecklistProgress, parseChecklistTemplate } from '../services/checklist.logic.js';
 import { notify } from '../services/notifications.service.js';
 import { newStudentMessage, studentWithdrawnMessage } from '../services/notifications.logic.js';
+import { postEnrolmentNews } from '../services/schoolNews.service.js';
 
 // ── Shared select + reshape ───────────────────────────────────────────────────
 
@@ -421,6 +422,7 @@ export async function createStudent(req: Request, res: Response): Promise<void> 
   const [row] = await queryStudents().where(eq(students.id, newId));
   const shaped = await reshapeOne(row);
   await notify(newStudentMessage({ id: newId, childName: shaped.lead.childName }), { actorUserId: req.user?.id ?? null });
+  await postEnrolmentNews(newId, { actorUserId: req.user?.id ?? null });
   res.status(201).json(shaped);
 }
 
@@ -520,6 +522,7 @@ export async function createStudentWithLead(req: Request, res: Response): Promis
   const [row] = await queryStudents().where(eq(students.id, newStudentId));
   const shaped = await reshapeOne(row);
   await notify(newStudentMessage({ id: newStudentId, childName: shaped.lead.childName }), { actorUserId: req.user?.id ?? null });
+  await postEnrolmentNews(newStudentId, { actorUserId: req.user?.id ?? null });
   res.status(201).json(shaped);
 }
 
@@ -602,6 +605,7 @@ export async function createSibling(req: Request, res: Response): Promise<void> 
   const [row] = await queryStudents().where(eq(students.id, newId));
   const shaped = await reshapeOne(row);
   await notify(newStudentMessage({ id: newId, childName: shaped.lead.childName }), { actorUserId: req.user?.id ?? null });
+  await postEnrolmentNews(newId, { actorUserId: req.user?.id ?? null });
   res.status(201).json(shaped);
 }
 

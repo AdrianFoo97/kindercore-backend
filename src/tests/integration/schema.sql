@@ -457,6 +457,22 @@ CREATE TABLE `FacilityIssue` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `FeatureRequest` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pageUrl` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `appVersion` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `requestedByUserId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `requestedByName` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('NEW','REVIEWED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NEW',
+  `createdAt` datetime(3) NOT NULL,
+  `updatedAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `GoogleConnection` (
   `id` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `accessToken` text COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -835,6 +851,24 @@ CREATE TABLE `Position` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ProfitSharePublication` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `year` int NOT NULL,
+  `month` int NOT NULL,
+  `action` enum('PUBLISHED','UNPUBLISHED') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `poolAmount` decimal(12,2) DEFAULT NULL,
+  `annualBonusAmount` decimal(12,2) DEFAULT NULL,
+  `hit` tinyint(1) DEFAULT NULL,
+  `reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `byUserId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `byName` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `createdAt` datetime(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ProfitSharePublication_year_month_idx` (`year`,`month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `PurchaseRequest` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `item` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -931,6 +965,21 @@ CREATE TABLE `ScheduleBlock` (
   CONSTRAINT `ScheduleBlock_classroomId_fkey` FOREIGN KEY (`classroomId`) REFERENCES `Classroom` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `ScheduleBlock_subjectId_fkey` FOREIGN KEY (`subjectId`) REFERENCES `Subject` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `ScheduleBlock_taskId_fkey` FOREIGN KEY (`taskId`) REFERENCES `PlannerTask` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `SchoolNews` (
+  `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` enum('ENROLMENT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sourceId` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` varchar(300) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `postedAt` datetime(3) NOT NULL,
+  `hiddenAt` datetime(3) DEFAULT NULL,
+  `hiddenByUserId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `SchoolNews_kind_sourceId_key` (`kind`,`sourceId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

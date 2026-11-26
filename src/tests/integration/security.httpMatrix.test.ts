@@ -23,6 +23,7 @@ const OWNER = OWNER_TEACHER_ID;
 /** Each sensitive read, and exactly who may open it. Everyone else must be refused. */
 const MATRIX: { what: string; path: string; allowed: Who[] }[] = [
   { what: 'School finances', path: '/api/finance/summary', allowed: ['finance', 'analysis', 'admin'] },
+  { what: 'Each month’s profit-share pool and who published it', path: '/api/profit-sharing/publications?year=2026', allowed: ['analysis', 'admin'] },
   { what: 'P&L lines an import left out (can include salaries)', path: '/api/operating-cost/import/notices?year=2026&month=8', allowed: ['finance', 'admin'] },
   { what: 'Every past P&L import (can include salaries)', path: '/api/operating-cost/import/history', allowed: ['finance', 'admin'] },
   { what: 'Everyone\'s salaries', path: '/api/salary/teachers', allowed: ['hr', 'finance', 'analysis', 'admin'] },

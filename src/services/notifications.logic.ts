@@ -6,8 +6,8 @@ import { MODULES } from '../constants/authModules.js';
 export type NotificationKind =
   | 'NEW_LEAD' | 'NEW_STUDENT' | 'STUDENT_WITHDRAWN' | 'NEW_APPLICATION' | 'NEW_STAFF_JOIN' | 'INCIDENT_REPORTED'
   | 'APPRAISAL_SIGN_OFF' | 'ONBOARDING_SELF_DONE' | 'FACILITY_REPORTED' | 'ITEM_REQUESTED' | 'GUIDE_SUGGESTED'
-  | 'ITEM_BOUGHT' | 'COSTS_RECORDED' | 'BUG_REPORTED'
-  | 'MY_REQUEST_UPDATE' | 'MY_REPORT_UPDATE' | 'MY_APPRAISAL_READY' | 'MY_POINTS' | 'MY_REWARD_DELIVERED';
+  | 'ITEM_BOUGHT' | 'COSTS_RECORDED' | 'BUG_REPORTED' | 'FEATURE_REQUESTED'
+  | 'MY_REQUEST_UPDATE' | 'MY_REPORT_UPDATE' | 'MY_APPRAISAL_READY' | 'MY_POINTS' | 'MY_REWARD_DELIVERED' | 'PROFIT_SHARE_PUBLISHED' | 'SCHOOL_NEWS';
 
 export interface NotificationMessage { kind: NotificationKind; title: string; body: string | null; link: string }
 
@@ -34,7 +34,11 @@ export interface NotificationAudience {
 
 const PERSONAL: NotificationAudience = { anyOf: [], targeted: true, personal: true };
 
-export interface NotificationEvent { kind: NotificationKind; category: string; label: string; description: string; audience: NotificationAudience }
+export interface NotificationEvent {
+  kind: NotificationKind; category: string; label: string; description: string; audience: NotificationAudience;
+  /** For an every-staff event: what Settings → Notifications says it comes from (default "Your own work"). */
+  source?: string;
+}
 
 const only = (module: string, fn?: string): NotificationAudience => ({ anyOf: [{ module, fn }] });
 
@@ -68,10 +72,13 @@ export const NOTIFICATION_EVENTS: NotificationEvent[] = [
   { kind: 'ITEM_BOUGHT', category: 'Finance', label: 'Item bought', description: 'A shopping-list item is bought and its cost entered — to add to operating costs.', audience: only(MODULES.FINANCE) },
   { kind: 'COSTS_RECORDED', category: 'Analysis', label: 'Month’s operating costs recorded', description: 'Operating costs are entered for a month for the first time — its reports now include them.', audience: only(MODULES.ANALYSIS) },
   { kind: 'BUG_REPORTED', category: 'System', label: 'Bug reported', description: 'Someone reports a problem with the app.', audience: only(MODULES.TOOLS) },
+  { kind: 'FEATURE_REQUESTED', category: 'System', label: 'Feature requested', description: 'Someone sends an idea for the app.', audience: only(MODULES.TOOLS) },
   { kind: 'MY_REQUEST_UPDATE', category: 'About you', label: 'Your item requests', description: 'Something you asked to be bought is approved, bought or turned down.', audience: PERSONAL },
   { kind: 'MY_REPORT_UPDATE', category: 'About you', label: 'Your reports', description: 'An incident or facility issue you reported changes status.', audience: PERSONAL },
   { kind: 'MY_APPRAISAL_READY', category: 'About you', label: 'Your appraisal', description: 'Your appraisal is signed off and waiting for you to confirm.', audience: PERSONAL },
   { kind: 'MY_POINTS', category: 'About you', label: 'Points you receive', description: 'You’re granted points.', audience: PERSONAL },
+  { kind: 'SCHOOL_NEWS', category: 'School', label: 'School news', description: 'A new child is joining the school — celebrate with everyone.', audience: PERSONAL, source: 'Being on the staff' },
+  { kind: 'PROFIT_SHARE_PUBLISHED', category: 'About you', label: 'Profit sharing published', description: 'A month’s profit-sharing pool is published — see it on Pay.', audience: PERSONAL },
   { kind: 'MY_REWARD_DELIVERED', category: 'About you', label: 'Your rewards', description: 'A reward you redeemed is delivered or approved.', audience: PERSONAL },
 ];
 export const NOTIFICATION_KINDS = NOTIFICATION_EVENTS.map(e => e.kind);
@@ -106,10 +113,10 @@ export const PERSONAL_SOURCE = 'Your own work';
 export function notificationSettings(roles: { name: string; modules: string[]; functions: string[] }[], isAdmin: boolean, muted: Iterable<string>, isStaff = false) {
   const off = new Set(muted);
   return NOTIFICATION_EVENTS.flatMap(e => {
-    const from = e.audience.personal ? (isStaff ? [PERSONAL_SOURCE] : [])
+    const from = e.audience.personal ? (isStaff ? [e.source ?? PERSONAL_SOURCE] : [])
       : isAdmin ? [ADMIN_SOURCE] : roles.filter(r => grantsAudience(r, e.audience)).map(r => r.name);
     if (!from.length) return [];
-    const { audience: _audience, ...shown } = e;
+    const { audience: _audience, source: _source, ...shown } = e;
     return [{ ...shown, from, enabled: !off.has(e.kind) }];
   });
 }
@@ -296,6 +303,30 @@ export function guideSuggestedMessage(g: { id: string; title: string; byName: st
     title: clip(`${what}: ${g.title}`, 191),
     body: clip(`By ${g.byName} · waiting for review`, 300),
     link: `/hr/sop-revisions/${encodeURIComponent(g.id)}`,
+  };
+}
+
+export function featureRequestedMessage(f: { title: string; requestedByName: string }): NotificationMessage {
+  return {
+    kind: 'FEATURE_REQUESTED',
+    title: clip(`Feature requested: ${f.title}`, 191),
+    body: clip(`From ${f.requestedByName}`, 300),
+    link: '/tools/feature-requests',
+  };
+}
+
+/** School news, to one staff member — opens their Home, where the news card is. */
+export function schoolNewsMessage(n: { teacherId: string; title: string; body: string }): NotificationMessage {
+  return { kind: 'SCHOOL_NEWS', title: clip(n.title, 191), body: clip(n.body, 300), link: `/teachers/${encodeURIComponent(n.teacherId)}/home` };
+}
+
+/** `month` is 0–11 (0 = January). */
+export function profitSharePublishedMessage(p: { teacherId: string; year: number; month: number }): NotificationMessage {
+  return {
+    kind: 'PROFIT_SHARE_PUBLISHED',
+    title: `Profit sharing for ${MONTH_NAMES[p.month]} ${p.year} is published`,
+    body: 'See the team pool, annual bonus and your share on Pay.',
+    link: `/teachers/${encodeURIComponent(p.teacherId)}/my-compensation/pools`,
   };
 }
 

@@ -30,6 +30,7 @@ export const APPROVED_PUBLIC: Record<string, string> = {
 export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/me/permissions': 'Your own permissions — scoped to the caller.',
   'GET /api/notifications': 'Your own notifications only — filtered to the caller.',
+  'GET /api/school-news': 'School news on everyone\'s Home — only the celebratory text (a new child\'s class and start date), never the child\'s name or record.',
   'GET /api/auth/me/photo': 'Your own profile photo — always the caller\'s, no user id in the address.',
   'PUT /api/auth/me/photo': 'Sets your own profile photo — always the caller\'s.',
   'PUT /api/auth/me/display-name': 'Sets your own display name — always the caller\'s.',
@@ -45,6 +46,7 @@ export const APPROVED_ANY_SIGNED_IN: Record<string, string> = {
   'GET /api/allowance-types': 'Allowance type names (reference data, no per-person amounts).',
   'GET /api/auth-roles': 'Access role names for pickers (no permissions are granted by reading them).',
   'POST /api/bug-reports': 'Anyone signed in can report a bug.',
+  'POST /api/feature-requests': 'Anyone signed in can send an idea for the app.',
   'GET /api/career-missions': 'Mission catalog the teacher career page lists.',
   'GET /api/mission-categories': 'Mission categories for the teacher career badges.',
   'GET /api/points/rules': 'Earning-rule catalog shown on the teacher "Earn points" page.',

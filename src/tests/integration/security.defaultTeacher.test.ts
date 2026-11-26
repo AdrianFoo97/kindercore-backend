@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db, pool } from '../../db/client.js';
 import {
-  authRoleModules, authRoles, authRoleViews, bugReports, careerMissions, positions, purchaseRequestLogs, purchaseRequests,
+  authRoleModules, authRoles, authRoleViews, bugReports, careerMissions, featureRequests, positions, purchaseRequestLogs, purchaseRequests,
   sensitiveAccessLogs, sopFavorites, sopSteps, sopTemplateRevisions, sopTemplates, teacherMissionProgress, teachers, users,
 } from '../../db/schema.js';
 import { resetTables } from './testDb.js';
@@ -23,7 +23,7 @@ let server: LiveServer;
 let dee: Caller;
 
 beforeAll(async () => {
-  await resetTables(sensitiveAccessLogs, purchaseRequestLogs, purchaseRequests, bugReports, sopFavorites, sopTemplateRevisions, sopSteps,
+  await resetTables(sensitiveAccessLogs, purchaseRequestLogs, purchaseRequests, bugReports, featureRequests, sopFavorites, sopTemplateRevisions, sopSteps,
     sopTemplates, teacherMissionProgress, careerMissions, users, teachers, positions, authRoleViews, authRoleModules, authRoles);
   await db.insert(authRoles).values({ id: 'role-teacher', name: 'Teacher', createdAt: NOW, updatedAt: NOW });
   await db.insert(authRoleModules).values({ id: 'arm-teacher-op', authRoleId: 'role-teacher', module: 'OPERATION', createdAt: NOW });
@@ -66,11 +66,12 @@ describe('Security — a default teacher can do their everyday work', () => {
     }
   });
 
-  it('requests an item, reports a bug, and sees their own incidents, facility reports and requests', async () => {
+  it('requests an item, reports a bug, sends a feature idea, and sees their own incidents, facility reports and requests', async () => {
     for (const [method, path, body] of [
       ['POST', '/api/purchase-requests', { item: 'Glue sticks', quantity: '10', purpose: 'Class 2' }],
       ['GET', '/api/purchase-requests/mine'],
       ['POST', '/api/bug-reports', { title: 'Save does nothing', message: 'Tapped save on Steps and nothing happened.' }],
+      ['POST', '/api/feature-requests', { title: 'Dark mode', message: 'A darker look for evening planning.' }],
       ['GET', '/api/incidents/mine'],
       ['GET', '/api/facility-issues/mine'],
     ] as [string, string, unknown?][]) {
@@ -142,6 +143,14 @@ describe('Security — a default teacher cannot approve, decide or manage', () =
     ['POST', '/api/career-missions', { title: 'x' }],
     // Bug reports are fixed by the Tools team.
     ['POST', '/api/bug-reports/any/resolve'],
+    // Publishing (or taking back) a month's profit sharing — the Finance Manager's.
+    ['POST', '/api/profit-sharing/publications/2025/0/publish'],
+    ['POST', '/api/profit-sharing/publications/2025/0/unpublish', { reason: 'x' }],
+    // Hiding school news — whoever runs enrolment (Students).
+    ['POST', '/api/school-news/any/hide'],
+    // Feature requests are read and reviewed by admins.
+    ['GET', '/api/feature-requests'],
+    ['POST', '/api/feature-requests/any/review'],
   ];
 
   it('is refused every approval and manager action', async () => {

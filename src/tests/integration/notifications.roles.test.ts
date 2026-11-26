@@ -4,7 +4,7 @@ import { notificationMutes, notifications, userAuthRoles, users } from '../../db
 import { BUILT_IN_ROLES } from '../../constants/accessRoles.js';
 import { notify } from '../../services/notifications.service.js';
 import {
-  type NotificationKind, NOTIFICATION_EVENTS, NOTIFICATION_KINDS, appraisalSignOffMessage, bugReportedMessage, costsRecordedMessage, facilityMessage,
+  type NotificationKind, NOTIFICATION_EVENTS, NOTIFICATION_KINDS, appraisalSignOffMessage, bugReportedMessage, costsRecordedMessage, facilityMessage, featureRequestedMessage,
   guideSuggestedMessage, incidentMessage, itemBoughtMessage, itemRequestedMessage, newApplicationMessage, newLeadMessage,
   newStaffJoinMessage, newStudentMessage, onboardingSelfDoneMessage, studentWithdrawnMessage,
 } from '../../services/notifications.logic.js';
@@ -67,6 +67,7 @@ const DESTINATION: Record<string, [string, string]> = {
   ITEM_BOUGHT: ['PUT', '/api/operating-cost/entries'],
   COSTS_RECORDED: ['GET', '/api/operating-cost/entries?year=2026'],
   BUG_REPORTED: ['GET', '/api/bug-reports'],
+  FEATURE_REQUESTED: ['GET', '/api/feature-requests'],
 };
 
 const MESSAGES = [
@@ -84,6 +85,7 @@ const MESSAGES = [
   itemRequestedMessage({ item: 'Glue', quantity: 2, requestedByName: 'Tina' }),
   guideSuggestedMessage({ id: 'g1', title: 'Pick-up', byName: 'Tina', isNewGuide: true }),
   bugReportedMessage({ title: 'Save does nothing', reportedByName: 'Tina' }),
+  featureRequestedMessage({ title: 'Dark mode', requestedByName: 'Tina' }),
 ];
 
 /** Sent to whole roles (everything but targeted events — sign-off and the personal ones). */
@@ -122,7 +124,7 @@ describe('Notifications — every access role', () => {
       const events = r.body.events as { kind: string; from: string[] }[];
       expect(events.map(e => e.kind), who).toEqual(expectedFor(who));
       const source = who === 'admin' ? 'Admin account' : BUILT_IN_ROLES.find(b => b.id === who)?.name;
-      for (const e of events) expect(e.from, `${who} ${e.kind}`).toEqual([PERSONAL.includes(e.kind as NotificationKind) ? 'Your own work' : source]);
+      for (const e of events) expect(e.from, `${who} ${e.kind}`).toEqual([PERSONAL.includes(e.kind as NotificationKind) ? (NOTIFICATION_EVENTS.find(x => x.kind === e.kind)?.source ?? 'Your own work') : source]);
     }
   });
 

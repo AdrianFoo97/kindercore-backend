@@ -29,7 +29,7 @@ export const SETTING_KEY_ACCESS: Record<string, AccessNeed[]> = {
     ...bothLanguages(['whatsapp_template', 'whatsapp_followup_template', 'whatsapp_confirm_appt_template']),
   ], MARKETING),
   // Students → Student onboarding.
-  ...byKey(['onboarding_tasks'], STUDENTS),
+  ...byKey(['onboarding_tasks', 'school_news_enrolments'], STUDENTS),
   // Recruitment & Hiring, Staff onboarding, Performance (score bands), Message templates (applicants).
   ...byKey([
     'staff_onboarding_tasks', 'staff_self_onboarding_tasks',
@@ -37,8 +37,8 @@ export const SETTING_KEY_ACCESS: Record<string, AccessNeed[]> = {
     'interview_duration_minutes', 'recruitment_interview_confirm_lead_days', 'appraisal_score_bands',
     ...bothLanguages(['interview_wa_template', 'interview_confirm_wa_template', 'offer_wa_template']),
   ], WHOLE_SCHOOL_HR),
-  // Money → Finance (targets + the pay-pool appraisal thresholds) — for whoever runs the pool reports.
-  ...byKey(['expense_ratio_target', 'profit_share_percent', 'annual_bonus_percent', 'minimum_appraisal_for_eligibility', 'high_performer_appraisal_threshold'], ANALYSIS),
+  // Money → Finance targets — for whoever runs the pool reports. (The High Performer / Performer marks are the score bands now.)
+  ...byKey(['expense_ratio_target', 'profit_share_percent', 'annual_bonus_percent'], ANALYSIS),
 };
 
 /** Statutory contributions (Payroll → Allowances): EPF / SOCSO / EIS rates, ceilings and switches. */
