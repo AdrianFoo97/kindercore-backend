@@ -414,6 +414,7 @@ CREATE TABLE `Classroom` (
   `startMinute` int DEFAULT NULL,
   `endMinute` int DEFAULT NULL,
   `daysOfWeek` json DEFAULT NULL,
+  `branchId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1267,6 +1268,7 @@ CREATE TABLE `Subject` (
   `lessonsPerWeek` int DEFAULT NULL,
   `defaultDuration` int DEFAULT '60',
   `classLessons` json DEFAULT NULL,
+  `branchId` varchar(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

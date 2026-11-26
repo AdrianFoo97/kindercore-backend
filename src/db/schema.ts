@@ -1438,6 +1438,8 @@ export const classrooms = mysqlTable('Classroom', {
   startMinute: int('startMinute'),
   endMinute: int('endMinute'),
   daysOfWeek: jsonColumn('daysOfWeek'),
+  /** The branch it's at (Settings → Company → Branches, by id). */
+  branchId: varchar('branchId', { length: 36 }),
   isActive: boolean('isActive').notNull().default(true),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
   updatedAt: datetime('updatedAt', { mode: 'date', fsp: 3 }).notNull(),
@@ -1450,6 +1452,8 @@ export const subjects = mysqlTable('Subject', {
   lessonsPerWeek: int('lessonsPerWeek'),
   defaultDuration: int('defaultDuration').default(60),
   classLessons: jsonColumn('classLessons'),
+  /** The branch it's taught at (Settings → Company → Branches, by id). */
+  branchId: varchar('branchId', { length: 36 }),
   createdAt: datetime('createdAt', { mode: 'date', fsp: 3 }).notNull(),
 });
 

@@ -7,6 +7,8 @@ import { systemSettings } from '../db/schema.js';
 import { SYSTEM_LOST_REASON_LABELS } from '../constants/lostReasons.js';
 import { isAdminRole, resolveGrants } from '../middlewares/auth.middleware.js';
 import { stripHiddenTemplates, visibleTemplateGroups } from '../services/messageTemplates.logic.js';
+import { BRANCHES_SETTING, removedBranchIds, withBranchIds, type Branch } from '../services/branches.logic.js';
+import { branchesInUse, readBranches } from '../services/branches.service.js';
 import { CHECKLIST_SETTING_KEYS, checklistTemplateProblem, parseChecklistTemplate } from '../services/checklist.logic.js';
 
 const updateSettingSchema = z.object({
@@ -67,6 +69,15 @@ export async function updateSetting(req: Request, res: Response): Promise<void> 
   let val = parsed.data.value as any;
   if (key === 'lost_reasons') {
     val = normalizeLostReasons(val);
+  }
+  // Branches: each keeps a lasting id (classes and subjects point at it) — and
+  // one that still has classes or subjects can't be removed.
+  if (key === BRANCHES_SETTING) {
+    if (!Array.isArray(val)) { res.status(400).json({ message: 'Branches must be a list.' }); return; }
+    const next = withBranchIds(val as Branch[], randomUUID);
+    const inUse = await branchesInUse(removedBranchIds(await readBranches(), next));
+    if (inUse.length) { res.status(409).json({ message: 'A branch you removed still has classes or subjects — move or delete them first (Settings → Classes / Subjects).' }); return; }
+    val = next;
   }
   // Onboarding checklists: every item needs text; a button needs a label and a safe link.
   if (CHECKLIST_SETTING_KEYS.includes(key)) {

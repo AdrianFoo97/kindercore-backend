@@ -15,6 +15,7 @@ import { BADGES_DIR, PRIVATE_UPLOAD_ROOT, UPLOAD_ROOT } from './routes/upload.ro
 import { purgeOldNotifications } from './services/notifications.service.js';
 import { ensureDefaultImportRules } from './services/pnlImport.service.js';
 import { copyBadgeFilesIntoDb } from './services/storedImage.service.js';
+import { ensureBranchIds } from './services/branches.service.js';
 
 // ── Auto-migrate: create tables if missing, then add new columns ─────────────
 async function runMigrations() {
@@ -1136,6 +1137,9 @@ async function runMigrations() {
   ];
 
   const addColumns = [
+    // Classes and subjects belong to a branch (Settings → Company → Branches).
+    `ALTER TABLE \`Classroom\` ADD COLUMN \`branchId\` VARCHAR(36) NULL`,
+    `ALTER TABLE \`Subject\` ADD COLUMN \`branchId\` VARCHAR(36) NULL`,
     // ProfitSharePublication — publishing a month freezes its annual-bonus contribution too.
     `ALTER TABLE \`ProfitSharePublication\` ADD COLUMN \`annualBonusAmount\` DECIMAL(12,2) NULL AFTER \`poolAmount\``,
     // User — the name the app shows them by (null = their full name).
@@ -2736,6 +2740,10 @@ runMigrations()
   .then(() => syncLegacyAppraisals()
     .then(r => { if (r.added || r.updated || r.removed) console.log(`[migrate] Legacy appraisals mirrored: +${r.added} ~${r.updated} -${r.removed}`); })
     .catch(e => console.warn('[migrate] Legacy appraisal mirror skipped:', e?.message ?? e)))
+  // Branches get lasting ids; classes / subjects without a branch go under the first one.
+  .then(() => ensureBranchIds()
+    .then(r => { if (r.named || r.classes || r.subjects) console.log(`[migrate] Branches: ${r.named} given an id, ${r.classes} class(es) and ${r.subjects} subject(s) put under the first branch`); })
+    .catch(e => console.warn('[migrate] Branch ids skipped:', e?.message ?? e)))
   // P&L import: payroll lines are skipped unless someone changes the rule (pnlImport.logic).
   .then(() => ensureDefaultImportRules()
     .catch(e => console.warn('[migrate] Default import rules skipped:', e?.message ?? e)))

@@ -8,6 +8,7 @@ import { ALL_STAFF, OUTSIDE_TEAM, SEE_PAY_VIEW, inStaffScope, staffScopeFor } fr
 import { teachers, classrooms, subjects, plannerTasks, scheduleBlocks, savedTimetables, careerRecords, positions, departments } from '../db/schema.js';
 import { freshStaffChecklists } from '../services/staffOnboarding.service.js';
 import { managerChainOf } from '../services/appraisalScoring.service.js';
+import { copyBranch, readBranches } from '../services/branches.service.js';
 import { personReportsToProblem } from '../services/orgStructure.logic.js';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -307,6 +308,7 @@ export async function getClassrooms(_req: Request, res: Response): Promise<void>
 
 const createClassroomSchema = z.object({
   name: z.string().min(1),
+  branchId: z.string().min(1).max(36).nullable().optional(),
   capacity: z.number().int().positive().optional(),
   startMinute: z.number().int().min(0).max(1440).optional(),
   endMinute: z.number().int().min(0).max(1440).optional(),
@@ -324,7 +326,7 @@ export async function createClassroom(req: Request, res: Response): Promise<void
   await db.insert(classrooms).values({
     id, name: parsed.data.name, capacity: parsed.data.capacity ?? null,
     startMinute: parsed.data.startMinute ?? null, endMinute: parsed.data.endMinute ?? null,
-    daysOfWeek: parsed.data.daysOfWeek ?? null,
+    daysOfWeek: parsed.data.daysOfWeek ?? null, branchId: parsed.data.branchId ?? null,
     createdAt: now, updatedAt: now,
   });
   const [created] = await db.select().from(classrooms).where(eq(classrooms.id, id));
@@ -333,6 +335,7 @@ export async function createClassroom(req: Request, res: Response): Promise<void
 
 const updateClassroomSchema = z.object({
   name: z.string().min(1).optional(),
+  branchId: z.string().min(1).max(36).nullable().optional(),
   capacity: z.number().int().positive().nullable().optional(),
   startMinute: z.number().int().min(0).max(1440).nullable().optional(),
   endMinute: z.number().int().min(0).max(1440).nullable().optional(),
@@ -374,6 +377,7 @@ export async function getSubjects(_req: Request, res: Response): Promise<void> {
 
 const createSubjectSchema = z.object({
   name: z.string().min(1),
+  branchId: z.string().min(1).max(36).nullable().optional(),
   color: z.string().min(1).max(7),
   lessonsPerWeek: z.number().int().positive().optional(),
   defaultDuration: z.number().int().min(15).optional(),
@@ -387,13 +391,14 @@ export async function createSubject(req: Request, res: Response): Promise<void> 
     return;
   }
   const id = randomUUID();
-  await db.insert(subjects).values({ id, name: parsed.data.name, color: parsed.data.color, lessonsPerWeek: parsed.data.lessonsPerWeek ?? null, defaultDuration: parsed.data.defaultDuration ?? 60, classLessons: parsed.data.classLessons ?? null, createdAt: new Date() });
+  await db.insert(subjects).values({ id, name: parsed.data.name, color: parsed.data.color, lessonsPerWeek: parsed.data.lessonsPerWeek ?? null, defaultDuration: parsed.data.defaultDuration ?? 60, classLessons: parsed.data.classLessons ?? null, branchId: parsed.data.branchId ?? null, createdAt: new Date() });
   const [created] = await db.select().from(subjects).where(eq(subjects.id, id));
   res.status(201).json(created);
 }
 
 const updateSubjectSchema = z.object({
   name: z.string().min(1).optional(),
+  branchId: z.string().min(1).max(36).nullable().optional(),
   color: z.string().min(1).max(7).optional(),
   lessonsPerWeek: z.number().int().positive().nullable().optional(),
   defaultDuration: z.number().int().min(15).nullable().optional(),
@@ -422,6 +427,28 @@ export async function deleteSubject(req: Request, res: Response): Promise<void> 
 
   await db.delete(subjects).where(eq(subjects.id, id));
   res.status(204).end();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BRANCHES — copy every class and subject of one branch to another
+// ══════════════════════════════════════════════════════════════════════════════
+
+const copyBranchSchema = z.object({
+  fromBranchId: z.string().min(1),
+  toBranchId: z.string().min(1),
+  // Only these (from Settings' ticked rows); left out = all of them.
+  classIds: z.array(z.string()).optional(),
+  subjectIds: z.array(z.string()).optional(),
+});
+
+export async function postCopyBranch(req: Request, res: Response): Promise<void> {
+  const parsed = copyBranchSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ message: 'Pick the branch to copy from and the one to copy to.' }); return; }
+  const { fromBranchId, toBranchId, classIds, subjectIds } = parsed.data;
+  if (fromBranchId === toBranchId) { res.status(400).json({ message: 'Pick a different branch to copy to.' }); return; }
+  const ids = new Set((await readBranches()).map(b => b.id));
+  if (!ids.has(fromBranchId) || !ids.has(toBranchId)) { res.status(404).json({ message: 'That branch doesn’t exist.' }); return; }
+  res.json(await copyBranch(fromBranchId, toBranchId, { classIds, subjectIds }));
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

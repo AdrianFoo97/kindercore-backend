@@ -2495,6 +2495,16 @@ export const ARCHITECTURE: Architecture = {
           "controller": "planner.controller"
         },
         {
+          "method": "POST",
+          "path": "/api/planner/branches/copy",
+          "middleware": [
+            "authMiddleware",
+            "requireModule(MODULES.TOOLS)"
+          ],
+          "handler": "postCopyBranch",
+          "controller": "planner.controller"
+        },
+        {
           "method": "GET",
           "path": "/api/planner/tasks",
           "middleware": [
@@ -4558,6 +4568,7 @@ export const ARCHITECTURE: Architecture = {
       "id": "planner.controller",
       "services": [
         "appraisalScoring.service",
+        "branches.service",
         "orgStructure.logic",
         "performanceScope.service",
         "staffOnboarding.service"
@@ -4670,6 +4681,8 @@ export const ARCHITECTURE: Architecture = {
     {
       "id": "settings.controller",
       "services": [
+        "branches.logic",
+        "branches.service",
         "checklist.logic",
         "messageTemplates.logic"
       ],
@@ -4968,6 +4981,22 @@ export const ARCHITECTURE: Architecture = {
         "AppraisalCriterionPoint",
         "AppraisalSection",
         "AppraisalTemplate"
+      ]
+    },
+    {
+      "id": "branches.logic",
+      "services": [],
+      "controllers": [],
+      "tables": []
+    },
+    {
+      "id": "branches.service",
+      "services": [],
+      "controllers": [],
+      "tables": [
+        "Classroom",
+        "Subject",
+        "SystemSetting"
       ]
     },
     {

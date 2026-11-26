@@ -2,7 +2,7 @@ import { Router } from 'express';
 import {
   getTeachers, createTeacher, updateTeacher, deleteTeacher,
   getClassrooms, createClassroom, updateClassroom, deleteClassroom,
-  getSubjects, createSubject, updateSubject, deleteSubject,
+  getSubjects, createSubject, updateSubject, deleteSubject, postCopyBranch,
   getTasks, createTask, updateTask, deleteTask,
   getBlocks, createBlock, updateBlock, deleteBlock,
   duplicateBlock, copyWeek, checkConflicts,
@@ -32,6 +32,8 @@ plannerRouter.get('/subjects', authMiddleware, requireAnyModule(MODULES.TOOLS, M
 plannerRouter.post('/subjects', authMiddleware, requireModule(MODULES.TOOLS), asyncHandler(createSubject));
 plannerRouter.put('/subjects/:id', authMiddleware, requireModule(MODULES.TOOLS), asyncHandler(updateSubject));
 plannerRouter.delete('/subjects/:id', authMiddleware, requireModule(MODULES.TOOLS), asyncHandler(deleteSubject));
+// Copy every class and subject of one branch to another (adds only what's missing there).
+plannerRouter.post('/branches/copy', authMiddleware, requireModule(MODULES.TOOLS), asyncHandler(postCopyBranch));
 
 // Tasks
 plannerRouter.get('/tasks', authMiddleware, requireModule(MODULES.TOOLS), asyncHandler(getTasks));
